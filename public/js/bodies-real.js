@@ -75,6 +75,8 @@ export const REAL_BODIES = {
     grille: "vw", hlType: "slim", tlType: "vw", exType: "golfQuad", extras: ["roofSpoiler", "diffuser"], rim: { spokes: 10, color: 0x2a2d33, caliper: 0x1f5fd6 } }),
   svj: makeBody({ style: "fastback", L: 4.94, W: 2.1, H: 1.14, bottom: .1, r: .35, fo: 1.12, wb: 2.7, noseLo: .12, noseHi: .36, hoodF: .44, ws: 1.55, hood: .64, rf: 2.35, rr: 2.85, c: 3.35, belt: .98, deck: .96, tailLo: .28, hip: .13,
     grille: "svj", hlType: "y", tlType: "y", exType: "svjCenter", extras: ["alaWing", "diffuser", "splitter", "sideIntake", "louvers", "skirts"], rim: { spokes: 5, color: 0x1f2126, caliper: 0xf2c230 }, taper: [.46, .72, .38] }),
+  gt3rs: makeBody({ style: "fastback", L: 4.57, W: 1.9, H: 1.32, bottom: .11, r: .35, fo: .98, wb: 2.46, noseLo: .14, noseHi: .56, hoodF: .64, ws: 1.5, hood: .84, rf: 2.3, rr: 2.85, c: 4.1, belt: 1.0, deck: 1.02, tailLo: .32, hip: .15,
+    grille: "c8", hlType: "round2", tlType: "audiBar", exType: "twinRound", extras: ["wing", "diffuser", "splitter", "louvers", "skirts"], rim: { spokes: 5, color: 0x16181c, caliper: 0xf2c230 }, taper: [.44, .62, .5] }),
   c8: makeBody({ style: "coupe", L: 4.63, W: 1.93, H: 1.23, bottom: .12, r: .35, fo: .95, wb: 2.72, noseLo: .14, noseHi: .5, hoodF: .56, ws: 1.35, hood: .8, rf: 2.05, rr: 2.55, c: 3.95, belt: .96, deck: .98, tailLo: .3, hip: .1,
     grille: "c8", hlType: "c8", tlType: "c8", exType: "centerQuad", extras: ["lip", "diffuser", "splitter", "sideIntake"], rim: { spokes: 20, color: 0x1f2126, caliper: 0xf2c230 }, taper: [.45, .6, .4] }),
 };

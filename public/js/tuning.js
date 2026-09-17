@@ -32,6 +32,7 @@ export const ENGINES = {
   v8x:     { label: "Muscle 5.0 V8", disp: 5.0, cyl: 8, induction: "na", maxRev: 7300, comp: 11.5, tqPeak: 4700, burbleRpm: 3200 },
   f6:      { label: "Flat-6 4.0", disp: 4.0, cyl: 6, induction: "na", maxRev: 9200, comp: 13.0, tqPeak: 6300, burbleRpm: 4200 },
   v10:     { label: "5.2 V10", disp: 5.2, cyl: 10, induction: "na", maxRev: 8900, comp: 12.7, tqPeak: 6500, burbleRpm: 4200 },
+  gt3:     { label: "Porsche 4.0 flat-six (GT3 RS)", disp: 4.0, cyl: 6, induction: "na", maxRev: 9400, comp: 13.3, tqPeak: 6300, burbleRpm: 4200 },
   svj:     { label: "Lamborghini 6.5 V12", disp: 6.5, cyl: 12, induction: "na", maxRev: 8900, comp: 11.8, tqPeak: 6750, burbleRpm: 4000 },
   v12:     { label: "6.5 V12", disp: 6.5, cyl: 12, induction: "na", maxRev: 9400, comp: 12.0, tqPeak: 6500, burbleRpm: 4200 },
 };
@@ -352,6 +353,7 @@ export function audioConfig(car, tune) {
     t51r: !!(kit && kit.t51r), blower: e.induction === "super" ? 1 : 0,
     redline: tune.revLimit, boostMax: maxBoostFor(e, tune) || 1, burbleRpm: e.burbleRpm || 3000,
     character: e.character || null, cyl: e.cyl,
+    antilag: !!kit, bov: !!kit,
   };
 }
 
@@ -363,6 +365,11 @@ export function summaryCache(car, t) {
   return sumCache.get(key);
 }
 
+// Which wheels are driven. Anything not listed is rear-wheel drive.
+export const DRIVE_LAYOUT = {
+  golfr: "awd", rs3: "awd", rs6: "awd", gtr: "awd", x3m: "awd", x5m: "awd", x6m: "awd", m240i: "awd", m340i: "awd",
+  q50: "rwd", q60: "rwd", e63: "awd", svj: "awd", pebble: "fwd", trailbox: "awd", autobahn6: "rwd",
+};
 // Physics view of a tuned car, handed to the Drivetrain.
 export function tunedSpec(carId, tune) {
   const car = carById(carId), s = specOf(car), e = engineOf(car);
@@ -384,6 +391,8 @@ export function tunedSpec(carId, tune) {
     turboLag: isBoosted(e) && e.induction !== "super" ? partOpt("turbo", t.turbo).lag : 0,
     induction: e.induction,
     engineBrakeTune: t.engineBrake,
+    drive: DRIVE_LAYOUT[car.id] || "rwd",
+    antiLag: isBoosted(e) && e.induction !== "super",
   };
 }
 

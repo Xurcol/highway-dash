@@ -46,7 +46,8 @@ export const ENGINE_PROFILES = {
   v8x:     { label: "Muscle 5.0 V8", cyl: 8, fire: even(8), amps: V8X, var: .08, jitter: .02, header: 380, pipe: 80, fb: .58, muffler: 1100, body: [80, .8, 1.3], bark: [240, 1.1, .9], top: 1.25, intake: [180, .65], rough: .14, sub: .6, drive: 1.8, crackle: .9, gain: .92 },
   f6:      { label: "Flat-6", cyl: 6, fire: even(6), amps: [1, .95, .98, .93, 1, .96], var: .04, header: 600, pipe: 150, fb: .5, muffler: 2600, body: [150, .9, .8], bark: [560, 1.4, .9], top: 1.6, intake: [300, .95], rough: .12, sub: .15, drive: 1.7, crackle: .5, gain: .95 },
   v10:     { label: "V10", cyl: 10, fire: even(10), amps: [1, .9, .95, .88, 1, .92, .97, .9, 1, .9], var: .04, header: 620, pipe: 160, fb: .5, muffler: 3000, body: [160, .9, .8], bark: [620, 1.5, 1], top: 1.7, intake: [320, 1], rough: .1, sub: .12, drive: 1.7, crackle: .7, gain: .92 },
-  svj:     { label: "Lamborghini 6.5 V12 (SVJ)", cyl: 12, fire: even(12), amps: [1, .95, .98, .94, 1, .96, .99, .93, 1, .95, .97, .94], var: .035, header: 780, pipe: 198, fb: .5, muffler: 3700, body: [190, .9, .8], bark: [760, 1.5, 1.1], top: 1.8, intake: [360, 1.1], rough: .14, sub: .14, drive: 1.95, crackle: 1.25, gain: .9 },
+  svj:     { label: "Lamborghini 6.5 V12 (SVJ)", cyl: 12, fire: even(12), amps: [1, .95, .98, .94, 1, .96, .99, .93, 1, .95, .97, .94], var: .035, header: 820, pipe: 205, fb: .5, muffler: 4000, body: [190, .9, .75], bark: [780, 1.6, 1.2], top: 2.3, intake: [380, 1.2], rough: .16, sub: .12, drive: 2.1, crackle: 1.6, gain: .88, scream: [1, .9, 1.4] },
+  gt3:     { label: "Porsche 4.0 flat-six (GT3 RS)", cyl: 6, fire: even(6), amps: [1, .96, .99, .95, 1, .97], var: .03, header: 660, pipe: 172, fb: .48, muffler: 3400, body: [165, .9, .7], bark: [620, 1.6, 1.05], top: 2.1, intake: [340, 1.5], rough: .1, sub: .1, drive: 1.8, crackle: 1.1, gain: .92, scream: [2, .75, .9], mech: 1 },
   v12:     { label: "V12", cyl: 12, fire: even(12), amps: [1, .96, .98, .95, 1, .97, .99, .95, 1, .96, .98, .95], var: .03, header: 700, pipe: 185, fb: .48, muffler: 3300, body: [180, .9, .7], bark: [700, 1.5, .9], top: 1.7, intake: [340, .95], rough: .08, sub: .1, drive: 1.6, crackle: .5, gain: .92 },
 };
 export const SOUND_KEYS = Object.keys(ENGINE_PROFILES);
@@ -65,7 +66,7 @@ export function burbleIntensity(o) {
   const boostF = .45 + .55 * clamp01(o.boost);
   const gearF = Math.max(.55, 1 - .07 * Math.max(0, (o.gear || 1) - 1));
   const temp = .6 + .4 * clamp01(o.warmth ?? 1);
-  return rpmN * rpmN * (.35 + .65 * rel) * loadF * boostF * gearF * temp * o.burble * o.crackle * (o.sport ? 1 : .16);
+  return 1.6 * rpmN * (.4 + .6 * rpmN) * (.35 + .65 * rel) * loadF * boostF * gearF * temp * o.burble * o.crackle * (o.sport ? 1 : .16);
 }
 
 class Delay {
@@ -98,8 +99,9 @@ export class EngineDSP {
     this.dc = 0; this.dcIn = 0; this.rumble = 0;
     this.whistle = 0; this.bov = 0;
     this.flutter = 0; this.flutterT = 0; this.nextChirp = 0;
-    this.blowerPh = 0; this.intakePh = 0;
+    this.blowerPh = 0; this.intakePh = 0; this.als = 0; this.alsNext = 0; this.launchHold = 0;
     this.tune = { ...DEFAULT_TUNE }; this.mode = "sport";
+    this.lockSport = true;
     this.setProfile("b58");
   }
   rand() { this.seed = (this.seed * 1664525 + 1013904223) >>> 0; return this.seed / 4294967296; }
@@ -137,12 +139,14 @@ export class EngineDSP {
         if (m.overrun !== undefined) this.overrun = m.overrun;
         break;
       case "profile": this.setProfile(m.name); break;
-      case "tune": Object.assign(t, m.tune || {}); if (m.mode) this.mode = m.mode; break;
+      case "tune": Object.assign(t, m.tune || {}); this.mode = "sport"; break;
       case "upshift": this.onUpshift(m); break;
       case "downshift": this.onDownshift(m); break;
       case "limiter": this.cut = .03; break;
       case "lift": this.onLift(m); break;
       case "pop": this.addPop(m.v ?? .8, .05); break;
+      case "launchArm": this.launchHold = 1; break;
+      case "launch": this.launchHold = 0; break;
     }
   }
   // all four event handlers share one intensity model, so nothing fires "randomly"
@@ -171,10 +175,12 @@ export class EngineDSP {
   }
   onLift(m) {
     const t = this.tune, I = this.intensity(m);
-    if (I > .05) {
-      this.crackle = Math.min(1.3, this.crackle + I * 1.25);       // trailing overrun crackle
-      this.burst(Math.min(12, 2 + Math.round(I * 10)), I, .06, .055);
+    if (I > .04) {
+      this.crackle = Math.min(1.6, this.crackle + I * 1.4);       // trailing overrun crackle
+      this.burst(Math.min(14, 3 + Math.round(I * 11)), Math.min(1.6, I * 1.5), .06, .05);
     }
+    // anti-lag: ignition retarded into the manifold keeps the turbo lit and fires the exhaust
+    if (t.antilag && (m.rpm ?? this.rpm) > 3500 && this.boostN > .3) { this.als = .9 + this.rand() * .4; this.alsNext = .03; }
     if (this.boostN > .15) this.release(1);
   }
   // a train of pops with varied pitch, level, length and spacing - never a machine gun
@@ -193,8 +199,8 @@ export class EngineDSP {
     const t = this.tune;
     if (!(this.p.turbo || t.t51r) || t.turbo <= 0 || t.release === "off") return;
     const amt = this.boostN * (t.turbo || .5) * k;
-    if (t.release === "bov") this.bov = Math.max(this.bov, amt);
-    else { this.flutter = Math.max(this.flutter, amt * (t.flutter || .7)); this.flutterT = 0; this.nextChirp = .01; }
+    if (t.release === "bov" || t.bov) this.bov = Math.max(this.bov, amt * .9);
+    if (t.release !== "bov") { this.flutter = Math.max(this.flutter, amt * (t.flutter || .7)); this.flutterT = 0; this.nextChirp = .01; }
   }
   addPop(amp, dur, delay = 0, sharp = false, pitch = 1) {
     if (this.pops.length > 16 || amp < .015) return;
@@ -215,6 +221,17 @@ export class EngineDSP {
     setLP(this.soft, sport ? 4200 : 2800, .6, sr); // ear-friendly top end
     const rev = t.redline || 7000;
     const turboAmt = (p.turbo || 0) * (t.turbo ?? .8);
+    if (this.als > 0) { // anti-lag bangs and a turbo that refuses to spool down
+      const blk = n / sr;
+      this.als -= blk; this.alsNext -= blk;
+      this.tBoost = Math.max(this.tBoost, .55);
+      if (this.alsNext <= 0 && this.tThr < .2) {
+        this.addPop(.9 + this.rand() * .9, this.rand() < .5 ? .012 : .035, this.rand() * .01, this.rand() < .45, .6 + this.rand() * .6);
+        this.alsNext = .055 + this.rand() * .09;
+      }
+      if (this.tThr > .3) this.als = 0;
+    }
+    if (this.launchHold) { this.tBoost = Math.max(this.tBoost, .45); if (this.rand() < .15) this.addPop(.5, .02, 0, false, .8); }
     const t51 = !!t.t51r;
 
     for (let i = 0; i < n; i++) {
@@ -296,7 +313,14 @@ export class EngineDSP {
       o += this.rumble * p.sub * 2.2;
       o += (y - run(this.raspLP, y)) * (.2 + .6 * load) * (sport ? .35 : .12) * (.3 + p.rough * 4) * (t.rasp ?? .7) * (this.overrun ? 1.3 : 1);
       o += run(this.inductF, exc) * load * rn * .35; // tonal induction growl
-      o += run(this.crackF, crack) * .8;
+      o += run(this.crackF, crack) * 1.5;
+      // engine-specific harmonic scream that builds with revs (SVJ V12, GT3 flat-six)
+      if (p.scream) {
+        this.scrPh = (this.scrPh || 0) + fireHz * p.scream[0] * dt;
+        const sw = wTop * wTop * (.25 + .75 * load) * p.scream[2];
+        o += (Math.sin(this.scrPh * 6.2832) * .6 + Math.sin(this.scrPh * 12.566) * .3 * p.scream[1] + Math.sin(this.scrPh * 18.85) * .12) * sw * .09;
+      }
+      if (p.mech) o += run(this.topF, nz * env) * .06 * revN * p.mech; // valvetrain / gear-driven mechanical rasp
 
       // ---- intake: runner resonance gated by the firing events + induction roar with boost ----
       const intakeLvl = (p.intake ? p.intake[1] : .6) * (t.intake ?? .35);
@@ -326,7 +350,7 @@ export class EngineDSP {
             if (this.flutterT > (t51 ? 1.4 : .9)) this.flutter = 0;
           }
         }
-        if (this.bov > .003) { o += run(this.bovF, nz) * this.bov * .25; this.bov *= 1 - dt / .16; }
+        if (this.bov > .003) { o += run(this.bovF, nz) * this.bov * .6; this.bov *= 1 - dt / .2; }
       }
       if (this.chirps.length) {
         let ch = 0;

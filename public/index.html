@@ -75,7 +75,7 @@
   <div class="ready-title" id="readyTitle">HIGHWAY DASH</div>
   <div class="ready-sub" id="readySub">Five lanes. Thread the needle.</div>
   <div class="ready-click" id="readyClick">CLICK TO START</div>
-  <div class="ready-keys">W/S gas &amp; brake · A/D steer · N sport/comfort · M manual · Q/E shift · Z/X signals · H horn · C camera</div>
+  <div class="ready-keys">W/S gas &amp; brake · A/D steer · hold S+W at a stop for launch control · M manual · Q/E shift · Z/X signals · H horn · C camera</div>
 </section>
 
 <!-- ============ HUD ============ -->
@@ -97,7 +97,7 @@
     <span id="sigR" class="sig">▶</span>
   </div>
   <div id="combo" class="combo">CLOSE CALL! x1</div>
-  <div class="tach"><canvas id="tach" width="260" height="260"></canvas><div class="gear"><b id="gear">1</b><span id="gearMode">AUTO</span><span id="driveMode" class="drivemode sport">SPORT</span></div></div>
+  <div class="tach"><canvas id="tach" width="260" height="260"></canvas><div class="gear"><b id="gear">1</b><span id="gearMode">AUTO</span></div></div>
   <div id="partyList" class="partylist"></div>
   <div id="peerMarkers" class="peer-markers"></div>
   <div id="chatLog" class="chatlog"></div>
@@ -258,7 +258,7 @@
         <div class="keys">
           <span>W / ↑</span>Throttle<span>S / ↓</span>Brake<span>A D / ← →</span>Steer<span>M</span>Manual / auto
           <span>Q / E</span>Shift down / up<span>Z / X</span>Left / right signal<span>H</span>Horn<span>C</span>Camera
-          <span>N</span>Sport / comfort mode<span>T</span>Next time of day<span>Enter</span>Chat (online)<span>P / R</span>Pause / restart<span>L</span>Leaderboard
+          <span>S + W</span>Launch control (at a stop)<span>T</span>Next time of day<span>Enter</span>Chat (online)<span>P / R</span>Pause / restart<span>L</span>Leaderboard
         </div>
       </div>
     </div>
@@ -333,9 +333,6 @@
         <canvas id="chartTemp" class="chart" width="560" height="150"></canvas>
       </div>
       <div class="tune-col">
-        <h3>DRIVE MODE <small>[N]</small></h3>
-        <div class="chips" id="tuneMode"></div>
-        <p class="muted small">Sport: exhaust valves open, sharper throttle, holds gears, burbles on overrun. Comfort: quiet exhaust, early upshifts, softer shifts.</p>
         <div id="tuneWarn" class="tune-warn" hidden></div>
         <h3>FITTED</h3>
         <div id="tuneFitted" class="fitted"></div>

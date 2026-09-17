@@ -136,7 +136,7 @@ class SampleVoice {
     let at = .02 + Math.random() * .03;
     for (let i = 0; i < count; i++) {
       const k = i / Math.max(1, count - 1);
-      this.shot(this.bank.pops, Math.min(.35, amp * (.5 + Math.random() * .7) * (1 - k * .6)), at);
+      this.shot(this.bank.pops, Math.min(.6, amp * 1.6 * (.5 + Math.random() * .7) * (1 - k * .6)), at);
       at += (gap + Math.random() * spread) * (1 + k * .8);
       if (at > Math.max(.3, this.tuneState.decay) * 1.15) break;
     }
@@ -198,7 +198,7 @@ export class AudioManager {
     const ctx = (this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" }));
     this.master = ctx.createGain();
     const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -20; comp.knee.value = 12; comp.ratio.value = 6; comp.attack.value = 0.003; comp.release.value = 0.25;
+    comp.threshold.value = -16; comp.knee.value = 10; comp.ratio.value = 8; comp.attack.value = 0.003; comp.release.value = 0.25;
     this.master.connect(comp).connect(ctx.destination);
 
     this.reverb = ctx.createConvolver();
@@ -234,6 +234,10 @@ export class AudioManager {
     this.rain = this.loop(this.noiseBuf, "highpass", 1800, 0.5, this.windBus);
     this.rainLow = this.loop(this.brownBuf, "lowpass", 600, 0.5, this.windBus);
     this.scrape = this.loop(this.noiseBuf, "bandpass", 2400, 3);
+    // tyres: a resonant squeal for slides, a lower scrub for wheelspin, both driven from the physics
+    this.squeal = this.loop(this.noiseBuf, "bandpass", 1150, 9);
+    this.squeal2 = this.loop(this.noiseBuf, "bandpass", 2300, 12);
+    this.scrub = this.loop(this.brownBuf, "bandpass", 420, 1.6);
 
     try {
       await ctx.audioWorklet.addModule(new URL("./engine-worklet.js", import.meta.url));
@@ -245,7 +249,7 @@ export class AudioManager {
     if (!this.ctx) return;
     const t = this.ctx.currentTime;
     this.master.gain.setTargetAtTime(this.vol.master, t, 0.05);
-    this.engineBus.gain.setTargetAtTime(this.vol.engine * .7, t, 0.05);
+    this.engineBus.gain.setTargetAtTime(this.vol.engine * .75, t, 0.05);
     this.fx.gain.setTargetAtTime(this.vol.fx, t, 0.05);
     this.windBus.gain.setTargetAtTime(this.vol.wind ?? .35, t, 0.05);
   }
@@ -295,6 +299,15 @@ export class AudioManager {
     this.set(this.scrape.g.gain, scraping ? 0.25 : 0, 0.03);
   }
 
+  // slide 0..1 (lateral), spin 0..1 (wheelspin), speed km/h
+  tires(slide, spin, kmh) {
+    if (!this.ready) return;
+    const sq = Math.min(1, slide * 1.4 + spin * .9) * Math.min(1, .3 + kmh / 60);
+    this.set(this.squeal.g.gain, sq * .22, .05);
+    this.set(this.squeal.f.frequency, 950 + slide * 500 + spin * 300, .08);
+    this.set(this.squeal2.g.gain, sq * sq * .08, .05);
+    this.set(this.scrub.g.gain, Math.min(1, slide + spin) * .3, .06);
+  }
   // ---------- one shots ----------
   env(g, t, a, peak, d) {
     g.gain.setValueAtTime(0.0001, t);

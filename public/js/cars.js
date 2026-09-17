@@ -117,6 +117,8 @@ export const CARS = [
     spec: spec({ hp: 565, torque: 633, mass: 1750, ratios: [4.06, 2.3, 1.59, 1.25, 1, .8], final: 3.7, redline: 7100, idle: 900, cda: .72, grip: 1.15, tire: .35, shiftTime: .06, vmax: 315 }) },
   { id: "c8", name: "Chevrolet Corvette C8", rarity: "MYTHIC", price: 12000, body: "c8", color: 0xd01c1f, handling: 90, sound: "lt2",
     spec: spec({ hp: 495, torque: 637, mass: 1530, ratios: [2.91, 1.76, 1.22, .95, .67, .5, .42, .35], final: 5.17, redline: 6500, idle: 800, cda: .7, grip: 1.12, tire: .35, shiftTime: .06, vmax: 312 }) },
+  { id: "gt3rs", name: "Porsche 911 GT3 RS", rarity: "MYTHIC", price: 84000, body: "gt3rs", color: 0x3fa9d6, handling: 95, sound: "gt3",
+    spec: spec({ hp: 518, torque: 465, mass: 1450, ratios: [3.75, 2.38, 1.72, 1.34, 1.11, .96, .84], final: 4.12, redline: 9000, idle: 950, cda: .72, grip: 1.25, tire: .34, shiftTime: .05, vmax: 296 }) },
   { id: "svj", name: "Lamborghini Aventador SVJ", rarity: "MYTHIC", price: 20000, body: "svj", color: 0x72c02c, handling: 92, sound: "svj",
     spec: spec({ hp: 770, torque: 720, mass: 1750, ratios: [3.909, 2.438, 1.81, 1.458, 1.185, .967, .844], final: 3.73, redline: 8700, idle: 1000, cda: .66, grip: 1.2, tire: .35, shiftTime: .05, vmax: 350 }) },
   // ---- originals ----
@@ -152,7 +154,7 @@ function topSpeedKmh(e) {
 // ---------- materials ----------
 const matCache = new Map();
 export function bodyMaterial(color) {
-  if (!matCache.has(color)) matCache.set(color, patchLit(new THREE.MeshPhysicalMaterial({ color, metalness: .55, roughness: .38, clearcoat: 1, clearcoatRoughness: .08 })));
+  if (!matCache.has(color)) matCache.set(color, patchLit(new THREE.MeshPhysicalMaterial({ color, metalness: .62, roughness: .3, clearcoat: 1, clearcoatRoughness: .04, envMapIntensity: 1.35, sheen: .25, sheenColor: new THREE.Color(color).lerp(new THREE.Color(0xffffff), .35), sheenRoughness: .4 })));
   return matCache.get(color);
 }
 export const MATS = {

@@ -26,6 +26,11 @@ export class Drivetrain {
     this.assist = 1;       // catch-up multiplier (multiplayer only)
     this.baseVmax = spec.vmax;
     this.revMatch = 0;     // seconds left of a downshift throttle blip
+    this.wheelspin = 0;    // 0 = hooked up, 1 = tyres lit up (smoothed)
+    this.tcCut = 0;        // how much torque traction control is taking away right now
+    this.launch = 0;       // 1 while launch control is holding the revs, >0 then counts the launch
+    this.launchT = 0;
+    this.drive = spec.drive || "rwd";
   }
   ratio(g = this.gear) { return this.s.ratios[g - 1] * this.s.final; }
   rpmFor(v, g = this.gear) { return (v / (2 * Math.PI * this.s.tire)) * 60 * this.ratio(g); }
@@ -37,14 +42,14 @@ export class Drivetrain {
   }
   shiftUp(auto = false) {
     if (this.gear >= this.s.ratios.length || this.shiftT > 0.02) return false;
-    this.gear++; this.shiftT = this.s.shiftTime * (this.mode === "sport" ? .75 : 1.6); this.lastShift = 0;
+    this.gear++; this.shiftT = this.s.shiftTime * .75; this.lastShift = 0;
     this.events.push(auto ? "autoUp" : "upshift");
     return true;
   }
   shiftDown(auto = false) {
     if (this.gear <= 1 || this.shiftT > 0.02) return false;
     if (this.rpmFor(this.v, this.gear - 1) > this.s.redline * 1.03) { this.events.push("deny"); return false; }
-    this.gear--; this.shiftT = this.s.shiftTime * (this.mode === "sport" ? .6 : 1.3); this.lastShift = 0;
+    this.gear--; this.shiftT = this.s.shiftTime * .6; this.lastShift = 0;
     this.revMatch = .22;
     this.events.push(auto ? "autoDown" : "downshift");
     return true;
@@ -60,6 +65,17 @@ export class Drivetrain {
     let rpm = this.rpmFor(this.v);
     if (this.gear === 1 && this.v < 9) rpm = Math.max(rpm, s.idle + throttle * s.redline * 0.45 * (1 - this.v / 9));
     rpm = Math.max(s.idle * (1 + .18 * (1 - this.warmth)), rpm); // fast idle while cold
+    // ---- launch control: foot on the brake, floor the throttle at a standstill ----
+    const armed = this.v < 1.2 && throttle > .85 && brake > .4 && this.gear === 1;
+    if (armed) {
+      if (!this.launch) this.events.push("launchArm");
+      this.launch = 1;
+      rpm = s.redline * (this.drive === "awd" ? .62 : this.drive === "fwd" ? .45 : .5);
+    } else if (this.launch === 1) {
+      this.launch = 0;
+      if (throttle > .85) { this.launchT = 2.2; this.events.push("launch"); }
+    }
+    if (this.launchT > 0) this.launchT -= dt;
 
     let thr = throttle;
     if (s.vmax && this.v * 3.6 >= s.vmax) thr = 0;
@@ -81,7 +97,19 @@ export class Drivetrain {
     const tq = this.torque(this.rpm);
     let F = thr * tq * wheelMul * this.assist;
     if (this.shiftT > 0) F *= 0.2;
-    F = Math.min(F, s.mass * G * s.grip);
+    // how much of the car's weight sits on the driven wheels (weight transfers rearward under power)
+    const accelShare = Math.max(0, Math.min(.12, this.accel / G * .25));
+    const onDriven = this.drive === "awd" ? 1 : this.drive === "fwd" ? .6 - accelShare : .56 + accelShare;
+    const limit = s.mass * G * s.grip * onDriven * (this.surface ?? 1) * 1.15;
+    const excess = F > 0 ? F / Math.max(1, limit) - 1 : -1;
+    // traction control lets a little slip through (it's fast that way) and cuts progressively beyond
+    // it; launch control holds the tyres right at the optimal slip for the first couple of seconds
+    const allowed = this.launchT > 0 ? .1 : this.tcOff ? 1 : .22;
+    const spinWant = Math.max(0, Math.min(1, excess));
+    this.wheelspin += (spinWant - this.wheelspin) * Math.min(1, dt * (spinWant > this.wheelspin ? 6 : 3));
+    this.tcCut = Math.max(0, this.wheelspin - allowed);
+    if (F > limit) F = limit * (1 - Math.min(.35, Math.max(0, this.wheelspin - allowed) * .6)) * (this.launchT > 0 ? 1.04 : 1);
+    if (this.launch === 1) F = 0;
     this.load = Math.max(0, Math.min(1.2, (thr * tq) / Math.max(1, this.peak) * (this.shiftT > 0 ? .2 : 1)));
     // engine braking: friction + pumping losses grow with rpm and are multiplied by the gear,
     // so a downshift slows the car harder. Clutch is open mid-shift and while slipping in 1st.
@@ -97,10 +125,10 @@ export class Drivetrain {
     F -= brake * s.mass * G * 1.05 * (s.brakeMul || 1);
     const a = F / s.mass;
     this.accel += (a - this.accel) * Math.min(1, dt * 8);
-    this.v = Math.max(0, this.v + a * dt);
+    this.v = Math.max(0, this.v + (this.launch === 1 ? 0 : a) * dt);
 
     if (!this.manual && this.shiftT <= 0 && this.lastShift > 0.35) {
-      const sport = this.mode === "sport";
+      const sport = true;
       const up = s.redline * (sport ? .72 + .24 * throttle : .42 + .3 * throttle);
       if (this.rpm > up && this.gear < s.ratios.length) this.shiftUp(true);
       else if (this.gear > 1) {
@@ -120,7 +148,7 @@ export class Drivetrain {
       rpm: this.rpm, throttle, gain, load: this.load, boost: this.boost,
       boostNorm: s.boostMax ? Math.min(1.2, this.boost / s.boostMax) : 0,
       gear: this.gear, speed: this.v, accel: this.accel, shifting: this.shiftT > 0,
-      overrun: this.overrun, redline: s.redline, warmth: this.warmth,
+      overrun: this.overrun, redline: s.redline, warmth: this.warmth, wheelspin: this.wheelspin, launch: this.launch,
     };
   }
 }

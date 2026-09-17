@@ -15,7 +15,7 @@ export const CAR_PRICES = {
   m2: 30000, c63: 34000, x3m: 36000, charger: 38000, challenger: 38000, vipermint: 40000,
   m3: 46000, m4: 48000, rs6: 52000, e63: 55000, glacierbolt: 60000,
   // super
-  x5m: 72000, x6m: 76000, gtr: 88000, c8: 95000,
+  gt3rs: 84000, x5m: 72000, x6m: 76000, gtr: 88000, c8: 95000,
   // premium / rare
   phantom: 130000, svj: 180000,
 };

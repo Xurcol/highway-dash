@@ -26,7 +26,7 @@ export class UI {
     this.onlineSelected = false;
     this.el = {
       score: $("score"), best: $("best"), speed: $("speed"), dist: $("dist"), gear: $("gear"), gearMode: $("gearMode"),
-      driveMode: $("driveMode"), sigL: $("sigL"), sigR: $("sigR"), speedUp: $("speedUp"), ghost: $("ghostNote"), combo: $("combo"), catchUp: $("catchUp"),
+      sigL: $("sigL"), sigR: $("sigR"), speedUp: $("speedUp"), ghost: $("ghostNote"), combo: $("combo"), catchUp: $("catchUp"),
     };
     this.chatInput = $("chatInput");
     this.wireCommon();
@@ -454,16 +454,11 @@ export class UI {
       resetTune(this.view); this.draft = null; this.afterTune();
     };
     document.querySelectorAll("#tune .tab").forEach((b) => b.onclick = () => { this.tuneTab = b.dataset.tab; this.renderTune(); });
-    $("tRelease").innerHTML = ""; $("tuneMode").innerHTML = "";
+    $("tRelease").innerHTML = "";
     for (const [val, label] of [["flutter", "Turbo flutter"], ["bov", "Blow-off valve"], ["off", "Off"]]) {
       const b = document.createElement("button"); b.textContent = label; b.dataset.v = val;
       b.onclick = () => this.editTune({ release: val });
       $("tRelease").appendChild(b);
-    }
-    for (const [val, label] of [["sport", "Sport"], ["comfort", "Comfort"]]) {
-      const b = document.createElement("button"); b.textContent = label; b.dataset.v = val;
-      b.onclick = () => { P.settings.driveMode = val; save(); this.ctx.applyTune(); this.renderTune(); };
-      $("tuneMode").appendChild(b);
     }
   }
   // the tune the player is looking at: what's fitted, plus anything they've dialled in but not paid for
@@ -567,7 +562,6 @@ export class UI {
     rows("tuneExhaust", this.EXHAUST_CONTROLS, t, false);
     $("tBrap").checked = t.brap;
     [...$("tRelease").children].forEach((b) => b.classList.toggle("on", b.dataset.v === t.release));
-    [...$("tuneMode").children].forEach((b) => b.classList.toggle("on", b.dataset.v === P.settings.driveMode));
 
     // ---- pending map changes ----
     const bar = $("tuneApplyBar");

@@ -20,6 +20,8 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true,
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.toneMappingExposure = 1.08;
+renderer.outputColorSpace = THREE.SRGBColorSpace;
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, 1, 0.1, 4000);
@@ -27,6 +29,39 @@ const sky = new SkySystem(renderer, scene);
 const world = new World(renderer, scene);
 const traffic = new Traffic(scene);
 const glows = new Glows(scene);
+// Tyre smoke: a pooled, soft, lit-by-nothing particle cloud that grows and fades as it drifts back.
+const smoke = (() => {
+  const N = 260, pos = new Float32Array(N * 3), size = new Float32Array(N), alpha = new Float32Array(N), P = [];
+  const g = new THREE.BufferGeometry();
+  g.setAttribute("position", new THREE.BufferAttribute(pos, 3).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute("size", new THREE.BufferAttribute(size, 1).setUsage(THREE.DynamicDrawUsage));
+  g.setAttribute("alpha", new THREE.BufferAttribute(alpha, 1).setUsage(THREE.DynamicDrawUsage));
+  const mat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, uniforms: { scale: { value: 700 } },
+    vertexShader: "attribute float size; attribute float alpha; varying float vA; uniform float scale; void main(){ vA = alpha; vec4 mv = modelViewMatrix * vec4(position,1.); gl_PointSize = size * scale / -mv.z; gl_Position = projectionMatrix * mv; }",
+    fragmentShader: "varying float vA; void main(){ vec2 c = gl_PointCoord - .5; float d = dot(c,c); if (d > .25) discard; gl_FragColor = vec4(vec3(.82,.83,.86), vA * (1. - d * 4.)); }",
+  });
+  const pts = new THREE.Points(g, mat); pts.frustumCulled = false; pts.renderOrder = 5; scene.add(pts);
+  for (let i = 0; i < N; i++) P.push({ life: 0 });
+  let head = 0;
+  return {
+    emit(x, y, z, amt, vx, vz) {
+      if (Math.random() > amt * 1.2) return;
+      const p = P[head]; head = (head + 1) % N;
+      Object.assign(p, { x: x + (Math.random() - .5) * .3, y, z, vx: vx + (Math.random() - .5) * 1.5, vy: .6 + Math.random() * .8, vz: vz + Math.random() * 2, life: 1, max: 1.4 + Math.random(), s: .8 + amt });
+    },
+    update(dt) {
+      for (let i = 0; i < N; i++) {
+        const p = P[i];
+        if (p.life > 0) { p.life -= dt / p.max; p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt; p.vx *= .97; p.vy *= .98; }
+        pos[i * 3] = p.x || 0; pos[i * 3 + 1] = p.y || -50; pos[i * 3 + 2] = p.z || 0;
+        size[i] = p.life > 0 ? p.s * (1 + (1 - p.life) * 3.5) : 0;
+        alpha[i] = p.life > 0 ? Math.min(.5, p.life * .55) : 0;
+      }
+      g.attributes.position.needsUpdate = g.attributes.size.needsUpdate = g.attributes.alpha.needsUpdate = true;
+    },
+  };
+})();
 const audio = new AudioManager();
 const net = await createNet();
 
@@ -161,6 +196,8 @@ addEventListener("blur", () => { for (const k in keys) keys[k] = false; audio.ho
 addEventListener("contextmenu", (e) => { if (!["INPUT", "TEXTAREA"].includes(e.target?.tagName)) e.preventDefault(); });
 const held = (...codes) => codes.some((c) => keys[c]);
 
+// Every car runs its performance configuration; there is no mode switch.
+P.settings.driveMode = "sport";
 // ---------------- game state ----------------
 let state = "home";       // home | ready | drive | crashed | over
 let paused = false;
@@ -248,7 +285,7 @@ function enterReady(asMode) {
     soloT = 0; G.z = 0;
   }
   G.x = pickSpawn(getT(), G.z);
-  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: G.god ? 1e9 : 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, bestCombo: 0, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
+  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: G.god ? 1e9 : 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, bestCombo: 0, slide: 0, driftYaw: 0, slideDir: 0, flameT: 0, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
   G.prevDz.clear();
   G.dt.v = 0; G.readyRpm = G.dt.s.idle;
   G.car.group.position.set(G.x, 0, G.z); G.car.group.rotation.set(0, 0, 0);
@@ -405,11 +442,6 @@ function onKey(code) {
   if (state !== "drive" || paused) return;
   const d = G.dt;
   switch (code) {
-    case "KeyN":
-      P.settings.driveMode = P.settings.driveMode === "sport" ? "comfort" : "sport"; save();
-      applyTune();
-      ui.toast(P.settings.driveMode === "sport" ? "🔥 SPORT — louder exhaust, burbles, late shifts" : "🍃 COMFORT — quiet exhaust, early shifts");
-      break;
     case "KeyM": d.manual = !d.manual; ui.toast(d.manual ? "⚙️ MANUAL — Q / E to shift" : "🅰 AUTOMATIC"); break;
     case "KeyE": if (d.manual) d.shiftUp(); else ui.toast("Press M for manual mode"); break;
     case "KeyQ": if (d.manual) d.shiftDown(); else ui.toast("Press M for manual mode"); break;
@@ -609,14 +641,13 @@ const playerLight = { pos: new THREE.Vector3(), dir: new THREE.Vector3(), color:
 function updateDrive(dt, T) {
   const d = G.dt, def = G.def, B = BODIES[def.body];
   const thrIn = held("KeyW", "ArrowUp") ? 1 : 0, brkIn = held("KeyS", "ArrowDown", "Space") ? 1 : 0;
-  const sport = P.settings.driveMode === "sport";
   const prevThr = G.thr;
-  G.thr += (thrIn - G.thr) * Math.min(1, dt * (thrIn > G.thr ? (sport ? 14 : 5) : 12));
+  G.thr += (thrIn - G.thr) * Math.min(1, dt * (thrIn > G.thr ? 14 : 12));
   // everything the burble model needs: how hard it was pulling, how fast the pedal came up, boost
   const evInfo = () => ({ rpm: d.rpm, load: G.liftLoad ?? d.load, boost: d.s.boostMax ? d.boost / d.s.boostMax : 0, gear: d.gear, release: G.release || 0 });
   if (thrIn) { G.release = 0; G.liftLoad = d.load; }
   else { G.liftLoad = Math.max(d.load, (G.liftLoad || 0) * Math.exp(-dt * .7)); G.release = (G.release || 0) * Math.exp(-dt * 1.2); }
-  if (G.prevThrIn && !thrIn) { G.release = 10; G.engine?.event("lift", evInfo()); } // snap lift: flutter + overrun burble
+  if (G.prevThrIn && !thrIn) { G.release = 10; G.engine?.event("lift", evInfo()); if (d.rpm > d.s.redline * .55) G.flameT = .6 + (d.s.antiLag ? .8 : 0); } // snap lift: flutter + overrun burble
   G.prevThrIn = thrIn;
   G.brk += (brkIn - G.brk) * Math.min(1, dt * 12);
   const events = d.update(dt, G.thr, G.brk);
@@ -625,15 +656,37 @@ function updateDrive(dt, T) {
     else if (ev === "downshift" || ev === "autoDown") { G.engine?.event("downshift", evInfo()); if (ev === "downshift") audio.shiftClunk(false); }
     else if (ev === "limiter" || ev === "lift") G.engine?.event(ev, evInfo());
     else if (ev === "deny") audio.deny();
+    else if (ev === "launchArm") { G.engine?.event("launchArm"); ui.toast("LAUNCH CONTROL ARMED — release brake"); }
+    else if (ev === "launch") G.engine?.event("launch");
   }
+  if (G.brk > .5 && !thrIn && d.v < .5 && !G.launchHint) { G.launchHint = 1; ui.toast("Hold brake + throttle for launch control"); }
   const v = d.v, kmh = v * 3.6;
+  d.surface = 1 - (sky.w?.rain || 0) * .22; // wet road
 
   // steering
   const steerIn = (held("KeyD", "ArrowRight") ? 1 : 0) - (held("KeyA", "ArrowLeft") ? 1 : 0);
   G.steer += (steerIn - G.steer) * Math.min(1, dt * 9);
   const hMul = d.s.handlingMul || 1;
   const maxLat = (4.5 + def.handling * .07) * hMul * Math.min(1, v / 14);
-  G.vx += (G.steer * maxLat - G.vx) * Math.min(1, dt * (3.5 + def.handling * .05) * hMul);
+  // lateral acceleration the driver is asking for vs what the tyres can give (friction circle)
+  const mu = (d.s.grip || 1) * d.surface * (.92 + hMul * .08) * (1 - Math.min(.15, (d.s.mass - 1500) / 8000));
+  const longUse = Math.min(.9, Math.abs(d.accel) / (9.81 * mu));
+  const latAvail = 9.81 * mu * Math.sqrt(Math.max(.05, 1 - longUse * longUse)) * 1.05;
+  const latDemand = Math.abs(G.steer) * v * v / Math.max(18, 26 + v * .9);
+  let over = Math.max(0, latDemand / latAvail - 1);
+  // power oversteer: spinning rear tyres lose side grip. AWD shares it, FWD pushes wide instead.
+  const spin = d.wheelspin || 0;
+  if (d.drive === "rwd") over += spin * Math.abs(G.steer) * 1.6;
+  else if (d.drive === "awd") over += spin * Math.abs(G.steer) * .6;
+  G.slide = (G.slide || 0) + (Math.min(1.2, over) - (G.slide || 0)) * Math.min(1, dt * (over > G.slide ? 4 : 1.6));
+  const grip = 1 - Math.min(.75, G.slide * (d.drive === "fwd" ? .9 : .7));
+  G.vx += (G.steer * maxLat * grip - G.vx) * Math.min(1, dt * (3.5 + def.handling * .05) * hMul * grip);
+  // the rear steps out: extra body angle while sliding, countersteer (opposite input) catches it
+  const counter = G.steer * (G.slideDir || 0) < -.2 ? 3 : 1;
+  if (G.slide > .08 && d.drive !== "fwd") G.slideDir = G.slideDir || Math.sign(G.steer || G.vx);
+  if (G.slide < .04) G.slideDir = 0;
+  G.driftYaw = (G.driftYaw || 0) + ((G.slideDir || 0) * Math.min(.45, G.slide * .5) - (G.driftYaw || 0)) * Math.min(1, dt * 3 * counter);
+  if (G.slide > .05) d.v *= 1 - dt * G.slide * .22; // scrubbing speed
   G.x += G.vx * dt;
   const lim = ROAD_HALF + SHOULDER - B.W / 2 - .1;
   G.scraping = false;
@@ -644,7 +697,15 @@ function updateDrive(dt, T) {
   }
   G.z -= v * dt;
   G.dist += v * dt;
-  G.yaw += (-Math.atan2(G.vx, Math.max(v, 6)) * .9 - G.yaw) * Math.min(1, dt * 10);
+  G.yaw += (-Math.atan2(G.vx, Math.max(v, 6)) * .9 - (G.driftYaw || 0) - G.yaw) * Math.min(1, dt * 10);
+  // tyre smoke, squeal and exhaust flames
+  const smokeAmt = Math.max(G.slide > .15 ? G.slide : 0, spin > .15 ? spin : 0);
+  if (smokeAmt > 0) for (const k of [-1, 1]) smoke.emit(G.x + k * (B.W / 2 - .3), .35, G.z + B.L * .32, smokeAmt, G.vx * .3, -v * .15);
+  audio.tires?.(G.slide || 0, spin, kmh);
+  if (G.flameT > 0) {
+    G.flameT -= dt;
+    if (Math.random() < .35) for (const e of (B.exhaust || [[-B.L / 2, .3, .45]])) glows.add(G.x + (e[2] || 0) * .9, (e[1] || .3), G.z + B.L / 2 + .15, 1, .55 + Math.random() * .3, .15, .6 + Math.random() * .9);
+  }
 
   // score
   if (kmh >= 80) G.score += (v * dt) / 10 * Math.max(1, kmh / 130);
@@ -776,7 +837,7 @@ function updateEngineSound(dt) {
     G.prevReadyThr = thr;
     G.engine.params({ rpm: G.readyRpm, throttle: thr, gain: .85, load: thr * .9, boostNorm: thr * Math.min(1, G.readyRpm / 4000), gear: 1, redline: d.s.redline, warmth: d.warmth });
   } else if (state === "drive" && !paused) {
-    G.engine.params(d.audioState(d.shiftT > 0 && G.thr > .3 ? .1 : G.thr, .85));
+    G.engine.params(d.audioState(d.shiftT > 0 && G.thr > .3 ? .1 : G.thr, camMode === 1 ? .7 : camMode === 2 ? .95 : .85));
   } else if (state !== "home") {
     G.engine.params({ rpm: d.s.idle * .6, throttle: 0, gain: 0, load: 0, boostNorm: 0 });
   }
@@ -814,8 +875,6 @@ function updateHud() {
   setText(ui.el.dist, `${(G.dist / 1609.34).toFixed(1)}Mi`);
   setText(ui.el.gear, d.shiftT > 0 ? "-" : String(d.gear));
   setText(ui.el.gearMode, d.manual ? "MANUAL" : "AUTO");
-  setText(ui.el.driveMode, P.settings.driveMode === "sport" ? "SPORT" : "COMFORT");
-  ui.el.driveMode.className = "drivemode " + P.settings.driveMode;
   ui.el.gearMode.classList.toggle("man", d.manual);
   ui.el.sigL.classList.toggle("on", !!G.sigL && G.sigOn);
   ui.el.sigR.classList.toggle("on", !!G.sigR && G.sigOn);
@@ -910,6 +969,7 @@ function frame(now) {
   if (!paused) updateCatchUp(simDt, peerList);
   uploadLights(lights, camera);
   glows.end(renderer.domElement.height);
+  smoke.update(paused ? 0 : dt);
   updateEngineSound(dt);
   audio.update(state === "drive" && !paused ? G.dt.v * 3.6 : 0, sky.w.rain, G.scraping && state === "drive");
   if (audio.ready) audio.setReverb(.05 + cityAt(G.z) * .16);
