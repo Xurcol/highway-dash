@@ -1,0 +1,285 @@
+// Serverless multiplayer over a public MQTT relay. No accounts: a player is a name plus a random
+// driver code kept in a cookie. Same interface as the WebSocket Net in net.js.
+//
+// Topics (all under ROOT):
+//   presence/<code>        retained  {name, best, level, car, room, joinT, t} — last-will marks offline
+//   req/<to>/<from>        retained  friend request   (cleared when answered)
+//   acc/<to>/<from>        retained  friend accepted  (cleared when seen)
+//   inbox/<code>                     invites
+//   room/<code>/info       retained  {round, seed, epoch, traffic, public, prevEnd}
+//   room/<code>/s/<from>             player state stream (~10 Hz)
+//   room/<code>/c | /e               chat | events
+//   public/<code>          retained  {traffic, t} listing for quick play
+import mqtt from "/vendor/mqtt.esm.js";
+import { store } from "./net.js";
+
+const ROOT = "xurcoxyz/hdash/v1/";
+const BROKERS = ["wss://broker.hivemq.com:8884/mqtt", "wss://broker.emqx.io:8084/mqtt"];
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const MAX_ROOM = 8;
+const STALE = 3 * 60 * 1000; // presence older than this counts as offline (tab closed without a clean disconnect)
+const live = (p) => p && !p.offline && Date.now() - (p.t || 0) < STALE;
+
+const cookie = {
+  get(k) { const m = document.cookie.match(new RegExp("(?:^|; )" + k + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : null; },
+  set(k, v) { document.cookie = `${k}=${encodeURIComponent(v)}; max-age=${60 * 60 * 24 * 400}; path=/; SameSite=Lax`; },
+};
+const randCode = (n = 6) => Array.from(crypto.getRandomValues(new Uint32Array(n)), (x) => CODE_CHARS[x % CODE_CHARS.length]).join("");
+const cleanName = (s) => String(s || "").replace(/[^\w .\-]/g, "").trim().slice(0, 16) || "Driver";
+
+export class RelayNet extends EventTarget {
+  constructor() {
+    super();
+    this.client = null; this.connected = false;
+    this.me = null; this.room = null; this.roomInfo = null;
+    this.friends = []; this.incoming = [];
+    this.peers = new Map();
+    this.players = new Map();     // code -> presence
+    this.publicRooms = new Map(); // code -> listing
+    this.friendCodes = new Set(store.get("hd_friends", []));
+    this.incomingMap = new Map();
+    this.myScore = 0; this.lastRound = 0;
+    this.brokerIdx = 0;
+  }
+  emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
+  now() { return Date.now(); }
+  t(topic) { return ROOT + topic; }
+  pub(topic, obj, retain = false) { this.client?.publish(this.t(topic), obj === null ? "" : JSON.stringify(obj), { qos: retain ? 1 : 0, retain }); }
+
+  connect(name, car) {
+    let code = cookie.get("hd_code") || store.get("hd_code", null);
+    if (!code || !/^[A-Z2-9]{6}$/.test(code)) code = randCode();
+    cookie.set("hd_code", code); store.set("hd_code", code);
+    const storedName = cookie.get("hd_name") || name;
+    this.me = { id: code, code, name: cleanName(storedName), best: 0, level: 1 };
+    cookie.set("hd_name", this.me.name);
+    this.car = car; this.joinT = 0;
+    this.open();
+  }
+  open() {
+    const url = BROKERS[this.brokerIdx % BROKERS.length];
+    const will = { topic: this.t(`presence/${this.me.code}`), payload: JSON.stringify(this.presence(true)), qos: 1, retain: true };
+    const client = (this.client = mqtt.connect(url, { clientId: `hd_${this.me.code}_${randCode(4)}`, keepalive: 20, reconnectPeriod: 3000, connectTimeout: 8000, clean: true, will }));
+    let everConnected = false;
+    client.on("connect", () => {
+      everConnected = true;
+      this.connected = true;
+      const c = this.me.code;
+      client.subscribe([this.t("presence/+"), this.t(`req/${c}/+`), this.t(`acc/${c}/+`), this.t(`inbox/${c}`), this.t("public/+")], { qos: 0 });
+      if (this.room) this.subRoom(this.room.code);
+      this.publishPresence();
+      clearInterval(this.beat);
+      this.beat = setInterval(() => this.publishPresence(), 60000);
+      this.emit("status");
+    });
+    client.on("close", () => {
+      if (!this.connected && !everConnected && this.client === client) { // broker unreachable: try the next one
+        client.end(true); this.brokerIdx++; setTimeout(() => this.open(), 1500);
+        return;
+      }
+      if (this.connected) { this.connected = false; this.emit("status"); }
+    });
+    client.on("message", (topic, payload) => this.onMessage(topic.slice(ROOT.length), payload.toString()));
+  }
+
+  presence(offline = false) {
+    return { name: this.me.name, best: this.me.best || 0, level: this.me.level || 1, car: this.car, room: offline ? null : this.room?.code || null, joinT: this.joinT, offline, t: Date.now() };
+  }
+  publishPresence() { if (this.connected) this.pub(`presence/${this.me.code}`, this.presence(false), true); }
+
+  onMessage(topic, raw) {
+    const parts = topic.split("/");
+    let m = null;
+    if (raw) { try { m = JSON.parse(raw); } catch { return; } }
+    switch (parts[0]) {
+      case "presence": {
+        const code = parts[1];
+        if (!m) this.players.delete(code); else this.players.set(code, { ...m, code, name: cleanName(m.name) });
+        if (code === this.me.code && m) { this.me.best = Math.max(this.me.best, m.best || 0); }
+        this.socialSoon();
+        if (this.room) this.roomSoon();
+        break;
+      }
+      case "public": if (m) this.publicRooms.set(parts[1], m); else this.publicRooms.delete(parts[1]); break;
+      case "req": {
+        const from = parts[2];
+        if (m && !this.friendCodes.has(from)) this.incomingMap.set(from, cleanName(m.name));
+        else this.incomingMap.delete(from);
+        if (m && this.friendCodes.has(from)) this.pub(`req/${this.me.code}/${from}`, null, true); // already friends
+        this.socialSoon();
+        break;
+      }
+      case "acc": {
+        if (!m) break;
+        const from = parts[2];
+        this.addFriend(from);
+        this.pub(`acc/${this.me.code}/${from}`, null, true);
+        this.emit("toast", { msg: `${cleanName(m.name)} accepted your friend request` });
+        break;
+      }
+      case "inbox": if (m?.type === "invite") this.emit("invite", { from: cleanName(m.from), fromId: m.fromId, room: m.room }); break;
+      case "room": {
+        if (!this.room || parts[1] !== this.room.code) break;
+        const kind = parts[2];
+        if (kind === "info") this.applyInfo(m);
+        else if (kind === "s" && m) {
+          const from = parts[3];
+          if (from === this.me.code) break;
+          let peer = this.peers.get(from);
+          if (!peer) { peer = { buf: [], name: this.players.get(from)?.name || "Driver", car: m.car }; this.peers.set(from, peer); this.roomSoon(); }
+          peer.buf.push(m); if (peer.buf.length > 30) peer.buf.shift();
+          peer.last = performance.now(); peer.car = m.car;
+        } else if (kind === "c" && m) this.emit("chat", { name: cleanName(m.name), text: String(m.text).slice(0, 120) });
+        else if (kind === "e" && m && m.id !== this.me.code) this.emit("event", { id: m.id, name: cleanName(m.name), kind: String(m.kind), v: m.v | 0 });
+        break;
+      }
+    }
+  }
+
+  // ---------- friends ----------
+  addFriend(code) { this.friendCodes.add(code); store.set("hd_friends", [...this.friendCodes]); this.incomingMap.delete(code); this.socialSoon(); }
+  socialSoon() {
+    clearTimeout(this.socialT);
+    this.socialT = setTimeout(() => {
+      this.friends = [...this.friendCodes].map((code) => {
+        const p = this.players.get(code) || {};
+        return { id: code, code, name: p.name || code, best: p.best || 0, online: live(p), room: live(p) ? p.room || null : null };
+      });
+      this.incoming = [...this.incomingMap].map(([id, name]) => ({ id, name, code: id }));
+      this.emit("social");
+    }, 150);
+  }
+
+  // ---------- rooms ----------
+  subRoom(code) { this.client?.subscribe([this.t(`room/${code}/info`), this.t(`room/${code}/s/+`), this.t(`room/${code}/c`), this.t(`room/${code}/e`)], { qos: 0 }); }
+  unsubRoom(code) { this.client?.unsubscribe([this.t(`room/${code}/info`), this.t(`room/${code}/s/+`), this.t(`room/${code}/c`), this.t(`room/${code}/e`)]); }
+  joinRoom(code, info) {
+    if (this.room?.code === code) return this.roomSoon(true);
+    const count = [...this.players.values()].filter((p) => p.room === code && live(p)).length;
+    if (count >= MAX_ROOM) return this.emit("error", { msg: "That party is full" });
+    if (this.room) this.leaveRoom(true);
+    this.joinT = Date.now();
+    this.roomInfo = info || { round: 0, seed: 1, epoch: Date.now(), traffic: "Heavy", public: false };
+    this.room = { code, players: [], ...this.roomInfo };
+    this.subRoom(code);
+    if (info) this.pub(`room/${code}/info`, info, true);
+    this.publishPresence();
+    this.freshRoom = true;
+    this.roomSoon(true);
+  }
+  leaveRoom(silent = false) {
+    if (!this.room) return;
+    const code = this.room.code;
+    this.unsubRoom(code);
+    for (const id of this.peers.keys()) this.emit("peerLeft", id);
+    this.peers.clear();
+    this.room = null; this.roomInfo = null;
+    this.publishPresence();
+    if (!silent) this.emit("room", { fresh: true });
+  }
+  applyInfo(info) {
+    if (!info || !this.room) return;
+    const prev = this.roomInfo || {};
+    this.roomInfo = info;
+    if (info.prevEnd && info.round > (prev.round || 0) && info.prevEnd.round === prev.round) this.emit("roundEnd", info.prevEnd);
+    this.roomSoon();
+  }
+  roomSoon(fresh = false) {
+    if (fresh) this.freshRoom = true;
+    clearTimeout(this.roomT);
+    this.roomT = setTimeout(() => {
+      if (!this.room) return;
+      const info = this.roomInfo || {};
+      const players = [...this.players.entries()]
+        .filter(([code, p]) => (p.room === this.room.code && live(p)) || code === this.me.code)
+        .sort((a, b) => (a[1].joinT || 0) - (b[1].joinT || 0))
+        .map(([id, p]) => ({ id, name: id === this.me.code ? this.me.name : p.name, car: id === this.me.code ? this.car : p.car }));
+      for (const id of this.peers.keys()) if (!players.some((p) => p.id === id)) { this.emit("peerLeft", id); this.peers.delete(id); }
+      for (const p of players) { const peer = this.peers.get(p.id); if (peer) { peer.name = p.name; peer.car = p.car || peer.car; } }
+      const now = Date.now();
+      const roundState = !info.round ? "lobby" : now < info.epoch ? "countdown" : "running";
+      this.room = { code: this.room.code, seed: info.seed ?? 1, epoch: info.epoch ?? now, round: info.round || 0, roundState, traffic: info.traffic || "Heavy", public: !!info.public, players };
+      const fresh = this.freshRoom; this.freshRoom = false;
+      this.emit("room", { fresh });
+    }, 120);
+    // round state flips countdown -> running on its own clock
+    if (this.roomInfo?.epoch > Date.now()) { clearTimeout(this.flipT); this.flipT = setTimeout(() => this.roomSoon(), this.roomInfo.epoch - Date.now() + 30); }
+  }
+  newRoundInfo(extra = {}) {
+    const info = this.roomInfo || {};
+    return { round: (info.round || 0) + 1, seed: (Math.random() * 2 ** 31) | 0, epoch: Date.now() + 3500, traffic: info.traffic || "Heavy", public: !!info.public, ...extra };
+  }
+
+  // ---------- leaderboard ----------
+  leaderboard() {
+    const all = [...this.players.entries()].filter(([, p]) => p.best > 0).map(([id, p]) => ({ id, ...p })).sort((a, b) => b.best - a.best);
+    const row = (x) => ({ name: x.id === this.me.code ? this.me.name : x.name, best: x.best, level: x.level || 1, me: x.id === this.me.code });
+    const rank = all.findIndex((x) => x.id === this.me.code);
+    const friends = [{ id: this.me.code, name: this.me.name, best: this.me.best, level: this.me.level }, ...[...this.friendCodes].map((c) => ({ id: c, ...(this.players.get(c) || { name: c, best: 0 }) }))].sort((a, b) => (b.best || 0) - (a.best || 0));
+    this.emit("leaderboard", { top: all.slice(0, 200).map(row), rank: rank < 0 ? null : rank + 1, friends: friends.map(row) });
+  }
+
+  // ---------- outgoing (same message shapes as the WebSocket server) ----------
+  send(m) {
+    if (!this.me) return;
+    const c = this.me.code;
+    switch (m.t) {
+      case "setName": this.me.name = cleanName(m.name); cookie.set("hd_name", this.me.name); this.publishPresence(); this.emit("status"); if (this.room) this.roomSoon(); break;
+      case "setCar": this.car = m.car; this.publishPresence(); break;
+      case "friendAdd": {
+        const code = String(m.code || "").toUpperCase().trim();
+        if (code === c || !/^[A-Z2-9]{6}$/.test(code)) return this.emit("error", { msg: "No driver with that code" });
+        if (this.friendCodes.has(code)) return this.emit("error", { msg: "Already friends" });
+        if (this.incomingMap.has(code)) return this.send({ t: "friendAccept", id: code });
+        this.pub(`req/${code}/${c}`, { name: this.me.name }, true);
+        this.addFriend(code);
+        this.emit("toast", { msg: `Friend request sent to ${this.players.get(code)?.name || code}` });
+        break;
+      }
+      case "friendAccept":
+        this.addFriend(m.id);
+        this.pub(`acc/${m.id}/${c}`, { name: this.me.name }, true);
+        this.pub(`req/${c}/${m.id}`, null, true);
+        break;
+      case "friendDecline": this.incomingMap.delete(m.id); this.pub(`req/${c}/${m.id}`, null, true); this.socialSoon(); break;
+      case "friendRemove": this.friendCodes.delete(m.id); store.set("hd_friends", [...this.friendCodes]); this.socialSoon(); break;
+      case "roomCreate": this.joinRoom(String(100000 + Math.floor(Math.random() * 900000)), { round: 0, seed: 1, epoch: Date.now(), traffic: m.traffic || "Heavy", public: false }); break;
+      case "quickPlay": {
+        const counts = new Map();
+        for (const p of this.players.values()) if (p.room && live(p)) counts.set(p.room, (counts.get(p.room) || 0) + 1);
+        const pick = [...this.publicRooms.keys()].find((code) => (counts.get(code) || 0) > 0 && counts.get(code) < MAX_ROOM);
+        if (pick) this.joinRoom(pick);
+        else {
+          const code = String(100000 + Math.floor(Math.random() * 900000));
+          this.pub(`public/${code}`, { traffic: "Heavy", t: Date.now() }, true);
+          this.joinRoom(code, { round: 0, seed: 1, epoch: Date.now(), traffic: "Heavy", public: true });
+        }
+        break;
+      }
+      case "roomJoin": { const code = String(m.code || "").trim(); if (!/^\d{6}$/.test(code)) return this.emit("error", { msg: "Party not found" }); this.joinRoom(code); break; }
+      case "joinFriend": { const p = this.players.get(m.id); if (!p?.room || !live(p)) return this.emit("error", { msg: "Friend isn't in a party" }); this.joinRoom(p.room); break; }
+      case "invite": if (this.room) { this.pub(`inbox/${m.id}`, { type: "invite", from: this.me.name, fromId: c, room: this.room.code }); this.emit("toast", { msg: "Invite sent" }); } break;
+      case "roomLeave": this.leaveRoom(); break;
+      case "state": if (this.room) { this.myScore = m.s.sc || 0; this.pub(`room/${this.room.code}/s/${c}`, m.s); } break;
+      case "chat": if (this.room) this.pub(`room/${this.room.code}/c`, { name: this.me.name, text: String(m.text || "").slice(0, 120) }); break;
+      case "event": if (this.room) this.pub(`room/${this.room.code}/e`, { id: c, name: this.me.name, kind: m.kind, v: m.v }); break;
+      case "score": {
+        const s = Math.floor(Number(m.score) || 0);
+        if (s > this.me.best) this.me.best = s;
+        if (m.level) this.me.level = m.level;
+        this.publishPresence();
+        this.leaderboard();
+        break;
+      }
+      case "leaderboard": this.leaderboard(); break;
+      case "startRound": if (this.room && !this.room.round) this.pub(`room/${this.room.code}/info`, this.newRoundInfo(), true); break;
+      case "crash": {
+        if (!this.room || m.round !== this.room.round) return;
+        const scores = this.room.players.map((p) => ({ id: p.id, name: p.name, score: p.id === c ? Math.max(this.myScore, m.score | 0) : this.peers.get(p.id)?.buf.at(-1)?.sc || 0 })).sort((a, b) => b.score - a.score);
+        const prevEnd = { round: this.room.round, by: this.me.name, byId: c, scores };
+        this.pub(`room/${this.room.code}/info`, this.newRoundInfo({ epoch: Date.now() + 8000, prevEnd }), true);
+        break;
+      }
+    }
+  }
+}
