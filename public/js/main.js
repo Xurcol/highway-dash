@@ -813,22 +813,31 @@ function applySettings() {
 setInterval(() => { if (sky.flow) { P.settings.hour = sky.hour; save(); ui.syncTime?.(sky.hour); } }, 2000);
 
 // ---------------- garage engine preview ----------------
-let paintTimer = 0, revVoice = null, revTimers = [];
-async function revPreview(sound, carId = P.equipped) {
+let paintTimer = 0, revVoice = null;
+// rev only while the button is held: climbs to the limiter, lift-off burbles/flutter on release
+const rev = { hold: false, rpm: 900, timer: null, spec: null, idleT: 0 };
+async function revHold(sound, carId = P.equipped, on = true) {
   await audio.init();
-  audio.vol = { master: P.settings.volMaster, engine: P.settings.volEngine, fx: P.settings.volFx };
+  audio.vol = { master: P.settings.volMaster, engine: P.settings.volEngine, fx: P.settings.volFx, wind: P.settings.volWind };
   audio.applyVolumes();
   if (!revVoice) revVoice = audio.engine(sound);
-  revVoice.setProfile(sound);
-  revVoice.tune(carTune(carId), P.settings.driveMode);
-  revTimers.forEach(clearTimeout); revTimers = [];
-  // idle -> two rising revs with lift-off crackle -> idle
-  const steps = [[0, 900, 0], [500, 4200, 1], [900, 4200, 0, "lift"], [1600, 900, 0], [2100, 6800, 1], [2750, 6800, 0, "lift"], [3700, 900, 0], [5200, 900, 0, "off"]];
-  for (const [t, rpm, thr, ev] of steps) revTimers.push(setTimeout(() => {
-    revVoice.params(rpm, thr, ev === "off" ? 0 : .85);
-    if (ev === "lift") revVoice.event("lift");
-  }, t));
+  if (on) {
+    revVoice.setProfile(sound);
+    revVoice.tune(carTune(carId), P.settings.driveMode);
+    rev.spec = specOf(carById(carId));
+    if (!rev.timer) rev.rpm = rev.spec.idle;
+  } else if (rev.hold) revVoice.event("lift");
+  rev.hold = on; rev.idleT = 0;
+  if (!rev.timer && rev.spec) rev.timer = setInterval(revTick, 25);
 }
+function revTick() {
+  const sp = rev.spec, dt = .025;
+  rev.rpm += ((rev.hold ? sp.redline * 1.02 : sp.idle) - rev.rpm) * Math.min(1, dt * (rev.hold ? 3.4 : 2.6));
+  if (rev.hold && rev.rpm >= sp.redline * .985) { rev.rpm -= sp.redline * .05; revVoice.event("limiter"); }
+  revVoice.params(rev.rpm, rev.hold ? 1 : 0, .85);
+  if (!rev.hold && (rev.idleT += dt) > 3.5) { revVoice.params(sp.idle, 0, 0); clearInterval(rev.timer); rev.timer = null; }
+}
+function revPreview(sound, carId) { revHold(sound, carId, true); setTimeout(() => revHold(sound, carId, false), 650); }
 
 // ---------------- boot ----------------
 const ui = new UI({
@@ -842,6 +851,7 @@ const ui = new UI({
     paintTimer = setTimeout(() => { Object.assign(ui.thumbs, makeThumbs([id])); if (state === "home") ui.renderHome(); }, 250);
   },
   revPreview,
+  revHold,
   applyTune,
   play: (asMode) => { audio.init(); if (asMode === "online") partyDrive(); else { partyRound = 0; enterReady(asMode); } },
   revive, restart: () => { enterReady(mode); startDriving(); }, home: goHome,

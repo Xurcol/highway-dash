@@ -135,8 +135,15 @@ export class UI {
     const sp = $("soundPick");
     sp.innerHTML = Object.entries(ENGINE_PROFILES).map(([k, p]) => `<option value="${k}">${p.label}</option>`).join("");
     sp.onchange = () => { P.sounds[this.view] = sp.value; save(); this.ctx.revPreview(sp.value, this.view); if (this.view === P.equipped) this.ctx.applyTune(); };
-    $("revBtn").onclick = () => this.ctx.revPreview(carSound(this.view), this.view);
+    this.holdToRev($("revBtn"));
     $("tuneBtn").onclick = () => this.openModal("tune");
+  }
+  holdToRev(btn) {
+    const start = (e) => { e.preventDefault(); btn.setPointerCapture?.(e.pointerId); this.ctx.revHold(carSound(this.view), this.view, true); };
+    const stop = () => this.ctx.revHold(carSound(this.view), this.view, false);
+    btn.addEventListener("pointerdown", start);
+    for (const ev of ["pointerup", "pointercancel", "lostpointercapture"]) btn.addEventListener(ev, stop);
+    btn.title = "Hold to rev";
   }
   paint(hex) {
     this.ctx.paintCar(this.view, hex);
@@ -397,7 +404,7 @@ export class UI {
     };
     for (const [id, [key]] of Object.entries(sliders)) $(id).oninput = (e) => setTune({ [key]: +e.target.value });
     $("tBrap").onchange = (e) => setTune({ brap: e.target.checked });
-    $("tuneRev").onclick = () => this.ctx.revPreview(carSound(this.view), this.view);
+    this.holdToRev($("tuneRev"));
     $("tuneReset").onclick = () => { delete P.tunes[this.view]; save(); this.ctx.applyTune(); this.renderTune(); };
     $("tRelease").innerHTML = ""; $("tuneMode").innerHTML = "";
     for (const [val, label] of [["flutter", "Turbo flutter"], ["bov", "Blow-off valve"], ["off", "Off"]]) {
