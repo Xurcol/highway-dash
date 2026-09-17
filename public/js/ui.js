@@ -331,6 +331,7 @@ export class UI {
   renderOnline() {
     const n = this.net;
     $("offlineNote").hidden = n.connected;
+    if (n.relayStatus) $("relayStatus").textContent = "Relays: " + n.relayStatus().map((r) => `${r.name} ${r.up ? "✓" : "✗"}`).join(" · ");
     if (document.activeElement !== $("nameInput")) $("nameInput").value = P.name;
     $("myCode").textContent = n.me?.code || "------";
     $("requests").innerHTML = "";
@@ -381,6 +382,10 @@ export class UI {
     });
     n.addEventListener("error", (e) => this.toast("⚠️ " + e.detail.msg));
     n.addEventListener("toast", (e) => this.toast(e.detail.msg));
+    n.addEventListener("friendRequest", (e) => {
+      const r = e.detail;
+      this.toast(`👋 ${r.name} sent you a friend request`, [{ label: "ACCEPT", run: () => n.send({ t: "friendAccept", id: r.id }) }, { label: "✕", cls: "gray", run: () => n.send({ t: "friendDecline", id: r.id }) }]);
+    });
     n.addEventListener("invite", (e) => {
       const m = e.detail;
       this.toast(`🎮 ${m.from} invited you to their party`, [{ label: "JOIN", run: () => n.send({ t: "roomJoin", code: m.room }) }, { label: "✕", cls: "gray", run: () => {} }]);

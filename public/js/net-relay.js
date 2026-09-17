@@ -14,7 +14,13 @@ import mqtt from "/vendor/mqtt.esm.js";
 import { store } from "./net.js";
 
 const ROOT = "xurcoxyz/hdash/v1/";
-const BROKERS = ["wss://broker.hivemq.com:8884/mqtt", "wss://broker.emqx.io:8084/mqtt"];
+// Every player connects to all relays at once and publishes to each, so two players can never end up
+// on different relays (a slow or blocked relay just drops out). Duplicate deliveries are filtered by id.
+const BROKERS = [
+  { name: "HiveMQ", url: "wss://broker.hivemq.com:8884/mqtt" },
+  { name: "EMQX", url: "wss://broker.emqx.io:8084/mqtt" },
+  { name: "Mosquitto", url: "wss://test.mosquitto.org:8081" },
+];
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_ROOM = 8;
 const STALE = 3 * 60 * 1000; // presence older than this counts as offline (tab closed without a clean disconnect)
@@ -39,12 +45,17 @@ export class RelayNet extends EventTarget {
     this.friendCodes = new Set(store.get("hd_friends", []));
     this.incomingMap = new Map();
     this.myScore = 0; this.lastRound = 0;
-    this.brokerIdx = 0;
+    this.links = [];
+    this.seen = new Map(); // message id -> time, for de-duplicating the same message arriving via several relays
   }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   now() { return Date.now(); }
   t(topic) { return ROOT + topic; }
-  pub(topic, obj, retain = false) { this.client?.publish(this.t(topic), obj === null ? "" : JSON.stringify(obj), { qos: retain ? 1 : 0, retain }); }
+  pub(topic, obj, retain = false) {
+    const payload = obj === null ? "" : JSON.stringify({ ...obj, _m: randCode(10) });
+    for (const l of this.links) if (l.client.connected) l.client.publish(this.t(topic), payload, { qos: retain ? 1 : 0, retain });
+  }
+  relayStatus() { return this.links.map((l) => ({ name: l.name, up: l.client.connected })); }
 
   connect(name, car) {
     let code = cookie.get("hd_code") || store.get("hd_code", null);
@@ -57,30 +68,31 @@ export class RelayNet extends EventTarget {
     this.open();
   }
   open() {
-    const url = BROKERS[this.brokerIdx % BROKERS.length];
-    const will = { topic: this.t(`presence/${this.me.code}`), payload: JSON.stringify(this.presence(true)), qos: 1, retain: true };
-    const client = (this.client = mqtt.connect(url, { clientId: `hd_${this.me.code}_${randCode(4)}`, keepalive: 20, reconnectPeriod: 3000, connectTimeout: 8000, clean: true, will }));
-    let everConnected = false;
-    client.on("connect", () => {
-      everConnected = true;
-      this.connected = true;
-      const c = this.me.code;
-      client.subscribe([this.t("presence/+"), this.t(`req/${c}/+`), this.t(`acc/${c}/+`), this.t(`inbox/${c}`), this.t("public/+")], { qos: 0 });
-      if (this.room) this.subRoom(this.room.code);
-      this.publishPresence();
-      clearInterval(this.beat);
-      this.beat = setInterval(() => this.publishPresence(), 60000);
-      this.emit("status");
-    });
-    client.on("close", () => {
-      if (!this.connected && !everConnected && this.client === client) { // broker unreachable: try the next one
-        client.end(true); this.brokerIdx++; setTimeout(() => this.open(), 1500);
-        return;
-      }
-      if (this.connected) { this.connected = false; this.emit("status"); }
-    });
-    client.on("message", (topic, payload) => this.onMessage(topic.slice(ROOT.length), payload.toString()));
+    clearInterval(this.beat);
+    this.beat = setInterval(() => { this.publishPresence(); this.pruneSeen(); }, 60000);
+    for (const b of BROKERS) {
+      const will = { topic: this.t(`presence/${this.me.code}`), payload: JSON.stringify({ ...this.presence(true), t: 0 }), qos: 1, retain: true };
+      const client = mqtt.connect(b.url, { clientId: `hd_${this.me.code}_${randCode(4)}`, keepalive: 30, reconnectPeriod: 4000, connectTimeout: 15000, clean: true, will });
+      const link = { name: b.name, client };
+      this.links.push(link);
+      client.on("connect", () => {
+        const c = this.me.code;
+        client.subscribe([this.t("presence/+"), this.t(`req/${c}/+`), this.t(`acc/${c}/+`), this.t(`inbox/${c}`), this.t("public/+")], { qos: 0 });
+        if (this.room) client.subscribe(this.roomTopics(this.room.code), { qos: 0 });
+        client.publish(this.t(`presence/${c}`), JSON.stringify({ ...this.presence(false), _m: randCode(10) }), { qos: 1, retain: true });
+        this.linkChanged();
+      });
+      client.on("close", () => this.linkChanged());
+      client.on("error", () => { });
+      client.on("message", (topic, payload) => this.onMessage(topic.slice(ROOT.length), payload.toString()));
+    }
   }
+  linkChanged() {
+    const up = this.links.some((l) => l.client.connected);
+    if (up !== this.connected) { this.connected = up; }
+    this.emit("status");
+  }
+  pruneSeen() { const cut = Date.now() - 120000; for (const [k, t] of this.seen) if (t < cut) this.seen.delete(k); }
 
   presence(offline = false) {
     return { name: this.me.name, best: this.me.best || 0, level: this.me.level || 1, car: this.car, room: offline ? null : this.room?.code || null, joinT: this.joinT, offline, t: Date.now() };
@@ -91,10 +103,17 @@ export class RelayNet extends EventTarget {
     const parts = topic.split("/");
     let m = null;
     if (raw) { try { m = JSON.parse(raw); } catch { return; } }
+    if (m && m._m) { // same message via another relay (or a retained re-delivery)
+      const key = topic + "|" + m._m;
+      if (this.seen.has(key)) return;
+      this.seen.set(key, Date.now());
+    }
     switch (parts[0]) {
       case "presence": {
         const code = parts[1];
-        if (!m) this.players.delete(code); else this.players.set(code, { ...m, code, name: cleanName(m.name) });
+        const prev = this.players.get(code);
+        if (!m) this.players.delete(code);
+        else if (!prev || (m.t || 0) >= (prev.t || 0)) this.players.set(code, { ...m, code, name: cleanName(m.name) });
         if (code === this.me.code && m) { this.me.best = Math.max(this.me.best, m.best || 0); }
         this.socialSoon();
         if (this.room) this.roomSoon();
@@ -103,6 +122,7 @@ export class RelayNet extends EventTarget {
       case "public": if (m) this.publicRooms.set(parts[1], m); else this.publicRooms.delete(parts[1]); break;
       case "req": {
         const from = parts[2];
+        if (m && !this.friendCodes.has(from) && !this.incomingMap.has(from)) this.emit("friendRequest", { id: from, name: cleanName(m.name) });
         if (m && !this.friendCodes.has(from)) this.incomingMap.set(from, cleanName(m.name));
         else this.incomingMap.delete(from);
         if (m && this.friendCodes.has(from)) this.pub(`req/${this.me.code}/${from}`, null, true); // already friends
@@ -151,8 +171,9 @@ export class RelayNet extends EventTarget {
   }
 
   // ---------- rooms ----------
-  subRoom(code) { this.client?.subscribe([this.t(`room/${code}/info`), this.t(`room/${code}/s/+`), this.t(`room/${code}/c`), this.t(`room/${code}/e`)], { qos: 0 }); }
-  unsubRoom(code) { this.client?.unsubscribe([this.t(`room/${code}/info`), this.t(`room/${code}/s/+`), this.t(`room/${code}/c`), this.t(`room/${code}/e`)]); }
+  roomTopics(code) { return [this.t(`room/${code}/info`), this.t(`room/${code}/s/+`), this.t(`room/${code}/c`), this.t(`room/${code}/e`)]; }
+  subRoom(code) { for (const l of this.links) if (l.client.connected) l.client.subscribe(this.roomTopics(code), { qos: 0 }); }
+  unsubRoom(code) { for (const l of this.links) if (l.client.connected) l.client.unsubscribe(this.roomTopics(code)); }
   joinRoom(code, info) {
     if (this.room?.code === code) return this.roomSoon(true);
     const count = [...this.players.values()].filter((p) => p.room === code && live(p)).length;
@@ -200,6 +221,8 @@ export class RelayNet extends EventTarget {
       const roundState = !info.round ? "lobby" : now < info.epoch ? "countdown" : "running";
       this.room = { code: this.room.code, seed: info.seed ?? 1, epoch: info.epoch ?? now, round: info.round || 0, roundState, traffic: info.traffic || "Heavy", public: !!info.public, players };
       const fresh = this.freshRoom; this.freshRoom = false;
+      if (!fresh && this.prevPlayers) for (const p of players) if (p.id !== this.me.code && !this.prevPlayers.has(p.id)) this.emit("toast", { msg: `🟢 ${p.name} joined the party` });
+      this.prevPlayers = new Set(players.map((p) => p.id));
       this.emit("room", { fresh });
     }, 120);
     // round state flips countdown -> running on its own clock
@@ -228,7 +251,8 @@ export class RelayNet extends EventTarget {
       case "setCar": this.car = m.car; this.publishPresence(); break;
       case "friendAdd": {
         const code = String(m.code || "").toUpperCase().trim();
-        if (code === c || !/^[A-Z2-9]{6}$/.test(code)) return this.emit("error", { msg: "No driver with that code" });
+        if (code === c) return this.emit("error", { msg: "That's your own code. Your friend needs to open the game on their own device or browser." });
+        if (!/^[A-Z2-9]{6}$/.test(code)) return this.emit("error", { msg: "Driver codes are 6 letters/numbers" });
         if (this.friendCodes.has(code)) return this.emit("error", { msg: "Already friends" });
         if (this.incomingMap.has(code)) return this.send({ t: "friendAccept", id: code });
         this.pub(`req/${code}/${c}`, { name: this.me.name }, true);
