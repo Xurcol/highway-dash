@@ -12,7 +12,13 @@ const S = 34;
 const PALETTE = [0xf2f2f2, 0x1d1f24, 0x9aa1aa, 0xc62828, 0x1e5bd8, 0xf2c230, 0x2e7d4f, 0x6d3fb0, 0xe0701c, 0x7a1f2b, 0x5b6f86, 0xd8cbb0];
 const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "van", "suv", "coupe", "muscle", "sedan", "suv", "hatch", "m340i", "q50", "x5m", "charger", "golfr", "c63", "rs6", "x3m"];
 const SWERVE_TARGET = { 0: 1, 2: 3 }; // each receiving lane has one source lane, so swerves can't collide
-const WIN = 7.5;
+const WIN = 8.6;
+// A lane change: signal for OUT_AT seconds, pull across, sit there, signal again, come back.
+const OUT_AT = 2.2, OUT_LEN = 1.5, BACK_AT = 5.8, BACK_LEN = 1.6;
+// A swerving car will not pull into a lane a driver is using. The window has to cover the whole
+// maneuver, not just this instant: a player closing at 250 km/h on 100 km/h traffic covers ~390 m
+// while the lane change plays out, so anything nearer than this would be a cut-off with no warning.
+export const SWERVE_CLEAR = { lane: 3.4, ahead: 150, behind: 420 };
 const smooth = (t) => (t <= 0 ? 0 : t >= 1 ? 1 : t * t * (3 - 2 * t));
 
 export class Traffic {
@@ -24,13 +30,17 @@ export class Traffic {
     this.cars = [];
     this.bumped = new Map();
     this.lightPool = [];
+    this.players = [];        // every driver in the session, so nobody gets cut off
+    this.blocked = new Map(); // maneuver id -> true, latched so a decision never flickers
   }
+  // main.js hands us the local player plus every remote one each frame
+  setPlayers(list) { this.players = list; }
   setSeed(seed, level = "Heavy", ramp = true) {
     this.seed = seed | 0;
     this.base = TRAFFIC_LEVELS[level] ?? TRAFFIC_LEVELS.Heavy;
     this.ramp = ramp;
     for (const [, m] of this.active) this.release(m);
-    this.active.clear(); this.bumped.clear();
+    this.active.clear(); this.bumped.clear(); this.blocked.clear();
   }
   density(j) { return this.base + (this.ramp ? Math.min(.22, Math.max(0, -j * S) / 26000) : .08); }
 
@@ -61,6 +71,23 @@ export class Traffic {
     }
     return true;
   }
+  // Would pulling into `target` put this car on top of a driver? Decided once per maneuver and
+  // latched, so a borderline case can't flicker (and so every client in a party agrees).
+  playerClear(c, target, mid, tl) {
+    if (this.blocked.has(mid)) return !this.blocked.get(mid);
+    // a car that scrolled into view already half-way across finishes the move: yanking it back
+    // would look like a teleport, and it is not the cut-off case we are guarding against
+    if (tl > OUT_AT) { this.blocked.set(mid, false); return true; }
+    const tx = laneX(target);
+    let ok = true;
+    for (const p of this.players) {
+      if (Math.abs(p.x - tx) > SWERVE_CLEAR.lane) continue;
+      if (p.z > c.z - SWERVE_CLEAR.ahead && p.z < c.z + SWERVE_CLEAR.behind) { ok = false; break; }
+    }
+    if (this.blocked.size > 400) this.blocked.clear();
+    this.blocked.set(mid, !ok);
+    return ok;
+  }
   resolve(c, T) {
     c.z = this.zAt(c, T);
     const baseX = c.dir > 0 ? laneX(c.lane) : oppLaneX(c.lane);
@@ -68,14 +95,16 @@ export class Traffic {
     c.sig = 0;
     const target = SWERVE_TARGET[c.lane];
     if (c.dir > 0 && target !== undefined && c.h(8) < .45 && c.body !== "bus") {
-      const P = 15 + c.h(9) * 14, tl = (((T + c.h(10) * P) % P) + P) % P;
+      const P = 15 + c.h(9) * 14, phase = T + c.h(10) * P, tl = ((phase % P) + P) % P;
       if (tl < WIN) {
         const T0 = T - tl;
-        if (this.swerveSafe(c, target, T0 + 1, T0 + WIN)) {
-          const k = smooth((tl - 1.2) / 1.5) * (1 - smooth((tl - 5.6) / 1.6));
+        if (this.swerveSafe(c, target, T0 + 1, T0 + WIN) && this.playerClear(c, target, `${c.key}:${Math.floor(phase / P)}`, tl)) {
+          const k = smooth((tl - OUT_AT) / OUT_LEN) * (1 - smooth((tl - BACK_AT) / BACK_LEN));
           c.x += (laneX(target) - baseX) * k;
-          if (tl < 2.7) c.sig = 1;
-          else if (tl > 5 && tl < 7.2) c.sig = -1;
+          // +1 while pulling across, -1 while coming back: the indicator has to follow the direction
+          // the car is actually moving, not the lane it started in
+          if (tl < OUT_AT + .4) c.sig = 1;
+          else if (tl > BACK_AT - .6 && tl < BACK_AT + BACK_LEN) c.sig = -1;
         }
       }
     }
@@ -109,9 +138,29 @@ export class Traffic {
     m.visible = true;
     return m;
   }
-  bump(car, impactV, sideSign) {
-    if (this.bumped.has(car.key)) return;
-    this.bumped.set(car.key, { dx: 0, dz: 0, vx: sideSign * (2 + Math.random() * 3), vz: -impactV * .35, rot: 0, vr: sideSign * (1 + Math.random() * 2), t: 0 });
+  // Knocked cars are shared: the crashing player broadcasts (key, speed, side, kick) so that
+  // everyone in the party sees the same car spin off, not just the one who hit it.
+  bump(car, impactV, sideSign, kick = null) {
+    if (this.bumped.has(car.key)) return null;
+    const k = kick || { vx: sideSign * (2 + Math.random() * 3), vr: sideSign * (1 + Math.random() * 2) };
+    this.bumped.set(car.key, { dx: 0, dz: 0, vx: k.vx, vz: -impactV * .35, rot: 0, vr: k.vr, t: 0 });
+    return { key: car.key, v: impactV, ...k };
+  }
+  // same impulse, wound forward by however long the message took to arrive
+  bumpRemote(key, impactV, kick, age = 0) {
+    if (this.bumped.has(key) || !/^-?\d+:\d+:-?\d+$/.test(key)) return;
+    this.bump({ key }, impactV, Math.sign(kick.vx) || 1, kick);
+    const b = this.bumped.get(key), lane = +key.split(":")[1], cv = SAME_V[Math.min(SAME_V.length - 1, lane)] || 30;
+    for (let t = 0; t < Math.min(3, age); t += .05) {
+      b.t += .05; b.vx *= Math.exp(-.1); b.vz *= Math.exp(-.075); b.vr *= Math.exp(-.1);
+      b.dx += b.vx * .05; b.dz += b.vz * .05 + cv * .05 * Math.min(1, b.t); b.rot += b.vr * .05;
+    }
+  }
+  // cheap fingerprint of the traffic around z, for checking that a party really is in sync
+  stateHash(T, z) {
+    let h = 0;
+    for (const c of this.query(T, z - 400, z + 60)) h = (h * 31 + Math.round(c.z * 4) + Math.round(c.x * 8) * 7919) | 0;
+    return h;
   }
   update(dt, T, focusZ, night, glows, lights, camPos, hidden = null) {
     const cars = this.query(T, focusZ - 900, focusZ + 80);
@@ -138,7 +187,7 @@ export class Traffic {
 
       const B = BODIES[c.body], hw = c.W / 2 - .3;
       if (c.sig && blink && Math.abs(c.z - focusZ) < 300) {
-        const side = SWERVE_TARGET[c.lane] > c.lane ? 1 : -1;
+        const side = (SWERVE_TARGET[c.lane] > c.lane ? 1 : -1) * c.sig;
         glows.add(c.x + side * hw, B.tl[1], c.z + c.L / 2 + .05, 1, .55, .05, 1.2);
         glows.add(c.x + side * hw, B.hl[1], c.z - c.L / 2 - .05, 1, .55, .05, 1.0);
       }

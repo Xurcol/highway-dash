@@ -11,7 +11,7 @@
 //   room/<code>/c | /e               chat | events
 //   public/<code>          retained  {traffic, t} listing for quick play
 import mqtt from "/vendor/mqtt.esm.js";
-import { store } from "./net.js";
+import { store, pushState } from "./net.js";
 
 const ROOT = "xurcoxyz/hdash/v1/";
 // Every player connects to all relays at once and publishes to each, so two players can never end up
@@ -45,15 +45,37 @@ export class RelayNet extends EventTarget {
     this.friendCodes = new Set(store.get("hd_friends", []));
     this.incomingMap = new Map();
     this.myScore = 0; this.lastRound = 0;
+    this.clockOffset = 0; this.clockSamples = []; // everyone in a party follows the host's clock
     this.links = [];
     this.seen = new Map(); // message id -> time, for de-duplicating the same message arriving via several relays
   }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
-  now() { return Date.now(); }
+  now() { return Date.now() + this.clockOffset; }
+  // Samples of (host's synced clock at send) - (our clock at receive) = offset - latency; the largest
+  // recent sample is the least-delayed one, so it's the best estimate of the true offset.
+  clockSample(from, w) {
+    const host = this.room?.players?.[0]?.id;
+    if (!host || host === this.me.code) { this.clockOffset = 0; this.clockSamples.length = 0; return; }
+    if (from !== host) return;
+    const now = Date.now();
+    this.clockSamples.push({ v: w - now, t: now });
+    while (this.clockSamples.length > 200 || (this.clockSamples.length && now - this.clockSamples[0].t > 15000)) this.clockSamples.shift();
+    const vals = this.clockSamples.map((s) => s.v).sort((a, b) => a - b);
+    const med = vals[vals.length >> 1];
+    // the largest recent sample is the least-delayed one, but a single wild packet must not latch
+    const ok = vals.filter((v) => Math.abs(v - med) < 1500);
+    const target = (ok.length ? ok[ok.length - 1] : med) + 20;
+    this.clockOffset += (target - this.clockOffset) * (Math.abs(target - this.clockOffset) > 400 ? 1 : .15);
+  }
   t(topic) { return ROOT + topic; }
   pub(topic, obj, retain = false) {
     const payload = obj === null ? "" : JSON.stringify({ ...obj, _m: randCode(10) });
     for (const l of this.links) if (l.client.connected) l.client.publish(this.t(topic), payload, { qos: retain ? 1 : 0, retain });
+  }
+  // state stream: no de-dup id needed per relay copy beyond T ordering, keep payloads small
+  pubFast(topic, obj) {
+    const payload = JSON.stringify(obj);
+    for (const l of this.links) if (l.client.connected) l.client.publish(this.t(topic), payload, { qos: 0 });
   }
   relayStatus() { return this.links.map((l) => ({ name: l.name, up: l.client.connected })); }
 
@@ -147,10 +169,11 @@ export class RelayNet extends EventTarget {
           if (from === this.me.code) break;
           let peer = this.peers.get(from);
           if (!peer) { peer = { buf: [], name: this.players.get(from)?.name || "Driver", car: m.car }; this.peers.set(from, peer); this.roomSoon(); }
-          peer.buf.push(m); if (peer.buf.length > 30) peer.buf.shift();
+          if (typeof m.w === "number") this.clockSample(from, m.w);
+          pushState(peer, m);
           peer.last = performance.now(); peer.car = m.car;
         } else if (kind === "c" && m) this.emit("chat", { name: cleanName(m.name), text: String(m.text).slice(0, 120) });
-        else if (kind === "e" && m && m.id !== this.me.code) this.emit("event", { id: m.id, name: cleanName(m.name), kind: String(m.kind), v: m.v | 0 });
+        else if (kind === "e" && m && m.id !== this.me.code) this.emit("event", { id: m.id, name: cleanName(m.name), kind: String(m.kind), v: m.v | 0, d: m.d ? String(m.d).slice(0, 48) : undefined });
         break;
       }
     }
@@ -217,7 +240,7 @@ export class RelayNet extends EventTarget {
         .map(([id, p]) => ({ id, name: id === this.me.code ? this.me.name : p.name, car: id === this.me.code ? this.car : p.car }));
       for (const id of this.peers.keys()) if (!players.some((p) => p.id === id)) { this.emit("peerLeft", id); this.peers.delete(id); }
       for (const p of players) { const peer = this.peers.get(p.id); if (peer) { peer.name = p.name; peer.car = p.car || peer.car; } }
-      const now = Date.now();
+      const now = this.now();
       const roundState = !info.round ? "lobby" : now < info.epoch ? "countdown" : "running";
       this.room = { code: this.room.code, seed: info.seed ?? 1, epoch: info.epoch ?? now, round: info.round || 0, roundState, traffic: info.traffic || "Heavy", public: !!info.public, players };
       const fresh = this.freshRoom; this.freshRoom = false;
@@ -226,11 +249,11 @@ export class RelayNet extends EventTarget {
       this.emit("room", { fresh });
     }, 120);
     // round state flips countdown -> running on its own clock
-    if (this.roomInfo?.epoch > Date.now()) { clearTimeout(this.flipT); this.flipT = setTimeout(() => this.roomSoon(), this.roomInfo.epoch - Date.now() + 30); }
+    if (this.roomInfo?.epoch > this.now()) { clearTimeout(this.flipT); this.flipT = setTimeout(() => this.roomSoon(), this.roomInfo.epoch - this.now() + 30); }
   }
   newRoundInfo(extra = {}) {
     const info = this.roomInfo || {};
-    return { round: (info.round || 0) + 1, seed: (Math.random() * 2 ** 31) | 0, epoch: Date.now() + 3500, traffic: info.traffic || "Heavy", public: !!info.public, ...extra };
+    return { round: (info.round || 0) + 1, seed: (Math.random() * 2 ** 31) | 0, epoch: this.now() + 3000, traffic: info.traffic || "Heavy", public: !!info.public, ...extra };
   }
 
   // ---------- leaderboard ----------
@@ -284,9 +307,9 @@ export class RelayNet extends EventTarget {
       case "joinFriend": { const p = this.players.get(m.id); if (!p?.room || !live(p)) return this.emit("error", { msg: "Friend isn't in a party" }); this.joinRoom(p.room); break; }
       case "invite": if (this.room) { this.pub(`inbox/${m.id}`, { type: "invite", from: this.me.name, fromId: c, room: this.room.code }); this.emit("toast", { msg: "Invite sent" }); } break;
       case "roomLeave": this.leaveRoom(); break;
-      case "state": if (this.room) { this.myScore = m.s.sc || 0; this.pub(`room/${this.room.code}/s/${c}`, m.s); } break;
+      case "state": if (this.room) { this.myScore = m.s.sc || 0; this.pubFast(`room/${this.room.code}/s/${c}`, m.s); } break;
       case "chat": if (this.room) this.pub(`room/${this.room.code}/c`, { name: this.me.name, text: String(m.text || "").slice(0, 120) }); break;
-      case "event": if (this.room) this.pub(`room/${this.room.code}/e`, { id: c, name: this.me.name, kind: m.kind, v: m.v }); break;
+      case "event": if (this.room) this.pub(`room/${this.room.code}/e`, { id: c, name: this.me.name, kind: m.kind, v: m.v, d: m.d }); break;
       case "score": {
         const s = Math.floor(Number(m.score) || 0);
         if (s > this.me.best) this.me.best = s;
@@ -301,7 +324,7 @@ export class RelayNet extends EventTarget {
         if (!this.room || m.round !== this.room.round) return;
         const scores = this.room.players.map((p) => ({ id: p.id, name: p.name, score: p.id === c ? Math.max(this.myScore, m.score | 0) : this.peers.get(p.id)?.buf.at(-1)?.sc || 0 })).sort((a, b) => b.score - a.score);
         const prevEnd = { round: this.room.round, by: this.me.name, byId: c, scores };
-        this.pub(`room/${this.room.code}/info`, this.newRoundInfo({ epoch: Date.now() + 8000, prevEnd }), true);
+        this.pub(`room/${this.room.code}/info`, this.newRoundInfo({ epoch: this.now() + 3000, prevEnd }), true);
         break;
       }
     }

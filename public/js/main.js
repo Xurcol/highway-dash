@@ -7,8 +7,9 @@ import { CARS, BODIES, specOf, DetailedCar } from "./cars.js";
 import { Drivetrain } from "./vehicle.js";
 import { AudioManager } from "./audio.js";
 import { Glows, uploadLights, lampUniforms } from "./lights.js";
-import { createNet } from "./net.js";
-import { P, save, carById, carColor, carSound, carTune, MEDALS, addXp, medalCount } from "./profile.js";
+import { createNet, RemoteView, NET } from "./net.js";
+import { P, save, carById, carColor, carSound, carTune, carAudio, MEDALS, addXp, medalCount } from "./profile.js";
+import { tunedSpec } from "./tuning.js";
 import { UI } from "./ui.js";
 import { loadModels, makeCar } from "./models.js";
 
@@ -155,6 +156,8 @@ addEventListener("keyup", (e) => {
   if (e.code === "KeyH") audio.horn(false);
 });
 addEventListener("blur", () => { for (const k in keys) keys[k] = false; audio.horn(false); });
+// no browser context menu on the game (text fields keep theirs so paste still works)
+addEventListener("contextmenu", (e) => { if (!["INPUT", "TEXTAREA"].includes(e.target?.tagName)) e.preventDefault(); });
 const held = (...codes) => codes.some((c) => keys[c]);
 
 // ---------------- game state ----------------
@@ -174,28 +177,43 @@ const G = {
 const getT = () => (mode === "online" && net.room ? (net.now() - net.room.epoch) / 1000 : soloT);
 
 function makeDrivetrain() {
-  const d = new Drivetrain(specOf(G.def));
+  const d = new Drivetrain(tunedSpec(G.def.id, carTune(G.def.id)));
   d.manual = P.settings.manual;
   d.mode = P.settings.driveMode;
   d.engineBrake = carTune(G.def.id).engineBrake;
   return d;
 }
+// A tune change rebuilds the physics view of the car (torque curve, boost curve, gearing, limiter)
+// and hands the audio side the derived character - never an unrelated engine.
 function applyTune() {
-  G.engine?.tune(carTune(G.def.id), P.settings.driveMode);
-  if (G.dt) { G.dt.mode = P.settings.driveMode; G.dt.engineBrake = carTune(G.def.id).engineBrake; }
+  const tune = carTune(G.def.id);
+  G.engine?.tune(carAudio(G.def.id), P.settings.driveMode);
+  if (G.dt) {
+    const s = tunedSpec(G.def.id, tune);
+    Object.assign(G.dt.s, s);
+    G.dt.peak = s.peakTorque;
+    G.dt.baseVmax = s.vmax;
+    G.dt.gear = Math.min(G.dt.gear, s.ratios.length);
+    G.cfgDirty = 1;
+    G.dt.mode = P.settings.driveMode;
+    G.dt.engineBrake = tune.engineBrake;
+  }
 }
-// traffic near the spawn point is hidden and can't hit you for 2 s, and stays hidden until it's clear of you
+// Traffic near the spawn point can't hit you for 2 s, and stays harmless until it's clear of you.
+// Solo it is also hidden; in a party it stays visible, because everyone has to see the same cars.
 function shieldSpawn() {
   const T = getT();
   G.shield = new Set(traffic.query(T, G.z - 120, G.z + 90, [1]).map((c) => c.key));
   G.shieldT = 2;
 }
+const shieldHidden = () => (mode === "online" ? null : G.shield);
 function buildPlayerCar() {
   if (G.car) { scene.remove(G.car.group); G.car.dispose(); }
   G.def = carById(P.equipped);
   G.car = makeCar(G.def.id, carColor(G.def.id));
   scene.add(G.car.group);
   G.dt = makeDrivetrain();
+  G.cfgDirty = 1;
   if (G.engine) G.engine.setProfile(carSound(G.def.id));
 }
 
@@ -229,7 +247,7 @@ function enterReady(asMode) {
     soloT = 0; G.z = 0;
   }
   G.x = pickSpawn(getT(), G.z);
-  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0 });
+  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
   G.prevDz.clear();
   G.dt.v = 0; G.readyRpm = G.dt.s.idle;
   G.car.group.position.set(G.x, 0, G.z); G.car.group.rotation.set(0, 0, 0);
@@ -260,11 +278,13 @@ function crash(hitCar) {
     ang: new THREE.Vector3((Math.random() - .5) * 8, (Math.random() - .5) * 10, side * (4 + Math.random() * 5)),
     bounces: 0,
   };
-  if (hitCar) traffic.bump(hitCar, v, -side);
+  const kick = hitCar ? traffic.bump(hitCar, v, -side) : null;
+  // tell the party which traffic car got knocked, so everyone sees the same wreck
+  if (kick && mode === "online" && net.room) net.send({ t: "event", kind: "bump", v: Math.round(v), d: `${kick.key}|${kick.vx.toFixed(2)}|${kick.vr.toFixed(2)}|${getT().toFixed(2)}` });
   audio.crash(Math.min(1, v / 50));
   G.crashT = 0; G.shake = 1;
   G.engine?.params(G.dt.s.idle, 0, 0);
-  if (mode === "online" && partyRound) net.send({ t: "crash", round: partyRound, score: Math.floor(G.score) });
+  if (mode === "online" && partyRound) { const res = awardRun(); ui.toast(`+${res.coins} coins`); G.awarded = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score) }); }
   else net.send({ t: "event", kind: "crash", v: Math.floor(G.score) });
 }
 function awardRun() {
@@ -283,6 +303,7 @@ function awardRun() {
 function finishRun() {
   if (state !== "crashed") return;
   state = "over";
+  if (G.awarded) { G.awarded = false; return; }
   const result = awardRun();
   if (mode === "online" && partyRound) return ui.toast(`+${result.coins} coins`); // party: results banner comes from the server
   ui.showOver(result);
@@ -290,7 +311,7 @@ function finishRun() {
 
 // ---------------- party rounds ----------------
 // Everyone in a party starts together on the same seed + clock; the first crash ends the round for all.
-let partyRound = 0;
+let partyRound = 0, lastResults = null;
 const LANE_ORDER = [2, 1, 3, 0, 4];
 function enterPartyRound() {
   const room = net.room;
@@ -322,7 +343,7 @@ function roundOver() { // someone else crashed: our run stops where we are
 net.addEventListener("room", () => {
   const r = net.room;
   if (!r || !r.round || r.round === partyRound || r.roundState !== "countdown") return;
-  const wait = r.epoch - net.now() - 3500; // leave the previous round's results up until the countdown
+  const wait = r.epoch - net.now() - 3000;
   const go = () => { if (net.room && net.room.round === r.round && r.round !== partyRound) enterPartyRound(); };
   if (mode === "online" && state !== "home" || state === "home" && ui.onlineSelected) wait > 0 ? setTimeout(go, wait) : go();
   else ui.toast(`🏁 Party round ${r.round} starting`, [{ label: "JOIN", run: enterPartyRound }]);
@@ -331,7 +352,7 @@ net.addEventListener("roundEnd", (e) => {
   const m = e.detail;
   if (mode !== "online" || m.round !== partyRound || state === "home") return;
   roundOver();
-  ui.showRoundResults(m, net.me?.id, 8);
+  lastResults = m;
 });
 function revive() {
   if (state !== "over" || G.revives >= 3 || P.hearts <= 0) return false;
@@ -402,30 +423,55 @@ function sendChat() {
 
 // ---------------- remote players ----------------
 const remotes = new Map();
-function nameTag(name) {
-  const c = document.createElement("canvas"); c.width = 256; c.height = 64;
+const PLAYER_COLORS = ["#3dd6ff", "#ff5ad1", "#ffd23d", "#7dff5a", "#ff8a3d", "#b27dff", "#ff4a55", "#4dffc3"];
+function nameTag(name, color) {
+  const c = document.createElement("canvas"); c.width = 512; c.height = 128;
   const g = c.getContext("2d");
-  g.font = "700 34px Fredoka, sans-serif"; g.textAlign = "center"; g.lineWidth = 7; g.strokeStyle = "#000";
-  g.strokeText(name, 128, 44); g.fillStyle = "#7fd8ff"; g.fillText(name, 128, 44);
+  g.font = "700 60px Fredoka, sans-serif";
+  const w = Math.min(496, g.measureText(name).width + 70);
+  const x0 = 256 - w / 2;
+  g.fillStyle = "rgba(10,14,24,.88)"; g.strokeStyle = color; g.lineWidth = 8;
+  g.beginPath(); g.roundRect(x0, 14, w, 92, 46); g.fill(); g.stroke();
+  g.fillStyle = color; g.beginPath(); g.arc(x0 + 38, 60, 12, 0, Math.PI * 2); g.fill();
+  g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(name, 256 + 14, 62);
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace;
   const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: t, depthTest: false, transparent: true }));
-  s.renderOrder = 20;
+  s.renderOrder = 22;
   return s;
+}
+let glowTexture = null;
+function glowTex() {
+  if (glowTexture) return glowTexture;
+  const c = document.createElement("canvas"); c.width = c.height = 128;
+  const g = c.getContext("2d"), grd = g.createRadialGradient(64, 64, 10, 64, 64, 64);
+  grd.addColorStop(0, "rgba(255,255,255,.9)"); grd.addColorStop(.5, "rgba(255,255,255,.35)"); grd.addColorStop(1, "rgba(255,255,255,0)");
+  g.fillStyle = grd; g.fillRect(0, 0, 128, 128);
+  return (glowTexture = new THREE.CanvasTexture(c));
 }
 function syncRemote(id, peer) {
   let r = remotes.get(id);
-  const def = carById(peer.buf.at(-1)?.car || CARS[0].id);
-  const last = peer.buf.at(-1) || {};
+  const newest = peer.buf.at(-1);
+  if (newest?.c && !newest._cfg) { newest._cfg = 1; peer.cfg = newest.c; peer.cfgN = (peer.cfgN || 0) + 1; } // identity/tune block, a couple of times a second
+  const last = peer.cfg || {};
+  const def = carById(last.car || CARS[0].id);
   if (!r || r.carId !== def.id) {
     if (r) { scene.remove(r.car.group); r.car.dispose(); }
     const car = makeCar(def.id, last.col ?? def.color);
-    const tag = r?.tag || nameTag(peer.name);
-    car.group.add(tag); tag.position.set(0, 2.6, 0);
+    const color = PLAYER_COLORS[[...id].reduce((a, ch) => a + ch.charCodeAt(0), 0) % PLAYER_COLORS.length];
+    const B = BODIES[def.body];
+    const tag = nameTag(peer.name, color);
+    tag.position.set(0, B.top + 2.1, 0);
+    const arrow = new THREE.Mesh(new THREE.ConeGeometry(.32, .7, 4).rotateX(Math.PI), new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: .95 }));
+    arrow.renderOrder = 21; arrow.position.set(0, B.top + 1.15, 0);
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(B.W * 2, B.L * 1.35).rotateX(-Math.PI / 2), new THREE.MeshBasicMaterial({ map: glowTex(), color, transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: .8 }));
+    glow.position.y = .04; glow.renderOrder = 2;
+    car.group.add(tag, arrow, glow);
     scene.add(car.group);
-    r = { car, tag, carId: def.id, col: last.col, snd: null, voice: r?.voice || null, s: null, name: peer.name };
+    r = { car, tag, arrow, glow, color, carId: def.id, col: last.col, snd: null, voice: r?.voice || null, s: null, name: peer.name, view: r?.view || new RemoteView() };
     remotes.set(id, r);
   }
   if (last.col !== undefined && last.col !== r.col) { r.col = last.col; r.car.setColor(last.col); }
+  if (last.a) { r.cfgA = last.a; if (r.voice && r.aN !== peer.cfgN) { r.aN = peer.cfgN; r.voice.tune(last.a, last.md ? "comfort" : "sport"); } }
   return r;
 }
 net.addEventListener("peerLeft", (e) => {
@@ -437,44 +483,100 @@ net.addEventListener("peerLeft", (e) => {
 function updateRemotes(T, dt) {
   const listener = new THREE.Vector3(G.x, 0, G.z);
   const list = [];
+  const hideNames = !!P.settings.hideNames;
   for (const [id, peer] of net.peers) {
     if (!peer.buf.length || performance.now() - (peer.last || 0) > 5000) continue;
     const r = syncRemote(id, peer);
-    const s = net.sample(peer, T - 0.12);
+    // snapshot interpolation: drawn a beat in the past so there is always a snapshot either side
+    const s = r.view.update(peer, T, dt);
+    if (!s) continue;
     r.s = s;
+    const cfg = peer.cfg || {};
     const g = r.car.group;
     g.visible = mode === "online" && state !== "home";
+    const prevZ = g.position.z;
     g.position.set(s.x, s.y || 0, s.z);
     g.rotation.set(s.pitch || 0, s.ry || 0, s.roll || 0);
-    r.car.update((r.prevZ ?? s.z) - s.z, 0);
-    r.prevZ = s.z;
+    r.car.update(Math.max(0, prevZ - s.z), 0);
     r.car.setLights(s.brk, s.sl, s.sr, sky.night);
     const dist = listener.distanceTo(g.position);
-    r.tag.scale.set(3.2 + dist * .02, (3.2 + dist * .02) / 4, 1);
-    list.push({ r, dist, s });
+    const ts = 2.6 + dist * .018;
+    r.tag.visible = !hideNames;
+    r.tag.scale.set(ts, ts / 4, 1);
+    const B = BODIES[carById(cfg.car || r.carId).body];
+    r.arrow.position.y = B.top + 1.15 + Math.sin(performance.now() / 250) * .15;
+    r.arrow.scale.setScalar(1 + dist * .006);
+    r.glow.material.opacity = s.cr ? 0 : .55 + Math.sin(performance.now() / 300) * .2;
+    list.push({ r, dist, s, id });
     if (sky.lampsOn && !s.cr) {
-      const B = BODIES[carById(s.car).body];
       for (const k of [-1, 1]) {
         glows.add(s.x + k * (B.W / 2 - .35), B.tl[1], s.z + B.L / 2, 1, s.brk ? .15 : .05, .05, s.brk ? 1.4 : .8);
         glows.add(s.x + k * (B.W / 2 - .35), B.hl[1], s.z - B.L / 2, 1, .95, .85, 1.5);
       }
     }
   }
-  // engine sounds for the two closest party members
+  // engine sounds for the two closest party members, voiced locally from their synced engine state
   list.sort((a, b) => a.dist - b.dist);
   list.forEach(({ r, dist, s }, i) => {
     if (!audio.ready || mode !== "online") return;
+    const cfg = r.cfgA || null;
     if (i < 2 && dist < 140 && !s.cr) {
-      const snd = s.snd || carSound(carById(s.car).id);
+      const snd = cfg?.engine || carSound(r.carId);
       if (!r.voice) r.voice = audio.engine(snd);
       if (r.snd !== snd) { r.snd = snd; r.voice.setProfile(snd); }
-      r.voice.params(s.rpm || 900, s.thr || 0, .8);
-      const tk = `${s.md}|${s.bu}|${s.bd}`;
-      if (r.tk !== tk) { r.tk = tk; r.voice.tune({ burble: s.bu ?? 1, decay: s.bd ?? 1.1 }, s.md ? "comfort" : "sport"); }
+      r.voice.params({
+        rpm: s.rpm || 900, throttle: s.thr || 0, gain: .8, load: s.ld ?? s.thr ?? 0,
+        boostNorm: (s.bo ?? 0) / 100, gear: s.g || 1, redline: cfg?.redline || 7000,
+      });
       r.voice.setPan((s.x - G.x) / 20, Math.max(0, 1 - dist / 140) ** 2 * .7);
-    } else r.voice?.params(900, 0, 0);
+    } else r.voice?.params({ rpm: 900, throttle: 0, gain: 0, load: 0 });
   });
-  ui.renderPartyHud(list.map(({ r, s }) => ({ name: r.name, dz: G.z - s.z, score: s.sc || 0, crashed: s.cr })));
+  ui.renderPartyHud(list.map(({ r, s }) => ({ name: r.name, dz: G.z - s.z, score: s.sc || 0, crashed: s.cr, color: r.color })));
+  // screen-edge markers for players that are off-screen or far away
+  const markers = [];
+  if (state !== "home") for (const { r, dist, id, s } of list) {
+    const p = tmpV.set(s.x, 1.5, s.z).project(camera);
+    const behind = p.z > 1;
+    let sx = (p.x * .5 + .5) * innerWidth, sy = (-p.y * .5 + .5) * innerHeight;
+    const onScreen = !behind && sx > 30 && sx < innerWidth - 30 && sy > 90 && sy < innerHeight - 30;
+    if (onScreen && dist < 160) continue;
+    if (behind) { sx = innerWidth - sx; sy = innerHeight - 40; }
+    sx = Math.max(70, Math.min(innerWidth - 70, sx)); sy = Math.max(110, Math.min(innerHeight - 40, sy));
+    const dz = Math.round(G.z - s.z);
+    markers.push({ id, name: r.name, color: r.color, x: sx, y: sy, text: `${behind ? "▼" : "▲"} ${hideNames ? "" : r.name + " "}${dz >= 0 ? "+" : ""}${dz}m` });
+  }
+  ui.renderPeerMarkers(markers);
+  return list;
+}
+
+// ---------------- multiplayer catch-up ----------------
+// When you fall a long way behind the pack the car gets a gentle, gradual power boost - no
+// teleporting and no rubber-band snap. Three thresholds keep it from flickering on and off:
+// it arms past `on`, is at full strength down to `full`, fades out to nothing at `off`.
+// Tweak live through window.__game.CATCHUP.
+const CATCHUP = { on: 500, full: 300, off: 150, maxPower: .35, maxKmh: 25, rampUp: .5, rampDown: 1.2 };
+function updateCatchUp(dt, list) {
+  const d = G.dt;
+  if (!d) return;
+  const alive = mode === "online" && state === "drive" && list && list.some((x) => !x.s.cr);
+  if (!alive) { G.catchOn = false; G.catch = Math.max(0, (G.catch || 0) - dt * CATCHUP.rampDown); }
+  else {
+    const lead = Math.min(...list.filter((x) => !x.s.cr).map((x) => x.s.z));
+    const gap = G.z - lead;                       // positive: the pack is ahead of us
+    if (gap > CATCHUP.on) G.catchOn = true;
+    if (gap < CATCHUP.off) G.catchOn = false;
+    const want = G.catchOn ? Math.max(0, Math.min(1, (gap - CATCHUP.off) / (CATCHUP.full - CATCHUP.off))) : 0;
+    const step = dt * (want > (G.catch || 0) ? CATCHUP.rampUp : CATCHUP.rampDown);
+    G.catch = Math.max(0, Math.min(1, (G.catch || 0) + Math.max(-step, Math.min(step, want - (G.catch || 0)))));
+  }
+  d.assist = 1 + G.catch * CATCHUP.maxPower;
+  if (d.baseVmax) d.s.vmax = d.baseVmax + G.catch * CATCHUP.maxKmh;
+}
+// every driver in the session, so traffic knows not to change lanes into any of us
+function allPlayers() {
+  const out = state === "home" ? [] : [{ x: G.x, z: G.z }];
+  if (mode === "online") for (const r of remotes.values()) if (r.s && !r.s.cr) out.push({ x: r.s.x, z: r.s.z });
+  return out;
 }
 
 // ---------------- simulation ----------------
@@ -486,15 +588,20 @@ function updateDrive(dt, T) {
   const d = G.dt, def = G.def, B = BODIES[def.body];
   const thrIn = held("KeyW", "ArrowUp") ? 1 : 0, brkIn = held("KeyS", "ArrowDown", "Space") ? 1 : 0;
   const sport = P.settings.driveMode === "sport";
+  const prevThr = G.thr;
   G.thr += (thrIn - G.thr) * Math.min(1, dt * (thrIn > G.thr ? (sport ? 14 : 5) : 12));
-  if (G.prevThrIn && !thrIn && d.rpm > 2200) G.engine?.event("lift"); // turbo flutter + overrun burble
+  // everything the burble model needs: how hard it was pulling, how fast the pedal came up, boost
+  const evInfo = () => ({ rpm: d.rpm, load: G.liftLoad ?? d.load, boost: d.s.boostMax ? d.boost / d.s.boostMax : 0, gear: d.gear, release: G.release || 0 });
+  if (thrIn) { G.release = 0; G.liftLoad = d.load; }
+  else { G.liftLoad = Math.max(d.load, (G.liftLoad || 0) * Math.exp(-dt * .7)); G.release = (G.release || 0) * Math.exp(-dt * 1.2); }
+  if (G.prevThrIn && !thrIn) { G.release = 10; G.engine?.event("lift", evInfo()); } // snap lift: flutter + overrun burble
   G.prevThrIn = thrIn;
   G.brk += (brkIn - G.brk) * Math.min(1, dt * 12);
   const events = d.update(dt, G.thr, G.brk);
   for (const ev of events) {
-    if (ev === "upshift" || ev === "autoUp") { G.engine?.event(G.thr > .3 ? "upshift" : "limiter"); if (ev === "upshift") audio.shiftClunk(true); }
-    else if (ev === "downshift" || ev === "autoDown") { G.engine?.event("downshift"); if (ev === "downshift") audio.shiftClunk(false); }
-    else if (ev === "limiter" || ev === "lift") G.engine?.event(ev);
+    if (ev === "upshift" || ev === "autoUp") { G.engine?.event(G.thr > .3 ? "upshift" : "limiter", evInfo()); if (ev === "upshift") audio.shiftClunk(true); }
+    else if (ev === "downshift" || ev === "autoDown") { G.engine?.event("downshift", evInfo()); if (ev === "downshift") audio.shiftClunk(false); }
+    else if (ev === "limiter" || ev === "lift") G.engine?.event(ev, evInfo());
     else if (ev === "deny") audio.deny();
   }
   const v = d.v, kmh = v * 3.6;
@@ -642,17 +749,18 @@ function updateEngineSound(dt) {
     const before = G.readyRpm;
     G.readyRpm += (target - G.readyRpm) * Math.min(1, dt * (thr ? 5 : 2.2));
     if (G.readyRpm > d.s.redline * .7 && thr) { G.readyRpm -= 500; G.engine.event("limiter"); }
-    if (G.prevReadyThr && !thr && before > 3500) G.engine.event("lift");
+    if (G.prevReadyThr && !thr && before > 3500) G.engine.event("lift", { rpm: before, load: 1, release: 10, boost: .8, gear: 1 });
     G.prevReadyThr = thr;
-    G.engine.params(G.readyRpm, thr, .85);
+    G.engine.params({ rpm: G.readyRpm, throttle: thr, gain: .85, load: thr * .9, boostNorm: thr * Math.min(1, G.readyRpm / 4000), gear: 1, redline: d.s.redline, warmth: d.warmth });
   } else if (state === "drive" && !paused) {
-    G.engine.params(d.rpm, d.shiftT > 0 && G.thr > .3 ? .1 : G.thr, .85);
+    G.engine.params(d.audioState(d.shiftT > 0 && G.thr > .3 ? .1 : G.thr, .85));
   } else if (state !== "home") {
-    G.engine.params(d.s.idle * .6, 0, 0);
+    G.engine.params({ rpm: d.s.idle * .6, throttle: 0, gain: 0, load: 0, boostNorm: 0 });
   }
 }
 
 // ---------------- HUD ----------------
+const MPH = 0.621371; // speeds are shown in mph everywhere
 const tachCtx = document.getElementById("tach").getContext("2d");
 function drawTach(rpm, redline, manual) {
   const g = tachCtx, cx = 130, cy = 130, R = 104;
@@ -679,8 +787,8 @@ function updateHud() {
   const d = G.dt, kmh = d.v * 3.6;
   setText(ui.el.score, Math.floor(G.score).toLocaleString());
   setText(ui.el.best, "BEST " + Math.max(P.best, Math.floor(G.score)).toLocaleString());
-  setText(ui.el.speed, P.settings.mph ? `${Math.round(kmh * .6214)} MPH` : `${Math.round(kmh)} Km/H`);
-  setText(ui.el.dist, P.settings.mph ? `${(G.dist / 1609).toFixed(1)}Mi` : `${(G.dist / 1000).toFixed(1)}Km`);
+  setText(ui.el.speed, `${Math.round(kmh * MPH)} MPH`);
+  setText(ui.el.dist, `${(G.dist / 1609.34).toFixed(1)}Mi`);
   setText(ui.el.gear, d.shiftT > 0 ? "-" : String(d.gear));
   setText(ui.el.gearMode, d.manual ? "MANUAL" : "AUTO");
   setText(ui.el.driveMode, P.settings.driveMode === "sport" ? "SPORT" : "COMFORT");
@@ -690,6 +798,7 @@ function updateHud() {
   ui.el.sigR.classList.toggle("on", !!G.sigR && G.sigOn);
   ui.el.speedUp.classList.toggle("on", state === "drive" && G.slowT > 1.2);
   ui.el.ghost.hidden = !(G.ghostT > 0 && state === "drive");
+  ui.el.catchUp.hidden = !((G.catch || 0) > .05 && state === "drive");
   if (G.comboT <= 0) ui.el.combo.classList.remove("on");
   drawTach(d.rpm, d.s.redline, d.manual);
 }
@@ -729,9 +838,11 @@ function frame(now) {
   const T = getT();
   glows.begin();
   lights.length = 0;
+  traffic.setPlayers(allPlayers());
 
   if (state === "ready" && mode === "online" && partyRound) {
-    ui.setReady(`ROUND ${partyRound}`, net.room ? net.room.players.map((p) => p.name).join(" · ") : "", T < 0 ? String(Math.ceil(-T)) : "GO!");
+    const recap = lastResults && lastResults.round === partyRound - 1 ? `💥 ${lastResults.by} crashed — ${lastResults.scores.map((p) => `${p.name} ${p.score.toLocaleString()}`).join(" · ")}` : net.room ? net.room.players.map((p) => p.name).join(" · ") : "";
+    ui.setReady(`ROUND ${partyRound}`, recap, T < 0 ? String(Math.ceil(-T)) : "GO!");
     if (T >= 0) startDriving();
   }
   if (state === "ended") { // coast to a stop after the round ended
@@ -770,8 +881,9 @@ function frame(now) {
   world.update(focus, sky, glows, lights, dt);
   sky.tunnel = world.tunnel;
   if (audio.ready) audio.setTunnel(state === "home" ? 0 : world.tunnel);
-  traffic.update(simDt, T, G.z, sky.lampsOn, glows, lights, camera.position, state === "home" ? null : G.shield);
-  if (mode === "online") updateRemotes(T, dt);
+  traffic.update(simDt, T, G.z, sky.lampsOn, glows, lights, camera.position, state === "home" ? null : shieldHidden());
+  const peerList = mode === "online" ? updateRemotes(T, dt) : null;
+  if (!paused) updateCatchUp(simDt, peerList);
   uploadLights(lights, camera);
   glows.end(renderer.domElement.height);
   updateEngineSound(dt);
@@ -783,14 +895,25 @@ function frame(now) {
   if (mode === "online" && net.room && G.dt) {
     G.sendT -= dt;
     if (G.sendT <= 0) {
-      G.sendT = 1 / (net.sendRate || 15);
-      const t = G.thrown, gp = G.car.group;
-      net.send({ t: "state", s: {
+      G.sendT = 1 / (net.sendRate || NET.sendRate);
+      const t = G.thrown, gp = G.car.group, d = G.dt;
+      // Lean, high-rate packet: only what can't be derived. Engine audio is rebuilt on each client
+      // from rpm/throttle/load/boost/gear, so no audio data is ever streamed.
+      const s = {
         T: +T.toFixed(3), x: +G.x.toFixed(2), z: +G.z.toFixed(2), y: +(t ? t.pos.y : 0).toFixed(2),
         ry: +gp.rotation.y.toFixed(3), pitch: +gp.rotation.x.toFixed(3), roll: +gp.rotation.z.toFixed(3),
-        v: +G.dt.v.toFixed(2), rpm: Math.round(G.dt.rpm), thr: +G.thr.toFixed(2), brk: G.brk > .3 ? 1 : 0,
-        sl: G.sigL && G.sigOn ? 1 : 0, sr: G.sigR && G.sigOn ? 1 : 0, cr: state !== "drive" ? 1 : 0, sc: Math.floor(G.score), car: G.def.id, col: carColor(G.def.id), snd: carSound(G.def.id), md: P.settings.driveMode === "sport" ? 0 : 1, bu: carTune(G.def.id).burble, bd: carTune(G.def.id).decay,
-      } });
+        w: Math.round(net.now()), rd: partyRound, vx: +G.vx.toFixed(2), v: +d.v.toFixed(2),
+        rpm: Math.round(d.rpm), thr: +G.thr.toFixed(2), ld: +d.load.toFixed(2), g: d.gear, sh: d.shiftT > 0 ? 1 : 0,
+        bo: Math.round((d.s.boostMax ? d.boost / d.s.boostMax : 0) * 100),
+        brk: G.brk > .3 ? 1 : 0, sl: G.sigL && G.sigOn ? 1 : 0, sr: G.sigR && G.sigOn ? 1 : 0,
+        cr: state !== "drive" ? 1 : 0, sc: Math.floor(G.score),
+      };
+      // identity + engine character: twice a second, and right away when something changes
+      if ((G.cfgTick = (G.cfgTick || 0) - 1) <= 0 || G.cfgDirty) {
+        G.cfgTick = 10; G.cfgDirty = 0;
+        s.c = { car: G.def.id, col: carColor(G.def.id), md: P.settings.driveMode === "sport" ? 0 : 1, a: carAudio(G.def.id) };
+      }
+      net.send({ t: "state", s });
     }
   }
 
@@ -823,10 +946,10 @@ async function revHold(sound, carId = P.equipped, on = true) {
   if (!revVoice) revVoice = audio.engine(sound);
   if (on) {
     revVoice.setProfile(sound);
-    revVoice.tune(carTune(carId), P.settings.driveMode);
-    rev.spec = specOf(carById(carId));
+    revVoice.tune(carAudio(carId), P.settings.driveMode);
+    rev.spec = tunedSpec(carId, carTune(carId));
     if (!rev.timer) rev.rpm = rev.spec.idle;
-  } else if (rev.hold) revVoice.event("lift");
+  } else if (rev.hold) revVoice.event("lift", { rpm: rev.rpm, load: 1, release: 10, boost: 1, gear: 2 });
   rev.hold = on; rev.idleT = 0;
   if (!rev.timer && rev.spec) rev.timer = setInterval(revTick, 25);
 }
@@ -834,8 +957,9 @@ function revTick() {
   const sp = rev.spec, dt = .025;
   rev.rpm += ((rev.hold ? sp.redline * 1.02 : sp.idle) - rev.rpm) * Math.min(1, dt * (rev.hold ? 3.4 : 2.6));
   if (rev.hold && rev.rpm >= sp.redline * .985) { rev.rpm -= sp.redline * .05; revVoice.event("limiter"); }
-  revVoice.params(rev.rpm, rev.hold ? 1 : 0, .85);
-  if (!rev.hold && (rev.idleT += dt) > 3.5) { revVoice.params(sp.idle, 0, 0); clearInterval(rev.timer); rev.timer = null; }
+  const boostN = rev.hold ? Math.min(1, Math.max(0, (rev.rpm - 1600) / 2600)) : 0;
+  revVoice.params({ rpm: rev.rpm, throttle: rev.hold ? 1 : 0, gain: .85, load: rev.hold ? .85 : 0, boostNorm: boostN, gear: 2, redline: sp.redline, warmth: 1 });
+  if (!rev.hold && (rev.idleT += dt) > 3.5) { revVoice.params({ rpm: sp.idle, throttle: 0, gain: 0, load: 0 }); clearInterval(rev.timer); rev.timer = null; }
 }
 function revPreview(sound, carId) { revHold(sound, carId, true); setTimeout(() => revHold(sound, carId, false), 650); }
 
@@ -866,6 +990,10 @@ net.addEventListener("event", (e) => {
   const m = e.detail;
   if (m.kind === "crash") ui.toast(`💥 ${m.name} crashed at ${m.v.toLocaleString()}`);
   if (m.kind === "combo") ui.toast(`🔥 ${m.name} is on a x${m.v} close-call streak`);
+  if (m.kind === "bump" && m.d) {
+    const [key, vx, vr, tt] = String(m.d).split("|");
+    traffic.bumpRemote(key, m.v, { vx: +vx || 0, vr: +vr || 0 }, Math.max(0, getT() - (+tt || 0)));
+  }
 });
 
 applySettings();
@@ -878,4 +1006,9 @@ ui.renderHome();
 net.connect(P.name, P.equipped);
 requestAnimationFrame(frame);
 
-window.__game = { G, sky, traffic, net, world, renderer, scene, camera, glows, frame, get state() { return state; } };
+window.__game = {
+  G, sky, traffic, net, world, renderer, scene, camera, glows, frame, remotes, NET, CATCHUP,
+  get state() { return state; }, get mode() { return mode; },
+  // quick sync check: two clients in the same party must print the same number
+  trafficHash: () => traffic.stateHash(getT(), G.z),
+};

@@ -1,5 +1,8 @@
 // Audio: engine voices, wind/road/rain beds and one-shot effects, all synthesized.
-import { EngineDSP } from "./engine-dsp.js";
+import { EngineDSP, burbleIntensity, DEFAULT_TUNE } from "./engine-dsp.js";
+
+// Callers may pass a full engine state object or the old (rpm, throttle, gain) triple.
+const asState = (a, b, c) => (typeof a === "object" && a !== null ? a : { rpm: a, throttle: b, gain: c });
 
 class EngineVoice {
   constructor(am, profile) {
@@ -22,8 +25,8 @@ class EngineVoice {
     this.post({ type: "profile", name: profile });
   }
   setProfile(name) { this.post({ type: "profile", name }); }
-  params(rpm, throttle, gain) { this.post({ type: "params", rpm, throttle, gain }); }
-  event(type, v) { this.post({ type, v }); }
+  params(a, b, c) { this.post({ type: "params", ...asState(a, b, c) }); }
+  event(type, info) { this.post({ type, ...(info || {}) }); }
   tune(tune, mode) { this.post({ type: "tune", tune, mode }); }
   setPan(p, vol = 1) {
     const t = this.am.ctx.currentTime;
@@ -70,8 +73,8 @@ class SampleVoice {
         this.layers.push({ src, g, rpm: e.rpm, kind });
       }
     }
-    this.thr = 0; this.rpm = 900; this.peakThr = 0;
-    this.tuneState = { burble: .75, decay: 1.1, turbo: .8, exhaust: .9, brap: true, release: "flutter" };
+    this.thr = 0; this.rpm = 900; this.peakThr = 0; this.load = 0; this.boostN = 0; this.gear = 1; this.warmth = 1;
+    this.tuneState = { ...DEFAULT_TUNE };
     this.mode = "sport";
   }
   weights(kind, rpm) {
@@ -84,21 +87,36 @@ class SampleVoice {
     }
     return w;
   }
-  params(rpm, throttle, gain) {
-    const t = this.ctx.currentTime;
-    this.rpm = rpm;
-    this.thr += (throttle - this.thr) * .3;
+  params(a, b, c) {
+    const s = asState(a, b, c), t = this.ctx.currentTime, rpm = s.rpm;
+    this.rpm = rpm; this.gear = s.gear || this.gear;
+    if (s.warmth !== undefined) this.warmth = s.warmth;
+    this.thr += ((s.throttle || 0) - this.thr) * .3;
+    // blend the on/off-throttle ladders by real engine load so coasting at speed sounds like coasting
+    const drive = Math.max(this.thr * .55, Math.min(1, s.load !== undefined ? s.load : this.thr));
+    this.load += (drive - this.load) * .3;
+    this.boostN += ((s.boostNorm || 0) - this.boostN) * .25;
     this.peakThr = Math.max(this.peakThr * .97, this.thr);
     const wOn = this.weights("on", rpm), wOff = this.weights("off", rpm);
     for (const l of this.layers) {
       const w = (l.kind === "on" ? wOn : wOff).get(l);
-      const level = l.kind === "on" ? .25 + .75 * this.thr : (1 - this.thr) * 2.1;
+      const level = l.kind === "on" ? .25 + .75 * this.load : (1 - this.load) * 2.1;
       l.g.gain.setTargetAtTime(w * level, t, .04);
       if (w > 0) l.src.playbackRate.setTargetAtTime(Math.max(.55, Math.min(1.7, rpm / l.rpm)), t, .03);
     }
     const sport = this.mode === "sport";
-    this.master.gain.setTargetAtTime(gain * .3 * this.tuneState.exhaust * (sport ? 1 : .65), t, .06);
+    this.master.gain.setTargetAtTime((s.gain || 0) * .3 * this.tuneState.exhaust * (sport ? 1 : .65), t, .06);
     this.tone.frequency.setTargetAtTime(sport ? 6500 : 3800, t, .2);
+  }
+  // same decel-fuel-cut model the synth uses, so recorded and synthesised engines behave alike
+  intensity(info = {}) {
+    const T = this.tuneState;
+    return burbleIntensity({
+      rpm: info.rpm ?? this.rpm, load: info.load ?? this.load, release: info.release ?? 6,
+      boost: info.boost ?? this.boostN, gear: info.gear ?? this.gear, warmth: this.warmth,
+      redline: T.redline || 7000, burbleRpm: T.burbleRpm || 3000,
+      burble: T.burble, crackle: 1, sport: this.mode === "sport",
+    });
   }
   shot(list, gain, delay = 0) {
     if (!list || !list.length) return;
@@ -113,17 +131,32 @@ class SampleVoice {
     g.cancelScheduledValues(t); g.setValueAtTime(v, t);
     g.linearRampToValueAtTime(v * depth, t + .01); g.linearRampToValueAtTime(v, t + dur);
   }
-  event(type) {
+  // a varied train of real pops: count, level, spacing and pitch all come from the intensity model
+  burst(count, amp, gap, spread) {
+    let at = .02 + Math.random() * .03;
+    for (let i = 0; i < count; i++) {
+      const k = i / Math.max(1, count - 1);
+      this.shot(this.bank.pops, Math.min(.35, amp * (.5 + Math.random() * .7) * (1 - k * .6)), at);
+      at += (gap + Math.random() * spread) * (1 + k * .8);
+      if (at > Math.max(.3, this.tuneState.decay) * 1.15) break;
+    }
+  }
+  event(type, info = {}) {
     const T = this.tuneState, sport = this.mode === "sport", b = this.bank;
     if (type === "limiter") this.dip(.045, .45);
-    else if (type === "upshift") { this.dip(.08, .3); if (sport && T.brap) this.shot(b.pops, .22 * T.burble, .03); }
-    else if (type === "downshift") { const n = sport ? 2 + ((Math.random() * 2) | 0) : 1; for (let i = 0; i < n; i++) this.shot(b.pops, .18 * T.burble, .08 + i * .09); }
-    else if (type === "lift") {
-      if (this.rpm > 2600) {
-        const n = Math.round((2 + 7 * T.burble) * (sport ? 1 : .25));
-        for (let i = 0; i < n; i++) { const k = i / Math.max(1, n); this.shot(b.pops, .2 * T.burble * (1 - k * .8), .12 + k * T.decay * (.6 + Math.random() * .4)); }
-      }
-      if (T.release !== "off" && T.turbo > 0 && this.peakThr > .5 && this.rpm > 3000) this.shot(b.flutter, .22 * T.turbo, .02);
+    else if (type === "upshift") {
+      this.dip(.08, .3);
+      const I = this.intensity({ ...info, release: 9 });
+      if (sport && T.brap && Math.random() < Math.min(1, .15 + 1.1 * I)) this.burst(Math.min(3, 1 + Math.round(I * 3)), .28 * I + .08, .05, .04);
+      if (b.shift?.length) this.shot(b.shift, .25);
+    } else if (type === "downshift") {
+      const I = Math.max(this.intensity({ ...info, release: 7 }), sport ? .12 : 0);
+      if (I > .04) this.burst(1 + Math.round(I * 3), .25 * I + .06, .075, .05);
+      if (b.shift?.length) this.shot(b.shift, .22);
+    } else if (type === "lift") {
+      const I = this.intensity(info);
+      if (I > .05) this.burst(Math.min(10, 2 + Math.round(I * 9)), .3 * I, .06, .06);
+      if (T.release !== "off" && (T.turbo > 0 || T.t51r) && this.boostN > .15) this.shot(b.flutter, Math.min(.4, .2 * (T.flutter || .7) + .12 * this.boostN), .02);
     }
   }
   tune(t, mode) { Object.assign(this.tuneState, t || {}); if (mode) this.mode = mode; }
@@ -140,7 +173,7 @@ class SmartEngine {
     const s = this.state;
     if (s.tune) voice.tune(s.tune, s.mode);
     if (s.pan) voice.setPan(s.pan[0], s.pan[1]);
-    if (s.params) voice.params(s.params[0], s.params[1], s.params[2]);
+    if (s.params) voice.params(s.params);
   }
   setProfile(name) {
     if (name === this.name) return;
@@ -150,8 +183,8 @@ class SmartEngine {
     if (this.voice instanceof EngineVoice) this.voice.setProfile(synthName); else this.use(new EngineVoice(this.am, synthName));
     if (bankName) loadBank(this.am.ctx, bankName).then((bank) => { if (bank && this.name === name) this.use(new SampleVoice(this.am, bank)); });
   }
-  params(rpm, throttle, gain) { this.state.params = [rpm, throttle, gain]; this.voice.params(rpm, throttle, gain); }
-  event(type, v) { this.voice.event(type, v); }
+  params(a, b, c) { const s = asState(a, b, c); this.state.params = s; this.voice.params(s); }
+  event(type, info) { this.voice.event(type, info); }
   tune(tune, mode) { this.state.tune = tune; this.state.mode = mode; this.voice.tune(tune, mode); }
   setPan(p, vol) { this.state.pan = [p, vol]; this.voice.setPan(p, vol); }
   dispose() { if (this.voice) this.voice.dispose(); }

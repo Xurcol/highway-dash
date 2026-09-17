@@ -47,13 +47,13 @@
       <div id="ciRarity" class="rarity">LEGENDARY</div>
       <h1 id="ciName">Car</h1>
       <div id="ciSpec" class="spec">V10 · 7-speed DCT</div>
-      <div id="ciTop" class="spec">Top speed 330 km/h</div>
+      <div id="ciTop" class="spec">Top speed 205 mph</div>
       <div class="custom">
         <div class="custom-label">🎨 PAINT</div>
         <div class="swatches" id="swatches"></div>
         <label class="custom-pick">Custom <input type="color" id="paintPick"></label>
-        <div class="custom-label">🔊 ENGINE SOUND</div>
-        <div class="row"><select id="soundPick"></select><button class="btn gold" id="revBtn">HOLD REV</button><button class="btn blue" id="tuneBtn">🔧 TUNE</button></div>
+        <div class="custom-label">🔊 ENGINE</div>
+        <div class="row"><span id="ciEngine" class="engine-badge"></span><button class="btn gold" id="revBtn">HOLD REV</button><button class="btn blue" id="tuneBtn">🔧 TUNE</button></div>
       </div>
       <button id="ciAction" class="btn gray wide">EQUIPPED</button>
     </aside>
@@ -91,14 +91,16 @@
   <div id="speedUp" class="speedup">SPEED UP!</div>
   <div class="speedo">
     <span id="sigL" class="sig">◀</span>
-    <div><div id="speed">0 Km/H</div><div id="dist">0.0Km</div></div>
+    <div><div id="speed">0 MPH</div><div id="dist">0.0Mi</div></div>
     <span id="sigR" class="sig">▶</span>
   </div>
   <div id="combo" class="combo">CLOSE CALL! x1</div>
   <div class="tach"><canvas id="tach" width="260" height="260"></canvas><div class="gear"><b id="gear">1</b><span id="gearMode">AUTO</span><span id="driveMode" class="drivemode sport">SPORT</span></div></div>
   <div id="partyList" class="partylist"></div>
+  <div id="peerMarkers" class="peer-markers"></div>
   <div id="chatLog" class="chatlog"></div>
   <input id="chatInput" class="chatinput" maxlength="120" placeholder="Say something… (Enter)" hidden>
+  <div id="catchUp" class="catchup" hidden>CATCHING UP</div>
   <div id="ghostNote" class="ghostnote" hidden>INVULNERABLE</div>
   <div id="roundBanner" class="round-banner" hidden></div>
 </section>
@@ -218,7 +220,7 @@
         <div class="chips" id="trafficLevels"></div>
         <h3>DRIVING</h3>
         <label class="toggle"><input type="checkbox" id="optManual"> Start in manual gearbox [M]</label>
-        <label class="toggle"><input type="checkbox" id="optMph"> Show MPH</label>
+        <label class="toggle"><input type="checkbox" id="optHideNames"> Hide other players' names</label>
         <h3>GRAPHICS</h3>
         <label class="toggle"><input type="checkbox" id="optShadows"> Shadows</label>
         <label class="slider">Resolution <input type="range" id="optRes" min="0.5" max="2" step="0.25"></label>
@@ -237,27 +239,38 @@
   <div class="panel modal-box tune-box">
     <button class="close" data-close>✕</button>
     <h2>🔧 TUNING <small id="tuneCar"></small></h2>
-    <div class="settings-grid">
-      <div>
+    <div class="tune-head">
+      <div class="tune-engine" id="tuneEngine"></div>
+      <div class="tune-nums" id="tuneNums"></div>
+    </div>
+    <div class="tune-grid">
+      <div class="tune-col">
+        <h3>ENGINE MAP</h3>
+        <div id="tuneSliders"></div>
+        <h3>PARTS</h3>
+        <div id="tuneParts"></div>
+      </div>
+      <div class="tune-col">
+        <h3>DYNO <small>hp &amp; torque vs rpm</small></h3>
+        <canvas id="chartDyno" class="chart" width="560" height="230"></canvas>
+        <h3>BOOST <small>psi vs rpm</small></h3>
+        <canvas id="chartBoost" class="chart" width="560" height="160"></canvas>
+        <h3>FUEL &amp; TIMING</h3>
+        <canvas id="chartFuel" class="chart" width="560" height="150"></canvas>
+        <h3>TEMPERATURES</h3>
+        <canvas id="chartTemp" class="chart" width="560" height="150"></canvas>
+      </div>
+      <div class="tune-col">
         <h3>DRIVE MODE <small>[N]</small></h3>
         <div class="chips" id="tuneMode"></div>
         <p class="muted small">Sport: exhaust valves open, sharper throttle, holds gears, burbles on overrun. Comfort: quiet exhaust, early upshifts, softer shifts.</p>
-        <h3>EXHAUST</h3>
-        <label class="slider">Burbles <input type="range" id="tBurble" min="0" max="2" step="0.05"><b id="tBurbleV"></b></label>
-        <label class="slider">Duration <input type="range" id="tDecay" min="0.2" max="3" step="0.05"><b id="tDecayV"></b></label>
-        <label class="slider">Pop style <input type="range" id="tMix" min="0" max="1" step="0.05"><b id="tMixV"></b></label>
-        <label class="slider">Rasp <input type="range" id="tRasp" min="0" max="2" step="0.05"><b id="tRaspV"></b></label>
-        <label class="slider">Volume <input type="range" id="tExhaust" min="0.5" max="1.5" step="0.05"><b id="tExhaustV"></b></label>
-        <label class="toggle"><input type="checkbox" id="tBrap"> Upshift "brap" crackle (Sport)</label>
-      </div>
-      <div>
-        <h3>TURBO / SUPERCHARGER</h3>
-        <label class="slider">Whistle <input type="range" id="tTurbo" min="0" max="1.5" step="0.05"><b id="tTurboV"></b></label>
-        <div class="muted small">Release sound when you lift off W</div>
+        <h3>EXHAUST CHARACTER</h3>
+        <div id="tuneExhaust"></div>
+        <label class="toggle"><input type="checkbox" id="tBrap"> Upshift crackle when hot &amp; loaded</label>
+        <div class="muted small" style="margin-top:8px">Sound when you lift off W</div>
         <div class="chips" id="tRelease"></div>
-        <h3>DRIVETRAIN</h3>
-        <label class="slider">Engine braking <input type="range" id="tEngineBrake" min="0" max="2" step="0.05"><b id="tEngineBrakeV"></b></label>
-        <div class="row" style="margin-top:18px"><button class="btn gold" id="tuneRev">🔊 HOLD TO REV</button><button class="btn gray" id="tuneReset">RESET</button></div>
+        <div id="tuneWarn" class="tune-warn" hidden></div>
+        <div class="row" style="margin-top:14px"><button class="btn gold" id="tuneRev">🔊 HOLD TO REV</button><button class="btn gray" id="tuneReset">RESET TO STOCK</button></div>
       </div>
     </div>
   </div>

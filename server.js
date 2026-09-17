@@ -98,7 +98,7 @@ function joinRoom(ws, r) {
 }
 const LEVELS = ["Chill", "Normal", "Heavy", "Insane"];
 // ---- party rounds: everyone starts together on the same seed; the first crash ends the round for all ----
-const COUNTDOWN = 3500, RESULTS = 4500;
+const COUNTDOWN = 3000, RESULTS = 0;
 function startRound(r, delay = COUNTDOWN) {
   clearTimeout(r.timer);
   r.round++;
@@ -252,7 +252,7 @@ wss.on("connection", (ws) => {
       case "event": { // close calls, crashes: shown to party
         const r = rooms.get(ws.room);
         if (!r) return;
-        r.members.forEach((id) => id !== u.id && toUser(id, { t: "event", id: u.id, name: u.name, kind: String(m.kind).slice(0, 20), v: m.v | 0 }));
+        r.members.forEach((id) => id !== u.id && toUser(id, { t: "event", id: u.id, name: u.name, kind: String(m.kind).slice(0, 20), v: m.v | 0, d: m.d === undefined ? undefined : String(m.d).slice(0, 48) }));
         break;
       }
       case "score": {

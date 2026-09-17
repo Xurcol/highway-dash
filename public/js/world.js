@@ -222,7 +222,12 @@ export class World {
           B.tBand.add(wx - face * .42, 7.2, z, .04, .25, SEG + .02);
         }
         B.tCeil.add(-13.9, 9, z, 56.2, .8, SEG + .02);
-        B.hill.add(-14, -10, z, 90, 26, SEG * .9, hillCol);
+        // The mountain is built from three masses that all stay OUTSIDE the bore (walls at x 13.8 /
+        // -41.6, ceiling at y 9.8). hill instances are ellipsoids whose x/y/z are semi-axes, so a
+        // single big one centred on the road reached eye height and blacked out the tunnel.
+        B.hill.add(-14, 18.4, z, 44, 8.6, SEG * .6, hillCol);
+        B.hill.add(38, 2, z, 22, 17, SEG * .6, hillCol);
+        B.hill.add(-66, 2, z, 22, 17, SEG * .6, hillCol);
         for (let p = 0; p < 4; p++) B.tPillar.add(-14, .95, k * SEG + p * 12 + 6, .7, 8.05, .7);
         for (let p = 0; p < 6; p++) {
           const lz = k * SEG + p * 8 + 4;
@@ -233,7 +238,10 @@ export class World {
           B.tPortal.add(-13.9, 9, pz, 60, 8, 2.4);
           B.tPortal.add(19, 0, pz, 10, 17, 4);
           B.tPortal.add(-47, 0, pz, 11, 17, 4);
-          B.hill.add(-14, -6, pz + (pz === tun[0] ? -18 : 18), 80, 26, 40, hillCol);
+          const off = pz === tun[0] ? 16 : -16; // the hillside the portal is cut into, just outside the mouth
+          B.hill.add(-14, 19, pz + off, 48, 9.4, 20, hillCol);
+          B.hill.add(40, 2, pz + off, 24, 18, 20, hillCol);
+          B.hill.add(-68, 2, pz + off, 24, 18, 20, hillCol);
         }
         continue;
       }

@@ -1,4 +1,5 @@
-// Longitudinal drivetrain model: torque curve, gears, DCT-style shifts, rev limiter.
+// Longitudinal drivetrain model: tuned torque curve, boost dynamics, gears, DCT-style shifts,
+// rev limiter, engine braking. Every number it uses comes from tuning.js - nothing is randomised.
 const G = 9.81;
 
 export class Drivetrain {
@@ -9,19 +10,30 @@ export class Drivetrain {
     this.rpm = spec.idle;
     this.manual = false;
     this.mode = "sport";
-    this.engineBrake = 1;  // tuning multiplier
+    this.engineBrake = spec.engineBrakeTune ?? 1;
     this.ebForce = 0;      // last engine-braking force (N), for HUD/sound
-    this.shiftT = 0;     // remaining shift time
+    this.shiftT = 0;       // remaining shift time
     this.lastShift = 0;
     this.limiterT = 0;
     this.prevThr = 0;
     this.events = [];
+    this.peak = spec.peakTorque || spec.torque;
+    this.boost = 0;        // psi, with turbo lag
+    this.load = 0;         // 0..1 fraction of peak torque actually being made
+    this.accel = 0;        // m/s^2, smoothed
+    this.overrun = false;  // closed throttle with the clutch engaged (engine braking)
+    this.warmth = 0;       // 0 cold .. 1 at operating temperature
+    this.assist = 1;       // catch-up multiplier (multiplayer only)
+    this.baseVmax = spec.vmax;
+    this.revMatch = 0;     // seconds left of a downshift throttle blip
   }
   ratio(g = this.gear) { return this.s.ratios[g - 1] * this.s.final; }
   rpmFor(v, g = this.gear) { return (v / (2 * Math.PI * this.s.tire)) * 60 * this.ratio(g); }
-  torqueCurve(rpm) {
+  // absolute crank torque (Nm) at an rpm - tuned curve when the car has one, old shape otherwise
+  torque(rpm) {
+    if (this.s.torqueAt) return this.s.torqueAt(rpm);
     const t = Math.min(1.05, rpm / this.s.redline);
-    return Math.max(0.35, 0.58 + 0.95 * t - 0.62 * t * t);
+    return this.s.torque * Math.max(0.35, 0.58 + 0.95 * t - 0.62 * t * t);
   }
   shiftUp(auto = false) {
     if (this.gear >= this.s.ratios.length || this.shiftT > 0.02) return false;
@@ -33,6 +45,7 @@ export class Drivetrain {
     if (this.gear <= 1 || this.shiftT > 0.02) return false;
     if (this.rpmFor(this.v, this.gear - 1) > this.s.redline * 1.03) { this.events.push("deny"); return false; }
     this.gear--; this.shiftT = this.s.shiftTime * (this.mode === "sport" ? .6 : 1.3); this.lastShift = 0;
+    this.revMatch = .22;
     this.events.push(auto ? "autoDown" : "downshift");
     return true;
   }
@@ -40,11 +53,13 @@ export class Drivetrain {
     const s = this.s;
     this.lastShift += dt;
     if (this.shiftT > 0) this.shiftT -= dt;
+    if (this.revMatch > 0) this.revMatch -= dt;
+    this.warmth = Math.min(1, this.warmth + dt / 55);
 
     // engine speed (clutch slips in 1st at low speed so launches rev up)
     let rpm = this.rpmFor(this.v);
     if (this.gear === 1 && this.v < 9) rpm = Math.max(rpm, s.idle + throttle * s.redline * 0.45 * (1 - this.v / 9));
-    rpm = Math.max(s.idle, rpm);
+    rpm = Math.max(s.idle * (1 + .18 * (1 - this.warmth)), rpm); // fast idle while cold
 
     let thr = throttle;
     if (s.vmax && this.v * 3.6 >= s.vmax) thr = 0;
@@ -55,22 +70,34 @@ export class Drivetrain {
     }
     this.rpm = Math.min(rpm, s.redline * 1.04);
 
+    // ---- boost: spools towards the steady-state curve, bleeds off fast when the throttle shuts ----
+    const clutched = this.shiftT <= 0;
+    const want = s.boostAt ? s.boostAt(this.rpm) * Math.min(1, thr * 1.35) * (clutched ? 1 : .35) : 0;
+    const lag = s.turboLag || 1;
+    const tau = want > this.boost ? (s.induction === "super" ? .03 : .16 * lag) : (s.induction === "super" ? .03 : .10);
+    this.boost += (want - this.boost) * Math.min(1, dt / tau);
+
     const wheelMul = this.ratio() / s.tire * 0.9;
-    let F = thr * s.torque * this.torqueCurve(this.rpm) * wheelMul;
+    const tq = this.torque(this.rpm);
+    let F = thr * tq * wheelMul * this.assist;
     if (this.shiftT > 0) F *= 0.2;
     F = Math.min(F, s.mass * G * s.grip);
+    this.load = Math.max(0, Math.min(1.2, (thr * tq) / Math.max(1, this.peak) * (this.shiftT > 0 ? .2 : 1)));
     // engine braking: friction + pumping losses grow with rpm and are multiplied by the gear,
     // so a downshift slows the car harder. Clutch is open mid-shift and while slipping in 1st.
     this.ebForce = 0;
-    if (throttle < 0.05 && this.shiftT <= 0 && !(this.gear === 1 && this.v < 9)) {
+    this.overrun = false;
+    if (throttle < 0.05 && clutched && !(this.gear === 1 && this.v < 9)) {
       const x = Math.min(1.05, this.rpm / s.redline);
-      this.ebForce = s.torque * (0.07 + 0.24 * Math.pow(x, 1.3)) * wheelMul * this.engineBrake * (this.mode === "sport" ? 1.15 : .85);
+      this.overrun = this.rpm > s.idle * 1.4;
+      this.ebForce = this.peak * (0.07 + 0.24 * Math.pow(x, 1.3)) * wheelMul * this.engineBrake * (this.mode === "sport" ? 1.15 : .85);
       F -= this.ebForce;
     }
     F -= 0.5 * 1.2 * s.cda * this.v * this.v + 0.013 * s.mass * G;
     F -= brake * s.mass * G * 1.05;
-    this.v = Math.max(0, this.v + (F / s.mass) * dt);
-
+    const a = F / s.mass;
+    this.accel += (a - this.accel) * Math.min(1, dt * 8);
+    this.v = Math.max(0, this.v + a * dt);
 
     if (!this.manual && this.shiftT <= 0 && this.lastShift > 0.35) {
       const sport = this.mode === "sport";
@@ -82,7 +109,18 @@ export class Drivetrain {
         if ((this.rpm < s.redline * floor || (throttle > 0.9 && this.rpm < s.redline * (sport ? .62 : .5))) && lower < s.redline * (sport ? .9 : .7)) this.shiftDown(true);
       }
     }
+    this.prevThr = throttle;
     const ev = this.events; this.events = [];
     return ev;
+  }
+  // everything the audio layer needs to voice this engine, in one object
+  audioState(throttle, gain) {
+    const s = this.s;
+    return {
+      rpm: this.rpm, throttle, gain, load: this.load, boost: this.boost,
+      boostNorm: s.boostMax ? Math.min(1.2, this.boost / s.boostMax) : 0,
+      gear: this.gear, speed: this.v, accel: this.accel, shifting: this.shiftT > 0,
+      overrun: this.overrun, redline: s.redline, warmth: this.warmth,
+    };
   }
 }

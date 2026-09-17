@@ -1,11 +1,13 @@
 // DOM side: garage, HUD helpers, game-over popup, leaderboards, online + settings panels.
 import { CARS, RARITY_COLORS, specOf, carStats } from "./cars.js";
-import { P, save, carById, carColor, carSound, carTune, TUNE_DEFAULT, PAINTS, MEDALS, HEART_PACKS, xpForLevel, medalCount } from "./profile.js";
+import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAINTS, MEDALS, HEART_PACKS, xpForLevel, medalCount } from "./profile.js";
 import { SOUND_LABELS } from "./engine-dsp.js";
+import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, summary, defaultTune, maxBoostFor } from "./tuning.js";
 import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
 
 const $ = (id) => document.getElementById(id);
+const MPH = 0.621371; // the game shows mph only
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const fmtK = (n) => (n >= 1000 ? (n / 1000).toFixed(n % 1000 ? 1 : 0).replace(/\.0$/, "") + "K" : String(n));
 
@@ -21,7 +23,7 @@ export class UI {
     this.onlineSelected = false;
     this.el = {
       score: $("score"), best: $("best"), speed: $("speed"), dist: $("dist"), gear: $("gear"), gearMode: $("gearMode"),
-      driveMode: $("driveMode"), sigL: $("sigL"), sigR: $("sigR"), speedUp: $("speedUp"), ghost: $("ghostNote"), combo: $("combo"),
+      driveMode: $("driveMode"), sigL: $("sigL"), sigR: $("sigR"), speedUp: $("speedUp"), ghost: $("ghostNote"), combo: $("combo"), catchUp: $("catchUp"),
     };
     this.chatInput = $("chatInput");
     this.wireCommon();
@@ -95,13 +97,25 @@ export class UI {
     log.appendChild(d);
     while (log.children.length > 8) log.firstChild.remove();
   }
+  renderPeerMarkers(list) {
+    const box = $("peerMarkers");
+    const seen = new Set();
+    for (const m of list) {
+      seen.add(m.id);
+      let el = box.querySelector(`[data-id="${m.id}"]`);
+      if (!el) { el = document.createElement("div"); el.className = "peer-marker"; el.dataset.id = m.id; box.appendChild(el); }
+      el.style.borderColor = m.color; el.style.transform = `translate(${m.x}px, ${m.y}px) translate(-50%, -50%)`;
+      if (el.textContent !== m.text) el.textContent = m.text;
+    }
+    for (const el of [...box.children]) if (!seen.has(el.dataset.id)) el.remove();
+  }
   renderPartyHud(list) {
     const now = performance.now();
     if (now - (this.partyHudT || 0) < 250) return;
     this.partyHudT = now;
     $("partyList").innerHTML = list.map((p) => {
       const dz = Math.round(p.dz);
-      return `<div class="${p.crashed ? "crashed" : ""}">${esc(p.name)} · ${dz >= 0 ? "+" : ""}${dz}m · ${p.score.toLocaleString()}</div>`;
+      return `<div class="${p.crashed ? "crashed" : ""}" style="border-color:${p.color || "#3dff6a"}">${esc(p.name)} · ${dz >= 0 ? "+" : ""}${dz}m · ${p.score.toLocaleString()}</div>`;
     }).join("");
   }
   wireCommon() {
@@ -132,9 +146,6 @@ export class UI {
     };
     $("ciAction").onclick = () => this.buyOrEquip(this.view, () => this.renderHome());
     $("paintPick").oninput = (e) => this.paint(parseInt(e.target.value.slice(1), 16));
-    const sp = $("soundPick");
-    sp.innerHTML = Object.entries(SOUND_LABELS).map(([k, label]) => `<option value="${k}">${label}</option>`).join("");
-    sp.onchange = () => { P.sounds[this.view] = sp.value; save(); this.ctx.revPreview(sp.value, this.view); if (this.view === P.equipped) this.ctx.applyTune(); };
     this.holdToRev($("revBtn"));
     $("tuneBtn").onclick = () => this.openModal("tune");
   }
@@ -182,8 +193,8 @@ export class UI {
     $("swatches").innerHTML = [car.color, ...PAINTS.filter((c) => c !== car.color)].slice(0, 12).map((c) => `<button data-c="${c}" class="${c === col ? "on" : ""}" style="background:#${c.toString(16).padStart(6, "0")}" title="${c === car.color ? "Factory" : ""}"></button>`).join("");
     [...$("swatches").children].forEach((b) => (b.onclick = () => this.paint(+b.dataset.c)));
     $("paintPick").value = "#" + col.toString(16).padStart(6, "0");
-    $("soundPick").value = carSound(car.id);
-    $("ciTop").textContent = `Top speed ${Math.round(P.settings.mph ? st.top * .6214 : st.top)} ${P.settings.mph ? "mph" : "km/h"} · ${spec.torque} Nm`;
+    $("ciEngine").textContent = engineOf(car).label; // the engine belongs to the car - no swapping
+    $("ciTop").textContent = `Top speed ${Math.round(st.top * MPH)} mph · ${spec.torque} Nm`;
     const a = $("ciAction");
     if (P.equipped === car.id) { a.textContent = "EQUIPPED"; a.className = "btn gray wide"; }
     else if (P.owned.includes(car.id)) { a.textContent = "EQUIP"; a.className = "btn blue wide"; }
@@ -398,23 +409,31 @@ export class UI {
   }
 
   // ---------- tuning ----------
+  // Every control here feeds the simulation in tuning.js, and every number shown is computed from
+  // it. Nothing is randomised: the same tune always gives the same curve and the same performance.
   wireTune() {
-    const sliders = { tBurble: ["burble", (v) => Math.round(v * 100) + "%"], tDecay: ["decay", (v) => v.toFixed(1) + "s"], tMix: ["mix", (v) => (v < .35 ? "burble" : v > .65 ? "crackle" : "mixed")],
-      tRasp: ["rasp", (v) => Math.round(v * 100) + "%"], tExhaust: ["exhaust", (v) => Math.round(v * 100) + "%"], tTurbo: ["turbo", (v) => Math.round(v * 100) + "%"], tEngineBrake: ["engineBrake", (v) => Math.round(v * 100) + "%"] };
-    this.tuneSliders = sliders;
-    const setTune = (patch) => {
-      P.tunes[this.view] = { ...carTune(this.view), ...patch }; save();
-      if (this.view === P.equipped) this.ctx.applyTune();
-      this.renderTune();
-    };
-    for (const [id, [key]] of Object.entries(sliders)) $(id).oninput = (e) => setTune({ [key]: +e.target.value });
-    $("tBrap").onchange = (e) => setTune({ brap: e.target.checked });
+    this.ENGINE_CONTROLS = [
+      { key: "boost", label: "Target boost", fmt: (v) => v.toFixed(1) + " psi", boosted: true, hint: "Air pressure the ECU aims for. More boost = more torque, more heat, more stress." },
+      { key: "wastegate", label: "Wastegate duty", fmt: (v) => Math.round(v * 100) + "%", boosted: true, hint: "Higher duty holds the gate shut: spools earlier, overshoots more, holds boost up top." },
+      { key: "timing", label: "Ignition timing", fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1) + "°", hint: "Advance makes power until it knocks - then the ECU pulls timing and you LOSE power." },
+      { key: "afr", label: "Target AFR", fmt: (v) => v.toFixed(1) + ":1", hint: "Richer is safer and cooler, leaner makes a little more power until it knocks." },
+      { key: "revLimit", label: "Rev limit", fmt: (v) => Math.round(v) + " rpm", hint: "Raising it keeps a gear alive longer, but the curve is already falling up there." },
+      { key: "final", label: "Final drive", fmt: (v) => v.toFixed(2), hint: "Shorter (higher number) = more wheel torque, lower top speed." },
+      { key: "gearing", label: "Gear spread", fmt: (v) => v.toFixed(2) + "x " + (v > 1.005 ? "shorter" : v < .995 ? "taller" : "stock"), hint: "Scales every gear. Above 1 = shorter: more wheel torque and revs, less speed per 1000 rpm." },
+    ];
+    this.EXHAUST_CONTROLS = [
+      { key: "burble", label: "Decel fuel cut", fmt: (v) => Math.round(v * 100) + "%" },
+      { key: "decay", label: "Burble length", fmt: (v) => v.toFixed(1) + "s" },
+      { key: "mix", label: "Pop style", fmt: (v) => (v < .35 ? "burble" : v > .65 ? "crackle" : "mixed") },
+      { key: "engineBrake", label: "Engine braking", fmt: (v) => Math.round(v * 100) + "%" },
+    ];
     this.holdToRev($("tuneRev"));
-    $("tuneReset").onclick = () => { delete P.tunes[this.view]; save(); this.ctx.applyTune(); this.renderTune(); };
+    $("tBrap").onchange = (e) => this.setTune({ brap: e.target.checked });
+    $("tuneReset").onclick = () => { this.tunePrev = summary(carById(this.view), carTune(this.view)); resetTune(this.view); this.afterTune(); };
     $("tRelease").innerHTML = ""; $("tuneMode").innerHTML = "";
     for (const [val, label] of [["flutter", "Turbo flutter"], ["bov", "Blow-off valve"], ["off", "Off"]]) {
       const b = document.createElement("button"); b.textContent = label; b.dataset.v = val;
-      b.onclick = () => setTune({ release: val });
+      b.onclick = () => this.setTune({ release: val });
       $("tRelease").appendChild(b);
     }
     for (const [val, label] of [["sport", "🔥 Sport"], ["comfort", "🍃 Comfort"]]) {
@@ -423,16 +442,157 @@ export class UI {
       $("tuneMode").appendChild(b);
     }
   }
+  setTune(patch) {
+    this.tunePrev = summary(carById(this.view), carTune(this.view)); // for the before -> after readout
+    setTune(this.view, patch);
+    this.afterTune();
+  }
+  afterTune() {
+    if (this.view === P.equipped) this.ctx.applyTune();
+    this.tuneStamp = performance.now();
+    this.renderTune();
+  }
   renderTune() {
-    const t = carTune(this.view);
-    $("tuneCar").textContent = carById(this.view).name;
-    for (const [id, [key, fmt]] of Object.entries(this.tuneSliders)) {
-      if (document.activeElement !== $(id)) $(id).value = t[key];
-      $(id + "V").textContent = fmt(+t[key]);
+    const car = carById(this.view), t = carTune(this.view), e = engineOf(car), boosted = isBoosted(e);
+    const sum = summary(car, t), stock = summary(car, defaultTune(car));
+    $("tuneCar").textContent = car.name;
+    $("tuneEngine").innerHTML = `<b>${esc(e.label)}</b><small>${e.disp.toFixed(1)}L · ${e.cyl} cyl · ${boosted ? (e.induction === "super" ? "supercharged" : e.turbos > 1 ? "twin-turbo" : "turbo") : "naturally aspirated"} · audio locked to this engine</small>`;
+
+    // headline numbers, with the previous tune's value beside anything that just changed
+    const fresh = performance.now() - (this.tuneStamp || 0) < 6000 ? this.tunePrev : null;
+    const cell = (label, val, prev, fmt) => {
+      const changed = fresh && Math.abs(prev - val) > Math.max(.01, Math.abs(val) * .002);
+      return `<div class="tnum ${changed ? "chg" : ""}"><span>${label}</span><b>${changed ? `<i>${fmt(prev)}</i> → ` : ""}${fmt(val)}</b></div>`;
+    };
+    const f0 = (v) => Math.round(v).toLocaleString(), f1 = (v) => v.toFixed(1);
+    $("tuneNums").innerHTML =
+      cell("Power", sum.hp, fresh?.hp, (v) => `${f0(v)} hp`) +
+      cell("Torque", sum.nm, fresh?.nm, (v) => `${f0(v)} Nm`) +
+      (boosted ? cell("Peak boost", sum.peakBoost, fresh?.peakBoost, (v) => `${f1(v)} psi`) : "") +
+      cell("Top speed", sum.topKmh, fresh?.topKmh, (v) => `${f0(v * MPH)} mph`) +
+      cell("0-100", sum.zeroTo100, fresh?.zeroTo100, (v) => `${v.toFixed(2)} s`) +
+      `<div class="tnum stress ${sum.stress.toLowerCase()}"><span>Engine stress</span><b>${sum.stress}</b></div>` +
+      `<div class="tnum"><span>vs stock</span><b>${sum.hp >= stock.hp ? "+" : ""}${f0(sum.hp - stock.hp)} hp</b></div>`;
+
+    const warn = $("tuneWarn");
+    const msgs = [];
+    if (sum.pulled > 0.5) msgs.push(`⚠️ Knock: the ECU is pulling ${sum.pulled}° of timing. Richer fuel, less boost or a better intercooler will give the power back.`);
+    if (sum.egt > 950) msgs.push(`🌡️ EGT ${sum.egt}°C is very high - richen the AFR.`);
+    if (sum.stress === "Extreme") msgs.push("💀 This tune is way past what the block was built for.");
+    warn.hidden = !msgs.length;
+    warn.innerHTML = msgs.map((m) => `<div>${m}</div>`).join("");
+
+    // sliders
+    const rows = (host, list, tune) => {
+      $(host).innerHTML = "";
+      for (const c of list) {
+        if (c.boosted && !boosted) continue;
+        const [lo, hi, step] = this.tuneRange(car, c.key);
+        const row = document.createElement("label");
+        row.className = "slider tune-slider";
+        row.innerHTML = `<span title="${esc(c.hint || "")}">${c.label}</span><input type="range" min="${lo}" max="${hi}" step="${step}" value="${tune[c.key]}"><b>${c.fmt(+tune[c.key])}</b>`;
+        row.querySelector("input").oninput = (ev) => this.setTune({ [c.key]: +ev.target.value });
+        $(host).appendChild(row);
+      }
+    };
+    rows("tuneSliders", this.ENGINE_CONTROLS, t);
+    rows("tuneExhaust", this.EXHAUST_CONTROLS, t);
+
+    // parts
+    const parts = $("tuneParts");
+    parts.innerHTML = "";
+    for (const [kind, def] of Object.entries(PARTS)) {
+      const locked = def.boostedOnly && (!boosted || e.induction === "super");
+      const wrap = document.createElement("div");
+      wrap.className = "part-row" + (locked ? " locked" : "");
+      wrap.innerHTML = `<div class="part-label">${def.label}${locked ? ` <small>· not available on this engine</small>` : ""}</div>`;
+      const chips = document.createElement("div");
+      chips.className = "chips";
+      for (const [key, opt] of Object.entries(def.opts)) {
+        const b = document.createElement("button");
+        b.textContent = opt.label;
+        b.className = t[kind] === key ? "on" : "";
+        b.disabled = locked;
+        b.onclick = () => this.setTune({ [kind]: key });
+        chips.appendChild(b);
+      }
+      wrap.appendChild(chips);
+      parts.appendChild(wrap);
     }
+
     $("tBrap").checked = t.brap;
     [...$("tRelease").children].forEach((b) => b.classList.toggle("on", b.dataset.v === t.release));
     [...$("tuneMode").children].forEach((b) => b.classList.toggle("on", b.dataset.v === P.settings.driveMode));
+    this.drawCharts(sum, stock, t, boosted);
+  }
+  // per-car limits: the block decides the rev ceiling, the turbo decides the boost ceiling
+  tuneRange(car, key) {
+    const [lo, hi, step] = TUNE_RANGE[key], s = specOf(car), e = engineOf(car), t = carTune(car.id);
+    if (key === "revLimit") return [Math.round(s.redline * .8), Math.round(e.maxRev || s.redline), 50];
+    if (key === "boost") return [4, Math.round(maxBoostFor(e, t)), .5];
+    if (key === "final") return [+(s.final * .75).toFixed(2), +(s.final * 1.3).toFixed(2), .01];
+    return [lo, hi, step];
+  }
+  // ---------- charts ----------
+  chart(id, series, opts = {}) {
+    const cv = $(id), g = cv.getContext("2d"), W = cv.width, H = cv.height;
+    const padL = 42, padR = 46, padT = 14, padB = 22;
+    g.clearRect(0, 0, W, H);
+    g.fillStyle = "#11151f"; g.fillRect(0, 0, W, H);
+    const xs = series[0].pts.map((p) => p[0]);
+    const x0 = Math.min(...xs), x1 = Math.max(...xs);
+    const px = (x) => padL + ((x - x0) / Math.max(1, x1 - x0)) * (W - padL - padR);
+    g.strokeStyle = "#232a3a"; g.lineWidth = 1; g.font = "11px Fredoka, sans-serif"; g.fillStyle = "#7d879b";
+    for (let r = Math.ceil(x0 / 1000) * 1000; r <= x1; r += 1000) {
+      g.beginPath(); g.moveTo(px(r), padT); g.lineTo(px(r), H - padB); g.stroke();
+      g.textAlign = "center"; g.fillText(r / 1000 + "k", px(r), H - 7);
+    }
+    if (opts.mark) { // rev limiter
+      g.strokeStyle = "#ff4a55"; g.setLineDash([4, 4]);
+      g.beginPath(); g.moveTo(px(opts.mark), padT); g.lineTo(px(opts.mark), H - padB); g.stroke();
+      g.setLineDash([]);
+    }
+    for (const s of series) {
+      const vals = s.pts.map((p) => p[1]);
+      const lo = s.min !== undefined ? s.min : Math.min(0, ...vals), hi = s.max !== undefined ? s.max : Math.max(...vals) * 1.1 || 1;
+      const py = (v) => H - padB - ((v - lo) / Math.max(1e-6, hi - lo)) * (H - padT - padB);
+      g.beginPath();
+      s.pts.forEach((p, i) => (i ? g.lineTo(px(p[0]), py(p[1])) : g.moveTo(px(p[0]), py(p[1]))));
+      g.strokeStyle = s.color; g.lineWidth = s.dash ? 1.5 : 2.5;
+      g.setLineDash(s.dash || []);
+      g.stroke(); g.setLineDash([]);
+      if (s.label) {
+        g.fillStyle = s.color; g.textAlign = s.right ? "left" : "right";
+        g.fillText(s.label, s.right ? W - padR + 4 : padL - 5, py(s.pts[s.pts.length - 1][1]) + 4);
+      }
+    }
+  }
+  drawCharts(sum, stock, t, boosted) {
+    const c = sum.curve, sc = stock.curve, mark = t.revLimit;
+    const pick = (arr, f) => arr.map((p) => [p.rpm, f(p)]);
+    const hpMax = Math.max(...c.map((p) => p.hp), ...sc.map((p) => p.hp)) * 1.12;
+    const nmMax = Math.max(...c.map((p) => p.nm), ...sc.map((p) => p.nm)) * 1.12;
+    this.chart("chartDyno", [
+      { pts: pick(sc, (p) => p.hp), color: "#3a5675", dash: [5, 4], max: hpMax, min: 0 },
+      { pts: pick(sc, (p) => p.nm), color: "#6b4a2e", dash: [5, 4], max: nmMax, min: 0 },
+      { pts: pick(c, (p) => p.hp), color: "#3fb8ff", max: hpMax, min: 0, label: "hp" },
+      { pts: pick(c, (p) => p.nm), color: "#ffc629", max: nmMax, min: 0, label: "Nm", right: true },
+    ], { mark });
+    const bMax = Math.max(2, ...c.map((p) => Math.max(p.boost, p.target))) * 1.2;
+    this.chart("chartBoost", boosted ? [
+      { pts: pick(c, (p) => p.target), color: "#7d879b", dash: [4, 4], max: bMax, min: 0, label: "target" },
+      { pts: pick(c, (p) => p.boost), color: "#3dff6a", max: bMax, min: 0, label: "psi" },
+    ] : [{ pts: pick(c, () => 0), color: "#3a4256", max: 1, min: 0, label: "naturally aspirated" }], { mark });
+    this.chart("chartFuel", [
+      { pts: pick(c, (p) => p.afr), color: "#ff8a3d", min: 10, max: 15, label: "AFR" },
+      { pts: pick(c, (p) => p.timing), color: "#b27dff", min: -8, max: 12, label: "timing", right: true },
+    ], { mark });
+    this.chart("chartTemp", [
+      { pts: pick(c, (p) => p.egt), color: "#ff4a55", min: 200, max: 1100, label: "EGT" },
+      { pts: pick(c, (p) => p.oil), color: "#ffd23d", min: 20, max: 1100 },
+      { pts: pick(c, (p) => p.coolant), color: "#4dffc3", min: 20, max: 1100 },
+      { pts: pick(c, (p) => p.iat), color: "#3dd6ff", min: 20, max: 1100, label: "IAT", right: true },
+    ], { mark });
   }
 
   // ---------- settings ----------
@@ -455,7 +615,7 @@ export class UI {
     chips("weathers", Object.keys(WEATHERS), (n) => s.weather === n, (n) => { s.weather = n; this.ctx.sky.setWeather(n); });
     chips("trafficLevels", Object.keys(TRAFFIC_LEVELS), (n) => s.traffic === n, (n) => { s.traffic = n; });
     for (const [id, key] of [["volMaster", "volMaster"], ["volEngine", "volEngine"], ["volFx", "volFx"], ["volWind", "volWind"], ["optRes", "res"]]) $(id).oninput = (e) => { s[key] = +e.target.value; apply(); };
-    for (const [id, key] of [["optManual", "manual"], ["optMph", "mph"], ["optShadows", "shadows"]]) $(id).onchange = (e) => { s[key] = e.target.checked; apply(); if (this.ctx.state() === "home") this.renderHome(); };
+    for (const [id, key] of [["optManual", "manual"], ["optShadows", "shadows"], ["optHideNames", "hideNames"]]) $(id).onchange = (e) => { s[key] = e.target.checked; apply(); if (this.ctx.state() === "home") this.renderHome(); };
   }
   syncTime(hour) {
     const h = Math.floor(hour), m = Math.floor((hour - h) * 60);
@@ -469,7 +629,7 @@ export class UI {
     this.syncTime(s.hour);
     $("timeFlow").checked = s.flow;
     $("volMaster").value = s.volMaster; $("volEngine").value = s.volEngine; $("volFx").value = s.volFx; $("volWind").value = s.volWind; $("optRes").value = s.res;
-    $("optManual").checked = s.manual; $("optMph").checked = s.mph; $("optShadows").checked = s.shadows;
+    $("optManual").checked = s.manual; $("optShadows").checked = s.shadows; $("optHideNames").checked = !!s.hideNames;
     this.chipSync?.forEach((f) => f());
   }
 }

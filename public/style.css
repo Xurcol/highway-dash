@@ -122,10 +122,37 @@ h1,h2,h3{margin:0}
 .gear span.man{color:#ffb020}
 .drivemode{margin-top:2px;padding:0 8px;border-radius:6px;font-size:12px!important;color:#fff!important;text-shadow:0 1px 0 #000}
 .drivemode.sport{background:#d4152a}.drivemode.comfort{background:#1f7a52}
-.tune-box{width:min(860px,100%)}
+.tune-box{width:min(1240px,100%)}
 .tune-box h2 small{font-size:18px;color:#ffc629}
-.tune-box .slider{grid-template-columns:110px 1fr 46px;gap:8px}
+.tune-box h3 small{font-size:12px;color:#7d879b;font-weight:600}
+.tune-box .slider{grid-template-columns:118px 1fr 58px;gap:8px}
 .tune-box .slider b{text-align:right;color:#ffc629;font-size:14px}
+.tune-slider span{cursor:help}
+.tune-head{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin:6px 0 12px}
+.tune-engine{background:#151b28;border:2px solid #2a3348;border-radius:12px;padding:8px 14px;min-width:220px}
+.tune-engine b{display:block;font-size:17px}
+.tune-engine small{color:#7d879b}
+.tune-nums{display:flex;gap:8px;flex-wrap:wrap;flex:1}
+.tnum{background:#151b28;border:2px solid #2a3348;border-radius:10px;padding:6px 12px;min-width:104px}
+.tnum span{display:block;font-size:11px;color:#7d879b;text-transform:uppercase;letter-spacing:.5px}
+.tnum b{font-size:18px;color:#fff}
+.tnum i{color:#7d879b;font-style:normal;font-size:14px}
+.tnum.chg{border-color:#ffc629;animation:pulse .7s 2}
+.tnum.stress.low b{color:#3dff6a}.tnum.stress.medium b{color:#ffd23d}
+.tnum.stress.high b{color:#ff8a3d}.tnum.stress.extreme b{color:#ff4a55}
+.tune-grid{display:grid;grid-template-columns:1.05fr 1.25fr 1fr;gap:24px}
+.tune-col{min-width:0}
+.chart{width:100%;height:auto;border-radius:10px;border:2px solid #2a3348;display:block}
+.part-row{margin:8px 0}
+.part-label{font-size:14px;color:#cfd6e4;font-weight:600}
+.part-label small{color:#7d879b;font-weight:500}
+.part-row.locked{opacity:.45}
+.part-row .chips button{font-size:13px;padding:5px 10px}
+.tune-warn{margin-top:12px;background:#3a2a12;border:2px solid #ffb020;border-radius:10px;padding:8px 10px;font-size:13px;line-height:1.35}
+.engine-badge{flex:1;background:#151b28;border:2px solid #2a3348;border-radius:10px;padding:7px 10px;font-size:14px;font-weight:600;color:#cfd6e4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.catchup{position:absolute;top:168px;left:50%;transform:translateX(-50%);font-size:26px;font-weight:700;color:#3dff6a;-webkit-text-stroke:2px #05301a;paint-order:stroke fill;animation:pulse 1s infinite}
+.peer-markers{position:absolute;inset:0;pointer-events:none;overflow:hidden}
+.peer-marker{position:absolute;left:0;top:0;white-space:nowrap;background:rgba(10,14,24,.85);border:3px solid #3dd6ff;border-radius:999px;padding:4px 12px;font-weight:700;font-size:15px;text-shadow:0 1px 0 #000;will-change:transform}
 .partylist{position:absolute;left:16px;top:96px;display:flex;flex-direction:column;gap:6px}
 .partylist div{background:rgba(10,14,24,.72);border-radius:10px;padding:5px 10px;font-size:15px;border-left:4px solid #3dff6a;text-shadow:0 1px 0 #000}
 .partylist div.crashed{border-color:#ff4a55;opacity:.7}
@@ -244,7 +271,7 @@ input[type=range]{width:100%;accent-color:#ffb020}
 
 @media (max-width:1300px){.over-grid{grid-template-columns:1fr 1fr}.over-hearts{order:3}}
 @media (max-width:900px){
-  .garage{flex-direction:column}.carinfo{width:auto}.over-grid,.online-cols,.settings-grid{grid-template-columns:1fr}
+  .garage{flex-direction:column}.carinfo{width:auto}.over-grid,.online-cols,.settings-grid,.tune-grid{grid-template-columns:1fr}
   .btn.big{font-size:28px;padding:10px 36px}.go-title{font-size:40px}.go-score{font-size:64px}
   .ready-title{font-size:44px}.tach{width:120px;height:120px}.gear b{font-size:32px}.gear span{font-size:10px}#score{font-size:48px}#speed{font-size:24px}#dist{font-size:18px}.sig{font-size:26px}.combo{font-size:32px;top:140px}.speedup{font-size:34px}.speedo{left:40%}
 }
