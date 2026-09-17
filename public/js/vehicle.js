@@ -94,7 +94,7 @@ export class Drivetrain {
       F -= this.ebForce;
     }
     F -= 0.5 * 1.2 * s.cda * this.v * this.v + 0.013 * s.mass * G;
-    F -= brake * s.mass * G * 1.05;
+    F -= brake * s.mass * G * 1.05 * (s.brakeMul || 1);
     const a = F / s.mass;
     this.accel += (a - this.accel) * Math.min(1, dt * 8);
     this.v = Math.max(0, this.v + a * dt);

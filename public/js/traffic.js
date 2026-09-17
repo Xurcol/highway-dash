@@ -162,6 +162,20 @@ export class Traffic {
     for (const c of this.query(T, z - 400, z + 60)) h = (h * 31 + Math.round(c.z * 4) + Math.round(c.x * 8) * 7919) | 0;
     return h;
   }
+  // Fingerprint of the SIMULATION itself over a fixed slice of road, independent of where anyone is
+  // standing: seed, density, which slots spawned, lane, direction, model, colour and position at
+  // time T. Two clients in a party exchange this; if it ever differs they are not running the same
+  // traffic and the receiver re-seeds from the room. The swerve offset is deliberately left out -
+  // it depends on where the drivers are, which is the one thing that legitimately differs.
+  worldHash(T) {
+    let h = Math.round(this.base * 1000) ^ (this.seed | 0) ^ (this.ramp ? 1 : 0);
+    for (let j = -20; j < 20; j++) for (const dir of [1, -1]) for (let lane = 0; lane < LANES; lane++) {
+      const c = this.raw(dir, lane, j);
+      if (!c) continue;
+      h = (h * 31 + Math.round(this.zAt(c, T) * 4) + c.color + c.lane * 7 + c.dir * 3 + c.body.charCodeAt(0) * 13 + Math.round(c.v * 10)) | 0;
+    }
+    return h;
+  }
   update(dt, T, focusZ, night, glows, lights, camPos, hidden = null) {
     const cars = this.query(T, focusZ - 900, focusZ + 80);
     const seen = new Set();

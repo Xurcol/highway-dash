@@ -31,6 +31,7 @@
         <button class="mode" data-mode="online">🌐 ONLINE <em id="onlineDot" class="dot"></em></button>
         <div class="spacer"></div>
         <button class="btn icon" data-open="leader" title="Leaderboard [L]">🏆</button>
+        <button class="btn icon" data-open="media" title="Music [J]">🎵</button>
         <button class="btn icon" data-open="settings" title="Settings">⚙️</button>
       </div>
       <div id="preview">
@@ -53,7 +54,8 @@
         <div class="swatches" id="swatches"></div>
         <label class="custom-pick">Custom <input type="color" id="paintPick"></label>
         <div class="custom-label">🔊 ENGINE</div>
-        <div class="row"><span id="ciEngine" class="engine-badge"></span><button class="btn gold" id="revBtn">HOLD REV</button><button class="btn blue" id="tuneBtn">🔧 TUNE</button></div>
+        <div id="ciEngine" class="engine-badge"></div>
+        <div class="row"><button class="btn accent" id="revBtn" style="flex:1">HOLD REV</button><button class="btn primary" id="tuneBtn" style="flex:1">WORKSHOP</button></div>
       </div>
       <button id="ciAction" class="btn gray wide">EQUIPPED</button>
     </aside>
@@ -100,6 +102,14 @@
   <div id="peerMarkers" class="peer-markers"></div>
   <div id="chatLog" class="chatlog"></div>
   <input id="chatInput" class="chatinput" maxlength="120" placeholder="Say something… (Enter)" hidden>
+  <div id="musicWidget" class="music-widget" hidden>
+    <div class="mw-art" id="mwArt"></div>
+    <div class="mw-text"><div class="mw-title" id="mwTitle"></div><div class="mw-artist" id="mwArtist"></div></div>
+    <button class="mw-btn" id="mwPrev" title="Previous">⏮</button>
+    <button class="mw-btn" id="mwPlay" title="Play / pause">▶</button>
+    <button class="mw-btn" id="mwNext" title="Next">⏭</button>
+    <div class="mw-bar"><i id="mwBar"></i></div>
+  </div>
   <div id="catchUp" class="catchup" hidden>CATCHING UP</div>
   <div id="ghostNote" class="ghostnote" hidden>INVULNERABLE</div>
   <div id="roundBanner" class="round-banner" hidden></div>
@@ -125,6 +135,7 @@
         <div id="goBest" class="go-best">BEST 0</div>
         <div id="goNewBest" class="go-newbest" hidden>NEW BEST!</div>
         <div class="go-coins"><span class="coin-ico">🪙</span><div class="coinbar"><i id="goCoinFill"></i><b id="goCoins">0</b></div></div>
+        <div id="goRewards" class="reward-list"></div>
         <div class="medal-title">MEDAL LADDER</div>
         <div id="medals" class="medals"></div>
         <div id="medalNext" class="medal-next"></div>
@@ -224,6 +235,25 @@
         <h3>GRAPHICS</h3>
         <label class="toggle"><input type="checkbox" id="optShadows"> Shadows</label>
         <label class="slider">Resolution <input type="range" id="optRes" min="0.5" max="2" step="0.25"></label>
+        <h3>ADMIN</h3>
+        <div id="adminLocked" class="row">
+          <input type="password" id="adminCode" placeholder="Access code" autocomplete="off">
+          <button class="btn ghost" id="adminUnlock">UNLOCK</button>
+        </div>
+        <div id="adminTools" class="admin-tools" hidden>
+          <div class="row"><input type="number" id="adminCoins" placeholder="Coins" min="0"><button class="btn accent" id="adminSetCoins">SET COINS</button></div>
+          <div class="row"><input type="number" id="adminHearts" placeholder="Revives" min="0"><button class="btn accent" id="adminSetHearts">SET REVIVES</button></div>
+          <div class="row"><input type="number" id="adminBest" placeholder="Best score" min="0"><button class="btn accent" id="adminSetBest">SET BEST</button></div>
+          <div class="admin-grid">
+            <button class="btn ghost" id="adminUnlockCars">UNLOCK ALL CARS</button>
+            <button class="btn ghost" id="adminUnlockParts">UNLOCK ALL PARTS</button>
+            <button class="btn ghost" id="adminClearTunes">CLEAR ALL TUNES</button>
+            <button class="btn ghost" id="adminGod">GOD MODE: OFF</button>
+            <button class="btn danger" id="adminWipe">RESET PROFILE</button>
+            <button class="btn ghost" id="adminLock">LOCK PANEL</button>
+          </div>
+          <p class="muted small">Local developer tools — they change this browser's save only.</p>
+        </div>
         <h3>CONTROLS</h3>
         <div class="keys">
           <span>W / ↑</span>Throttle<span>S / ↓</span>Brake<span>A D / ← →</span>Steer<span>M</span>Manual / auto
@@ -235,6 +265,35 @@
   </div>
 </section>
 
+<section id="media" class="modal" hidden>
+  <div class="panel modal-box media-box">
+    <button class="close" data-close>✕</button>
+    <h2>MUSIC</h2>
+    <div class="media-main">
+      <div class="media-art" id="mediaArt"><span>♪</span></div>
+      <div class="media-info">
+        <div class="media-title" id="mediaTitle">Nothing playing</div>
+        <div class="media-artist" id="mediaArtist">—</div>
+        <div class="media-album" id="mediaAlbum"></div>
+        <div class="media-bar" id="mediaBar"><i></i></div>
+        <div class="media-times"><span id="mediaNow">0:00</span><span id="mediaDur">0:00</span></div>
+        <div class="media-controls">
+          <button class="btn ghost" id="mediaPrev" title="Previous">⏮</button>
+          <button class="btn primary lg" id="mediaPlay" title="Play / pause">▶</button>
+          <button class="btn ghost" id="mediaNext" title="Next">⏭</button>
+          <label class="media-vol">Volume <input type="range" id="mediaVol" min="0" max="1" step="0.01"></label>
+        </div>
+      </div>
+    </div>
+    <div class="media-add">
+      <button class="btn accent" id="mediaAdd">ADD TRACKS</button>
+      <input type="file" id="mediaFiles" accept="audio/*" multiple hidden>
+      <p class="muted small" id="mediaNote"></p>
+    </div>
+    <div id="mediaList" class="media-list"></div>
+  </div>
+</section>
+
 <section id="tune" class="modal" hidden>
   <div class="panel modal-box tune-box">
     <button class="close" data-close>✕</button>
@@ -243,12 +302,25 @@
       <div class="tune-engine" id="tuneEngine"></div>
       <div class="tune-nums" id="tuneNums"></div>
     </div>
+    <div class="tune-tabs">
+      <button class="tab on" data-tab="map">ENGINE MAP</button>
+      <button class="tab" data-tab="parts">UPGRADE SHOP</button>
+      <div class="spacer"></div>
+      <div class="wallet">🪙 <b id="tuneCoins">0</b></div>
+    </div>
     <div class="tune-grid">
       <div class="tune-col">
-        <h3>ENGINE MAP</h3>
-        <div id="tuneSliders"></div>
-        <h3>PARTS</h3>
-        <div id="tuneParts"></div>
+        <div id="tabMap">
+          <div id="ecuGate" class="gate" hidden></div>
+          <div id="tuneSliders"></div>
+          <h3>EXHAUST CHARACTER</h3>
+          <div id="tuneExhaust"></div>
+          <label class="toggle"><input type="checkbox" id="tBrap"> Upshift crackle when hot &amp; loaded</label>
+          <div class="muted small" style="margin-top:8px">Sound when you lift off W</div>
+          <div class="chips" id="tRelease"></div>
+          <div id="tuneApplyBar" class="apply-bar" hidden></div>
+        </div>
+        <div id="tabParts" hidden></div>
       </div>
       <div class="tune-col">
         <h3>DYNO <small>hp &amp; torque vs rpm</small></h3>
@@ -264,13 +336,10 @@
         <h3>DRIVE MODE <small>[N]</small></h3>
         <div class="chips" id="tuneMode"></div>
         <p class="muted small">Sport: exhaust valves open, sharper throttle, holds gears, burbles on overrun. Comfort: quiet exhaust, early upshifts, softer shifts.</p>
-        <h3>EXHAUST CHARACTER</h3>
-        <div id="tuneExhaust"></div>
-        <label class="toggle"><input type="checkbox" id="tBrap"> Upshift crackle when hot &amp; loaded</label>
-        <div class="muted small" style="margin-top:8px">Sound when you lift off W</div>
-        <div class="chips" id="tRelease"></div>
         <div id="tuneWarn" class="tune-warn" hidden></div>
-        <div class="row" style="margin-top:14px"><button class="btn gold" id="tuneRev">🔊 HOLD TO REV</button><button class="btn gray" id="tuneReset">RESET TO STOCK</button></div>
+        <h3>FITTED</h3>
+        <div id="tuneFitted" class="fitted"></div>
+        <div class="row" style="margin-top:14px"><button class="btn accent" id="tuneRev">HOLD TO REV</button><button class="btn ghost" id="tuneReset">RESET TO STOCK</button></div>
       </div>
     </div>
   </div>

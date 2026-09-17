@@ -1,10 +1,13 @@
 // DOM side: garage, HUD helpers, game-over popup, leaderboards, online + settings panels.
 import { CARS, RARITY_COLORS, specOf, carStats } from "./cars.js";
-import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAINTS, MEDALS, HEART_PACKS, xpForLevel, medalCount } from "./profile.js";
+import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAINTS, MEDALS, HEART_PACKS, xpForLevel, medalCount,
+  ownsPart, ownsEcu, buyPart, buyEcu, payTuneSession, payPaint, spend, earn, priceOfCar, walletHooks } from "./profile.js";
 import { SOUND_LABELS } from "./engine-dsp.js";
-import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, summary, defaultTune, maxBoostFor } from "./tuning.js";
+import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, summary, defaultTune, maxBoostFor, peakHp } from "./tuning.js";
+import { partPrice, TUNING_PRICES, COSMETIC_PRICES, fmtCoins, CAR_PRICES } from "./economy.js";
 import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
+import { MusicPlayer } from "./media.js";
 
 const $ = (id) => document.getElementById(id);
 const MPH = 0.621371; // the game shows mph only
@@ -33,6 +36,9 @@ export class UI {
     this.wireSettings();
     this.wireTune();
     this.wireNet();
+    this.music = new MusicPlayer();
+    this.wireMedia();
+    this.wireAdmin();
   }
 
   // ---------- generic ----------
@@ -157,6 +163,12 @@ export class UI {
     btn.title = "Hold to rev";
   }
   paint(hex) {
+    // the first respray on a car costs money; after that its paint booth is yours
+    if (hex !== carById(this.view).color && !P.painted?.[this.view]) {
+      const r = payPaint(this.view);
+      if (!r.ok) return this.notEnough(r.short);
+      if (!r.already) { this.ctx.audio.coin(); this.toast(`Paint booth unlocked — ${fmtCoins(COSMETIC_PRICES.paint)} coins`); this.renderTop(); }
+    }
     this.ctx.paintCar(this.view, hex);
     [...$("swatches").children].forEach((b) => b.classList.toggle("on", +b.dataset.c === hex));
     $("paintPick").value = "#" + hex.toString(16).padStart(6, "0");
@@ -165,8 +177,8 @@ export class UI {
     const car = carById(id);
     if (P.equipped === id) return;
     if (P.owned.includes(id)) { P.equipped = id; this.ctx.audio.ui(); }
-    else if (P.coins >= car.price) { P.coins -= car.price; P.owned.push(id); P.equipped = id; this.ctx.audio.coin(); this.toast(`🎉 ${car.name} unlocked!`); }
-    else { this.ctx.audio.deny?.(); return this.toast(`Need ${(car.price - P.coins).toLocaleString()} more coins`); }
+    else if (spend(priceOfCar(id)).ok) { walletHooks.buy?.("car", id); P.owned.push(id); P.equipped = id; this.ctx.audio.coin(); this.toast(`${car.name} unlocked!`); }
+    else { this.ctx.audio.deny?.(); return this.notEnough(priceOfCar(id) - P.coins); }
     save();
     this.net.send({ t: "setCar", car: id });
     after?.();
@@ -198,7 +210,7 @@ export class UI {
     const a = $("ciAction");
     if (P.equipped === car.id) { a.textContent = "EQUIPPED"; a.className = "btn gray wide"; }
     else if (P.owned.includes(car.id)) { a.textContent = "EQUIP"; a.className = "btn blue wide"; }
-    else { a.textContent = `BUY 🪙 ${car.price.toLocaleString()}`; a.className = "btn green wide"; a.disabled = false; }
+    else { const pr = priceOfCar(car.id), can = P.coins >= pr; a.textContent = can ? `BUY — 🪙 ${fmtCoins(pr)}` : `NEED 🪙 ${fmtCoins(pr - P.coins)} MORE`; a.className = `btn ${can ? "accent" : "ghost"} wide`; a.disabled = !can; }
 
     const owned = CARS.filter((c) => P.owned.includes(c.id));
     $("fAll").textContent = CARS.length; $("fOwned").textContent = owned.length; $("fLocked").textContent = CARS.length - owned.length;
@@ -210,9 +222,10 @@ export class UI {
       const d = document.createElement("div");
       d.className = "card" + (c.id === this.view ? " sel" : "");
       const own = P.owned.includes(c.id);
-      const label = c.id === P.equipped ? "EQUIPPED" : own ? "OWNED" : `🪙 ${c.price.toLocaleString()}`;
+      const price = priceOfCar(c.id);
+      const label = c.id === P.equipped ? "EQUIPPED" : own ? "OWNED" : `🪙 ${fmtCoins(price)}`;
       d.innerHTML = `<div class="r" style="color:${RARITY_COLORS[c.rarity]}">${c.rarity}</div><img src="${this.thumbs[c.id] || ""}" alt=""><div class="n">${esc(c.name)}</div>
-        <div class="p ${c.id === P.equipped ? "eq" : own ? "own" : P.coins < c.price ? "poor" : ""}">${label}</div>`;
+        <div class="p ${c.id === P.equipped ? "eq" : own ? "own" : P.coins < price ? "poor" : ""}">${label}</div>`;
       d.onclick = () => { this.view = c.id; this.ctx.audio.ui(); this.renderHome(); };
       cards.appendChild(d);
     }
@@ -242,6 +255,7 @@ export class UI {
       if (k < 1) requestAnimationFrame(tick); else if (r.coins) this.ctx.audio.coin();
     };
     requestAnimationFrame(tick);
+    $("goRewards").innerHTML = (r.extras || []).map((x) => `<div><span>${esc(x.label)}</span><b>+${fmtCoins(x.coins)}</b></div>`).join("");
     $("goBest").textContent = "BEST " + P.best.toLocaleString();
     $("goNewBest").hidden = !(r.score > r.prevBest && r.score > 0);
     $("goCoinFill").style.width = "0%";
@@ -284,7 +298,7 @@ export class UI {
       const d = document.createElement("div");
       d.className = "shop-item";
       d.innerHTML = `<div class="chipsrow"><span>⚡${st.speed}</span><span>🚀${st.accel}</span><span>🎯${st.handling}</span></div>
-        <img src="${this.thumbs[c.id] || ""}" alt=""><button class="btn ${eq ? "gray" : own ? "blue" : "green"}">${eq ? "EQUIPPED" : own ? "EQUIP" : "🪙 " + c.price.toLocaleString()}</button>`;
+        <img src="${this.thumbs[c.id] || ""}" alt=""><button class="btn ${eq ? "ghost" : own ? "primary" : "accent"}">${eq ? "EQUIPPED" : own ? "EQUIP" : "🪙 " + fmtCoins(priceOfCar(c.id))}</button>`;
       d.querySelector("button").onclick = () => this.buyOrEquip(c.id, () => { this.renderOverShop(); this.toast(`${c.name} equipped — restart to drive it`); });
       shop.appendChild(d);
     }
@@ -297,7 +311,9 @@ export class UI {
       b.disabled = P.coins < pack.price;
       b.onclick = () => {
         if (P.coins < pack.price) return;
-        P.coins -= pack.price; P.hearts += pack.n; save();
+        if (!spend(pack.price).ok) return this.notEnough(pack.price - P.coins);
+        walletHooks.buy?.("hearts", pack.n);
+        P.hearts += pack.n; save();
         this.ctx.audio.coin();
         this.renderOverShop();
         this.renderReviveBtn(this.ctx.revivesUsed?.() ?? 0);
@@ -408,9 +424,10 @@ export class UI {
     });
   }
 
-  // ---------- tuning ----------
-  // Every control here feeds the simulation in tuning.js, and every number shown is computed from
-  // it. Nothing is randomised: the same tune always gives the same curve and the same performance.
+  // ---------- tuning + upgrade shop ----------
+  // Every control here feeds the simulation in tuning.js and every price comes from economy.js.
+  // Nothing is randomised, and nothing is free: parts are bought per car, the engine map needs ECU
+  // access, and committing a new map costs a dyno session.
   wireTune() {
     this.ENGINE_CONTROLS = [
       { key: "boost", label: "Target boost", fmt: (v) => v.toFixed(1) + " psi", boosted: true, hint: "Air pressure the ECU aims for. More boost = more torque, more heat, more stress." },
@@ -427,38 +444,84 @@ export class UI {
       { key: "mix", label: "Pop style", fmt: (v) => (v < .35 ? "burble" : v > .65 ? "crackle" : "mixed") },
       { key: "engineBrake", label: "Engine braking", fmt: (v) => Math.round(v * 100) + "%" },
     ];
+    this.tuneTab = "map";
+    this.draft = null;
     this.holdToRev($("tuneRev"));
-    $("tBrap").onchange = (e) => this.setTune({ brap: e.target.checked });
-    $("tuneReset").onclick = () => { this.tunePrev = summary(carById(this.view), carTune(this.view)); resetTune(this.view); this.afterTune(); };
+    $("tBrap").onchange = (e) => this.editTune({ brap: e.target.checked });
+    $("tuneReset").onclick = () => {
+      if (!confirm("Reset this car's tune to stock? Parts you bought stay in the garage.")) return;
+      this.tunePrev = summary(carById(this.view), carTune(this.view));
+      resetTune(this.view); this.draft = null; this.afterTune();
+    };
+    document.querySelectorAll("#tune .tab").forEach((b) => b.onclick = () => { this.tuneTab = b.dataset.tab; this.renderTune(); });
     $("tRelease").innerHTML = ""; $("tuneMode").innerHTML = "";
     for (const [val, label] of [["flutter", "Turbo flutter"], ["bov", "Blow-off valve"], ["off", "Off"]]) {
       const b = document.createElement("button"); b.textContent = label; b.dataset.v = val;
-      b.onclick = () => this.setTune({ release: val });
+      b.onclick = () => this.editTune({ release: val });
       $("tRelease").appendChild(b);
     }
-    for (const [val, label] of [["sport", "🔥 Sport"], ["comfort", "🍃 Comfort"]]) {
+    for (const [val, label] of [["sport", "Sport"], ["comfort", "Comfort"]]) {
       const b = document.createElement("button"); b.textContent = label; b.dataset.v = val;
       b.onclick = () => { P.settings.driveMode = val; save(); this.ctx.applyTune(); this.renderTune(); };
       $("tuneMode").appendChild(b);
     }
   }
-  setTune(patch) {
-    this.tunePrev = summary(carById(this.view), carTune(this.view)); // for the before -> after readout
-    setTune(this.view, patch);
+  // the tune the player is looking at: what's fitted, plus anything they've dialled in but not paid for
+  effTune() { return { ...carTune(this.view), ...(this.draft || {}) }; }
+  editTune(patch) {
+    this.draft = { ...(this.draft || {}), ...patch };
+    this.renderTune();
+  }
+  applyDraft() {
+    if (!this.draft) return;
+    const r = payTuneSession(this.view);
+    if (r.needEcu) return this.toast("You need ECU access on this car first");
+    if (!r.ok) return this.notEnough(r.short);
+    this.tunePrev = summary(carById(this.view), carTune(this.view));
+    setTune(this.view, this.draft);
+    this.draft = null;
+    this.ctx.audio.coin();
     this.afterTune();
   }
+  notEnough(short) { this.toast(`Not enough coins — ${fmtCoins(short)} short`); this.ctx.audio.deny?.(); }
   afterTune() {
     if (this.view === P.equipped) this.ctx.applyTune();
     this.tuneStamp = performance.now();
     this.renderTune();
+    this.renderTop();
   }
+  buyPartUI(kind, option) {
+    const price = partPrice(kind, option);
+    if (!ownsPart(this.view, kind, option)) {
+      const r = buyPart(this.view, kind, option);
+      if (!r.ok) return this.notEnough(r.short);
+      this.ctx.audio.coin();
+      this.toast(`Fitted ${PARTS[kind].opts[option].label} — ${fmtCoins(price)} coins`);
+    }
+    this.tunePrev = summary(carById(this.view), carTune(this.view));
+    setTune(this.view, { [kind]: option });     // fitting something you own is free
+    this.afterTune();
+  }
+  buyEcuUI() {
+    const r = buyEcu(this.view);
+    if (!r.ok) return this.notEnough(r.short);
+    this.ctx.audio.coin();
+    this.toast(`ECU unlocked — ${fmtCoins(TUNING_PRICES.ecu)} coins`);
+    this.afterTune();
+  }
+
   renderTune() {
-    const car = carById(this.view), t = carTune(this.view), e = engineOf(car), boosted = isBoosted(e);
+    const car = carById(this.view), t = this.effTune(), e = engineOf(car), boosted = isBoosted(e);
+    const fitted = carTune(this.view), hasEcu = ownsEcu(this.view);
     const sum = summary(car, t), stock = summary(car, defaultTune(car));
     $("tuneCar").textContent = car.name;
+    $("tuneCoins").textContent = fmtCoins(P.coins);
     $("tuneEngine").innerHTML = `<b>${esc(e.label)}</b><small>${e.disp.toFixed(1)}L · ${e.cyl} cyl · ${boosted ? (e.induction === "super" ? "supercharged" : e.turbos > 1 ? "twin-turbo" : "turbo") : "naturally aspirated"} · audio locked to this engine</small>`;
+    document.querySelectorAll("#tune .tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === this.tuneTab));
+    $("tabMap").hidden = this.tuneTab !== "map";
+    $("tabParts").hidden = this.tuneTab !== "parts";
 
-    // headline numbers, with the previous tune's value beside anything that just changed
+    // headline numbers, with the previous value beside anything that just changed
     const fresh = performance.now() - (this.tuneStamp || 0) < 6000 ? this.tunePrev : null;
     const cell = (label, val, prev, fmt) => {
       const changed = fresh && Math.abs(prev - val) > Math.max(.01, Math.abs(val) * .002);
@@ -474,60 +537,107 @@ export class UI {
       `<div class="tnum stress ${sum.stress.toLowerCase()}"><span>Engine stress</span><b>${sum.stress}</b></div>` +
       `<div class="tnum"><span>vs stock</span><b>${sum.hp >= stock.hp ? "+" : ""}${f0(sum.hp - stock.hp)} hp</b></div>`;
 
-    const warn = $("tuneWarn");
-    const msgs = [];
-    if (sum.pulled > 0.5) msgs.push(`⚠️ Knock: the ECU is pulling ${sum.pulled}° of timing. Richer fuel, less boost or a better intercooler will give the power back.`);
-    if (sum.egt > 950) msgs.push(`🌡️ EGT ${sum.egt}°C is very high - richen the AFR.`);
-    if (sum.stress === "Extreme") msgs.push("💀 This tune is way past what the block was built for.");
+    const warn = $("tuneWarn"), msgs = [];
+    if (sum.pulled > 0.5) msgs.push(`Knock: the ECU is pulling ${sum.pulled}° of timing. Richer fuel, less boost or a better intercooler will give the power back.`);
+    if (sum.egt > 950) msgs.push(`EGT ${sum.egt}°C is very high — richen the AFR.`);
+    if (sum.stress === "Extreme") msgs.push("This tune is way past what the block was built for.");
     warn.hidden = !msgs.length;
     warn.innerHTML = msgs.map((m) => `<div>${m}</div>`).join("");
 
-    // sliders
-    const rows = (host, list, tune) => {
+    // ---- engine map ----
+    const gate = $("ecuGate");
+    gate.hidden = hasEcu;
+    if (!hasEcu) gate.innerHTML = `<div class="gate-body"><b>ECU access locked</b><p class="muted small">Boost, timing, fuel, rev limit and gearing need a flashed ECU on this car.</p>
+      <button class="btn ${P.coins >= TUNING_PRICES.ecu ? "accent" : "ghost"}" id="ecuBuy" ${P.coins >= TUNING_PRICES.ecu ? "" : "disabled"}>${P.coins >= TUNING_PRICES.ecu ? `UNLOCK — ${fmtCoins(TUNING_PRICES.ecu)}` : `NEED ${fmtCoins(TUNING_PRICES.ecu - P.coins)} MORE`}</button></div>`;
+    if (!hasEcu) $("ecuBuy").onclick = () => this.buyEcuUI();
+
+    const rows = (host, list, tune, disabled) => {
       $(host).innerHTML = "";
       for (const c of list) {
         if (c.boosted && !boosted) continue;
         const [lo, hi, step] = this.tuneRange(car, c.key);
         const row = document.createElement("label");
-        row.className = "slider tune-slider";
-        row.innerHTML = `<span title="${esc(c.hint || "")}">${c.label}</span><input type="range" min="${lo}" max="${hi}" step="${step}" value="${tune[c.key]}"><b>${c.fmt(+tune[c.key])}</b>`;
-        row.querySelector("input").oninput = (ev) => this.setTune({ [c.key]: +ev.target.value });
+        row.className = "slider tune-slider" + (disabled ? " off" : "");
+        row.innerHTML = `<span title="${esc(c.hint || "")}">${c.label}</span><input type="range" min="${lo}" max="${hi}" step="${step}" value="${tune[c.key]}" ${disabled ? "disabled" : ""}><b>${c.fmt(+tune[c.key])}</b>`;
+        row.querySelector("input").oninput = (ev) => this.editTune({ [c.key]: +ev.target.value });
         $(host).appendChild(row);
       }
     };
-    rows("tuneSliders", this.ENGINE_CONTROLS, t);
-    rows("tuneExhaust", this.EXHAUST_CONTROLS, t);
-
-    // parts
-    const parts = $("tuneParts");
-    parts.innerHTML = "";
-    for (const [kind, def] of Object.entries(PARTS)) {
-      const locked = def.boostedOnly && (!boosted || e.induction === "super");
-      const wrap = document.createElement("div");
-      wrap.className = "part-row" + (locked ? " locked" : "");
-      wrap.innerHTML = `<div class="part-label">${def.label}${locked ? ` <small>· not available on this engine</small>` : ""}</div>`;
-      const chips = document.createElement("div");
-      chips.className = "chips";
-      for (const [key, opt] of Object.entries(def.opts)) {
-        const b = document.createElement("button");
-        b.textContent = opt.label;
-        b.className = t[kind] === key ? "on" : "";
-        b.disabled = locked;
-        b.onclick = () => this.setTune({ [kind]: key });
-        chips.appendChild(b);
-      }
-      wrap.appendChild(chips);
-      parts.appendChild(wrap);
-    }
-
+    rows("tuneSliders", this.ENGINE_CONTROLS, t, !hasEcu);
+    rows("tuneExhaust", this.EXHAUST_CONTROLS, t, false);
     $("tBrap").checked = t.brap;
     [...$("tRelease").children].forEach((b) => b.classList.toggle("on", b.dataset.v === t.release));
     [...$("tuneMode").children].forEach((b) => b.classList.toggle("on", b.dataset.v === P.settings.driveMode));
+
+    // ---- pending map changes ----
+    const bar = $("tuneApplyBar");
+    const dirty = this.draft && Object.keys(this.draft).some((k) => fitted[k] !== this.draft[k]);
+    bar.hidden = !dirty;
+    if (dirty) {
+      const canPay = P.coins >= TUNING_PRICES.session;
+      bar.innerHTML = `<div><b>Unsaved map</b><small>Dyno session — ${fmtCoins(TUNING_PRICES.session)} coins</small></div>
+        <button class="btn ghost" id="tuneRevert">REVERT</button>
+        <button class="btn ${canPay ? "primary" : "ghost"}" id="tuneApply" ${canPay ? "" : "disabled"}>${canPay ? `APPLY — ${fmtCoins(TUNING_PRICES.session)}` : "NOT ENOUGH COINS"}</button>`;
+      $("tuneRevert").onclick = () => { this.draft = null; this.renderTune(); };
+      $("tuneApply").onclick = () => this.applyDraft();
+    }
+
+    this.renderShop(car, t, boosted, e);
+    this.renderFitted(t);
     this.drawCharts(sum, stock, t, boosted);
   }
+
+  // ---- upgrade shop: price, what it does, what it costs, and whether you can afford it ----
+  renderShop(car, t, boosted, e) {
+    const host = $("tabParts");
+    host.innerHTML = "";
+    const baseHp = peakHp(car, t);
+    for (const [kind, def] of Object.entries(PARTS)) {
+      const locked = def.boostedOnly && (!boosted || e.induction === "super");
+      const group = document.createElement("div");
+      group.className = "shop-group" + (locked ? " locked" : "");
+      group.innerHTML = `<div class="shop-head"><b>${def.label}</b>${locked ? `<span class="muted small">not available on this engine</span>` : ""}</div>`;
+      for (const [key, opt] of Object.entries(def.opts)) {
+        const price = partPrice(kind, key);
+        const owned = ownsPart(car.id, kind, key), on = t[kind] === key;
+        const afford = P.coins >= price;
+        const effect = this.partEffect(kind, key, car, t, baseHp);
+        const row = document.createElement("div");
+        row.className = "shop-row" + (on ? " on" : "") + (locked ? " off" : "");
+        row.innerHTML = `<div class="sr-main"><b>${esc(opt.label)}</b><span class="sr-effect">${effect}</span></div>
+          <div class="sr-buy">${price ? `<span class="price">🪙 ${fmtCoins(price)}</span>` : `<span class="price free">Included</span>`}
+          <button class="btn ${on ? "ghost" : owned ? "primary" : afford ? "accent" : "ghost"}" ${on || locked || (!owned && !afford) ? "disabled" : ""}>${on ? "FITTED" : owned ? "FIT" : afford ? "BUY" : "NEED " + fmtCoins(price - P.coins)}</button></div>`;
+        if (!on && !locked && (owned || afford)) row.querySelector("button").onclick = () => this.buyPartUI(kind, key);
+        group.appendChild(row);
+      }
+      host.appendChild(group);
+    }
+  }
+  // what a part actually does, computed from the same model the physics uses
+  partEffect(kind, key, car, t, baseHp) {
+    const o = PARTS[kind].opts[key];
+    if (o.flow !== undefined || o.maxBoost !== undefined || o.eff !== undefined) {
+      const hp = peakHp(car, { ...t, [kind]: key });
+      const d = hp - baseHp;
+      return `${baseHp} → ${hp} hp (${d >= 0 ? "+" : ""}${d})`;
+    }
+    if (o.grip !== undefined) return o.grip === 1 ? "Standard grip" : `+${Math.round((o.grip - 1) * 100)}% grip`;
+    if (o.brake !== undefined) return o.brake === 1 ? "Standard braking" : `+${Math.round((o.brake - 1) * 100)}% braking`;
+    if (o.handling !== undefined) return o.handling === 1 ? "Standard response" : `+${Math.round((o.handling - 1) * 100)}% turn-in`;
+    if (o.shift !== undefined) return o.shift === 1 ? "Standard shifts" : `${Math.round((1 - o.shift) * 100)}% quicker shifts`;
+    if (o.mass !== undefined) return o.mass === 1 ? "Standard weight" : `−${Math.round(specOf(car).mass * (1 - o.mass))} kg`;
+    return "";
+  }
+  renderFitted(t) {
+    $("tuneFitted").innerHTML = Object.entries(PARTS)
+      .filter(([kind]) => t[kind] && t[kind] !== "stock")
+      .map(([kind, def]) => `<div class="fit-row"><span>${def.label}</span><b>${esc(def.opts[t[kind]].label)}</b></div>`).join("")
+      || `<div class="muted small">Everything is standard. Open the upgrade shop to fit parts.</div>`;
+  }
+
   // per-car limits: the block decides the rev ceiling, the turbo decides the boost ceiling
   tuneRange(car, key) {
-    const [lo, hi, step] = TUNE_RANGE[key], s = specOf(car), e = engineOf(car), t = carTune(car.id);
+    const [lo, hi, step] = TUNE_RANGE[key], s = specOf(car), e = engineOf(car), t = this.effTune();
     if (key === "revLimit") return [Math.round(s.redline * .8), Math.round(e.maxRev || s.redline), 50];
     if (key === "boost") return [4, Math.round(maxBoostFor(e, t)), .5];
     if (key === "final") return [+(s.final * .75).toFixed(2), +(s.final * 1.3).toFixed(2), .01];
@@ -538,17 +648,17 @@ export class UI {
     const cv = $(id), g = cv.getContext("2d"), W = cv.width, H = cv.height;
     const padL = 42, padR = 46, padT = 14, padB = 22;
     g.clearRect(0, 0, W, H);
-    g.fillStyle = "#11151f"; g.fillRect(0, 0, W, H);
+    g.fillStyle = "#0d121c"; g.fillRect(0, 0, W, H);
     const xs = series[0].pts.map((p) => p[0]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs);
     const px = (x) => padL + ((x - x0) / Math.max(1, x1 - x0)) * (W - padL - padR);
-    g.strokeStyle = "#232a3a"; g.lineWidth = 1; g.font = "11px Fredoka, sans-serif"; g.fillStyle = "#7d879b";
+    g.strokeStyle = "#1e2636"; g.lineWidth = 1; g.font = "11px Fredoka, sans-serif"; g.fillStyle = "#6b7689";
     for (let r = Math.ceil(x0 / 1000) * 1000; r <= x1; r += 1000) {
       g.beginPath(); g.moveTo(px(r), padT); g.lineTo(px(r), H - padB); g.stroke();
       g.textAlign = "center"; g.fillText(r / 1000 + "k", px(r), H - 7);
     }
-    if (opts.mark) { // rev limiter
-      g.strokeStyle = "#ff4a55"; g.setLineDash([4, 4]);
+    if (opts.mark) {
+      g.strokeStyle = "#e04b5a"; g.setLineDash([4, 4]);
       g.beginPath(); g.moveTo(px(opts.mark), padT); g.lineTo(px(opts.mark), H - padB); g.stroke();
       g.setLineDash([]);
     }
@@ -594,6 +704,126 @@ export class UI {
       { pts: pick(c, (p) => p.iat), color: "#3dd6ff", min: 20, max: 1100, label: "IAT", right: true },
     ], { mark });
   }
+
+  // ---------- music ----------
+  // A browser cannot read what Spotify or the OS is playing - no web API exposes that. What it CAN
+  // do is play files the player adds, read their real tags, and hand control to the OS media keys
+  // through the Media Session API. That is exactly what this does; nothing is mocked.
+  wireMedia() {
+    const m = this.music;
+    $("mediaAdd").onclick = () => $("mediaFiles").click();
+    $("mediaFiles").onchange = async (e) => {
+      const n = await m.add([...e.target.files]);
+      e.target.value = "";
+      this.toast(n ? `Added ${n} track${n > 1 ? "s" : ""}` : "No playable audio in that selection");
+    };
+    $("mediaPlay").onclick = () => m.toggle();
+    $("mediaNext").onclick = () => m.next();
+    $("mediaPrev").onclick = () => m.prev();
+    $("mwPlay").onclick = () => m.toggle();
+    $("mwNext").onclick = () => m.next();
+    $("mwPrev").onclick = () => m.prev();
+    $("mediaVol").value = m.audio.volume;
+    $("mediaVol").oninput = (e) => m.setVolume(+e.target.value);
+    $("mediaBar").onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); m.seek((e.clientX - r.left) / r.width); };
+    for (const ev of ["track", "state", "list"]) m.addEventListener(ev, () => this.renderMedia());
+    m.addEventListener("time", () => this.renderMediaTime());
+    // drop audio files anywhere on the page
+    addEventListener("dragover", (e) => { if (e.dataTransfer?.types?.includes("Files")) e.preventDefault(); });
+    addEventListener("drop", async (e) => {
+      if (!e.dataTransfer?.files?.length) return;
+      e.preventDefault();
+      const n = await m.add([...e.dataTransfer.files]);
+      if (n) this.toast(`Added ${n} track${n > 1 ? "s" : ""}`);
+    });
+    $("mediaNote").textContent = m.hasSession
+      ? "Your keyboard's media keys control this player. Browsers can't read Spotify or system audio, so add your own files here."
+      : "Browsers can't read Spotify or system audio, so add your own files here.";
+    this.renderMedia();
+  }
+  renderMedia() {
+    const m = this.music, t = m.track;
+    const art = $("mediaArt");
+    art.innerHTML = t?.art ? `<img src="${t.art}" alt="">` : `<span>♪</span>`;
+    $("mediaTitle").textContent = t ? t.title : "Nothing playing";
+    $("mediaArtist").textContent = t ? (t.artist || "Unknown artist") : "Add your own tracks to get started";
+    $("mediaAlbum").textContent = t?.album || "";
+    $("mediaPlay").textContent = m.playing ? "❚❚" : "▶";
+    $("mediaPrev").disabled = $("mediaNext").disabled = m.tracks.length < 2;
+    $("mediaPlay").disabled = !t;
+    const list = $("mediaList");
+    list.innerHTML = "";
+    m.tracks.forEach((tr, i) => {
+      const row = document.createElement("div");
+      row.className = "media-row" + (i === m.index ? " on" : "");
+      row.innerHTML = `<div class="mr-art">${tr.art ? `<img src="${tr.art}" alt="">` : "♪"}</div>
+        <div class="mr-text"><b>${esc(tr.title)}</b><small>${esc(tr.artist || "Unknown artist")}</small></div>
+        <button class="mr-x" title="Remove">✕</button>`;
+      row.onclick = (e) => { if (!e.target.closest(".mr-x")) m.play(i); };
+      row.querySelector(".mr-x").onclick = () => m.remove(i);
+      list.appendChild(row);
+    });
+    const w = $("musicWidget");
+    w.hidden = !t || this.ctx.state() === "home";
+    if (t) {
+      $("mwArt").innerHTML = t.art ? `<img src="${t.art}" alt="">` : "♪";
+      $("mwTitle").textContent = t.title;
+      $("mwArtist").textContent = t.artist || "Unknown artist";
+      $("mwPlay").textContent = m.playing ? "❚❚" : "▶";
+    }
+    this.renderMediaTime();
+  }
+  renderMediaTime() {
+    const m = this.music, a = m.audio;
+    const fmt = (s) => (isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
+    $("mediaNow").textContent = fmt(a.currentTime);
+    $("mediaDur").textContent = fmt(a.duration);
+    const pct = (m.progress * 100).toFixed(1) + "%";
+    $("mediaBar").firstElementChild.style.width = pct;
+    $("mwBar").style.width = pct;
+    const w = $("musicWidget");
+    if (m.track && this.ctx.state() !== "home" && w.hidden) w.hidden = false;
+    if (this.ctx.state() === "home" && !w.hidden) w.hidden = true;
+  }
+
+  // ---------- admin ----------
+  // Local developer tools behind a code. They only touch this browser's save.
+  wireAdmin() {
+    const CODE = "xurcolol";
+    const show = (on) => { $("adminLocked").hidden = on; $("adminTools").hidden = !on; };
+    show(sessionStorage.getItem("hd_admin") === "1");
+    const tryUnlock = () => {
+      if ($("adminCode").value !== CODE) { $("adminCode").value = ""; return this.toast("Wrong code"); }
+      sessionStorage.setItem("hd_admin", "1");
+      $("adminCode").value = "";
+      show(true);
+      this.toast("Admin panel unlocked");
+    };
+    $("adminUnlock").onclick = tryUnlock;
+    $("adminCode").onkeydown = (e) => { if (e.key === "Enter") tryUnlock(); };
+    $("adminLock").onclick = () => { sessionStorage.removeItem("hd_admin"); show(false); };
+    const num = (id) => Math.max(0, Math.floor(+$(id).value || 0));
+    $("adminSetCoins").onclick = () => { P.coins = num("adminCoins"); save(); this.afterAdmin(`Coins set to ${fmtCoins(P.coins)}`); };
+    $("adminSetHearts").onclick = () => { P.hearts = num("adminHearts"); save(); this.afterAdmin(`Revives set to ${P.hearts}`); };
+    $("adminSetBest").onclick = () => { P.best = num("adminBest"); P.medals = medalCount(P.best); save(); this.afterAdmin(`Best set to ${fmtCoins(P.best)}`); };
+    $("adminUnlockCars").onclick = () => { P.owned = CARS.map((c) => c.id); save(); this.afterAdmin("All cars unlocked"); };
+    $("adminUnlockParts").onclick = () => {
+      for (const c of CARS) {
+        P.ecu[c.id] = true;
+        P.parts[c.id] = Object.fromEntries(Object.entries(PARTS).map(([kind, def]) => [kind, Object.keys(def.opts)]));
+      }
+      save(); this.afterAdmin("All upgrades unlocked");
+    };
+    $("adminClearTunes").onclick = () => { P.tunes = {}; save(); this.ctx.applyTune(); this.afterAdmin("Tunes cleared"); };
+    $("adminGod").onclick = (e) => { const on = this.ctx.toggleGod(); e.target.textContent = `GOD MODE: ${on ? "ON" : "OFF"}`; };
+    $("adminWipe").onclick = () => {
+      if (!confirm("Wipe the whole profile? Cars, coins, tunes and settings all go back to new.")) return;
+      localStorage.removeItem("hd_profile");
+      document.cookie = "hd_save=; max-age=0; path=/";
+      location.reload();
+    };
+  }
+  afterAdmin(msg) { this.toast(msg); this.renderTop(); this.renderHome(); if (!$("tune").hidden) this.renderTune(); }
 
   // ---------- settings ----------
   wireSettings() {

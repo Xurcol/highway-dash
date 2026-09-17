@@ -8,7 +8,8 @@ import { Drivetrain } from "./vehicle.js";
 import { AudioManager } from "./audio.js";
 import { Glows, uploadLights, lampUniforms } from "./lights.js";
 import { createNet, RemoteView, NET } from "./net.js";
-import { P, save, carById, carColor, carSound, carTune, carAudio, MEDALS, addXp, medalCount } from "./profile.js";
+import { P, save, carById, carColor, carSound, carTune, carAudio, earn, walletHooks, MEDALS, addXp, medalCount } from "./profile.js";
+import { runReward } from "./economy.js";
 import { tunedSpec } from "./tuning.js";
 import { UI } from "./ui.js";
 import { loadModels, makeCar } from "./models.js";
@@ -169,7 +170,7 @@ let camMode = 0;
 const G = {
   def: carById(P.equipped), car: null, dt: null, engine: null,
   x: 0, z: 0, vx: 0, yaw: 0, steer: 0, thr: 0, brk: 0,
-  score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: 0,
+  score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: 0, god: false,
   sigL: 0, sigR: 0, sigT: 0, sigOn: false, slowT: 0,
   crashT: 0, thrown: null, readyRpm: 900, prevDz: new Map(), scraping: false,
   runStartBest: 0, sendT: 0,
@@ -247,7 +248,7 @@ function enterReady(asMode) {
     soloT = 0; G.z = 0;
   }
   G.x = pickSpawn(getT(), G.z);
-  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
+  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: G.god ? 1e9 : 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, bestCombo: 0, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
   G.prevDz.clear();
   G.dt.v = 0; G.readyRpm = G.dt.s.idle;
   G.car.group.position.set(G.x, 0, G.z); G.car.group.rotation.set(0, 0, 0);
@@ -284,28 +285,36 @@ function crash(hitCar) {
   audio.crash(Math.min(1, v / 50));
   G.crashT = 0; G.shake = 1;
   G.engine?.params(G.dt.s.idle, 0, 0);
-  if (mode === "online" && partyRound) { const res = awardRun(); ui.toast(`+${res.coins} coins`); G.awarded = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score) }); }
+  if (mode === "online" && partyRound) { const res = awardRun(); ui.toast(`🪙 +${res.coins.toLocaleString()} coins`); G.awarded = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score) }); }
   else net.send({ t: "event", kind: "crash", v: Math.floor(G.score) });
 }
-function awardRun() {
+function awardRun(opts = {}) {
   const score = Math.floor(G.score);
   const prevBest = P.best;
-  const coins = Math.floor(score / 8) + G.closeCalls * 2;
-  P.coins += coins;
   if (score > P.best) P.best = score;
   const prevMedals = medalCount(prevBest), nowMedals = medalCount(P.best);
   P.medals = nowMedals;
   const levelUps = addXp(Math.floor(score / 4) + 25);
+  // payouts all come from economy.js so the whole economy can be balanced in one place
+  const best = [...remotes.values()].map((r) => r.s?.sc || 0);
+  const reward = runReward({
+    score, closeCalls: G.closeCalls, distance: G.dist, bestCombo: G.bestCombo || 0,
+    newBest: score > prevBest && score > 0, newMedals: nowMedals - prevMedals, levelUps,
+    survivor: !!opts.survivor,
+    partyWin: mode === "online" && partyRound > 0 && best.length > 0 && best.every((s) => score >= s),
+  });
+  earn(reward.coins);
   save();
   net.send({ t: "score", score, level: P.level });
-  return { score, prevBest, coins, closeCalls: G.closeCalls, newMedals: nowMedals - prevMedals, levelUps, revives: G.revives };
+  net.send({ t: "runEnd", run: { score, closeCalls: G.closeCalls, distance: G.dist, bestCombo: G.bestCombo || 0, newBest: score > prevBest && score > 0, newMedals: nowMedals - prevMedals, levelUps, survivor: !!opts.survivor } });
+  return { score, prevBest, coins: reward.coins, extras: reward.extras, closeCalls: G.closeCalls, newMedals: nowMedals - prevMedals, levelUps, revives: G.revives };
 }
 function finishRun() {
   if (state !== "crashed") return;
   state = "over";
   if (G.awarded) { G.awarded = false; return; }
   const result = awardRun();
-  if (mode === "online" && partyRound) return ui.toast(`+${result.coins} coins`); // party: results banner comes from the server
+  if (mode === "online" && partyRound) return ui.toast(`🪙 +${result.coins.toLocaleString()} coins`); // party: results banner comes from the server
   ui.showOver(result);
 }
 
@@ -337,8 +346,8 @@ function roundOver() { // someone else crashed: our run stops where we are
   if (state !== "drive") return;
   state = "ended";
   audio.horn(false);
-  const result = awardRun();
-  ui.toast(`+${result.coins} coins`);
+  const result = awardRun({ survivor: true });
+  ui.toast(`🪙 +${result.coins.toLocaleString()} coins`);
 }
 net.addEventListener("room", () => {
   const r = net.room;
@@ -381,6 +390,7 @@ function goHome() {
 function onKey(code) {
   if (ui.anyModalOpen()) { if (code === "Escape") ui.closeModals(); return; }
   if (code === "KeyL" && state !== "home") return ui.toggleModal("leader");
+  if (code === "KeyJ" && state !== "home") return ui.toggleModal("media");
   if (state === "ready" && (code === "Space" || code === "Enter")) return mode === "online" && partyRound ? null : startDriving();
   if (!["drive", "crashed", "over"].includes(state)) return;
   switch (code) {
@@ -472,7 +482,19 @@ function syncRemote(id, peer) {
   }
   if (last.col !== undefined && last.col !== r.col) { r.col = last.col; r.car.setColor(last.col); }
   if (last.a) { r.cfgA = last.a; if (r.voice && r.aN !== peer.cfgN) { r.aN = peer.cfgN; r.voice.tune(last.a, last.md ? "comfort" : "sport"); } }
+  if (last.th !== undefined && r.thN !== peer.cfgN) { r.thN = peer.cfgN; checkTrafficSync(last.tq, last.th); }
   return r;
+}
+// Their traffic fingerprint against ours at the same moment. Identical = the two clients really are
+// running one simulation, not two that merely look alike. A mismatch re-seeds us from the room.
+let syncBad = 0, syncOk = 0;
+function checkTrafficSync(tq, th) {
+  if (state === "home" || !net.room || typeof tq !== "number") return;
+  if (traffic.worldHash(tq) === th) { syncOk++; syncBad = 0; return; }
+  if (++syncBad < 3) return;                     // one stale packet across a round change is normal
+  syncBad = 0;
+  traffic.setSeed(net.room.seed, net.room.traffic || "Heavy", false);
+  ui.toast("🔄 Resynced traffic with the party");
 }
 net.addEventListener("peerLeft", (e) => {
   const r = remotes.get(e.detail);
@@ -609,8 +631,9 @@ function updateDrive(dt, T) {
   // steering
   const steerIn = (held("KeyD", "ArrowRight") ? 1 : 0) - (held("KeyA", "ArrowLeft") ? 1 : 0);
   G.steer += (steerIn - G.steer) * Math.min(1, dt * 9);
-  const maxLat = (4.5 + def.handling * .07) * Math.min(1, v / 14);
-  G.vx += (G.steer * maxLat - G.vx) * Math.min(1, dt * (3.5 + def.handling * .05));
+  const hMul = d.s.handlingMul || 1;
+  const maxLat = (4.5 + def.handling * .07) * hMul * Math.min(1, v / 14);
+  G.vx += (G.steer * maxLat - G.vx) * Math.min(1, dt * (3.5 + def.handling * .05) * hMul);
   G.x += G.vx * dt;
   const lim = ROAD_HALF + SHOULDER - B.W / 2 - .1;
   G.scraping = false;
@@ -650,7 +673,7 @@ function updateDrive(dt, T) {
       if (gap < 3.2) audio.whoosh(Math.sign(dx) * .7, c.body === "truck" || c.body === "bus");
       if (gap < 1.35 && kmh > 90 && G.ghostT <= 0) {
         G.combo = G.comboT > 0 ? G.combo + 1 : 1;
-        G.comboT = 2.5; G.closeCalls++;
+        G.comboT = 2.5; G.closeCalls++; G.bestCombo = Math.max(G.bestCombo || 0, G.combo);
         G.score += 20 + (G.combo - 1) * 10;
         ui.closeCall(G.combo);
         audio.closeCall(G.combo);
@@ -664,7 +687,7 @@ function updateDrive(dt, T) {
   G.car.group.position.set(G.x, 0, G.z);
   G.car.group.rotation.set(0, G.yaw, 0);
   G.car.bodyGroup.rotation.set(-G.brk * .012 + G.thr * .006, 0, -G.vx * .006);
-  G.car.group.visible = G.ghostT <= 0 || Math.floor(G.ghostT * 10) % 2 === 0;
+  G.car.group.visible = G.ghostT <= 0 || G.ghostT > 5 || Math.floor(G.ghostT * 10) % 2 === 0;
   G.car.update(v * dt, G.steer);
 }
 
@@ -798,6 +821,7 @@ function updateHud() {
   ui.el.sigR.classList.toggle("on", !!G.sigR && G.sigOn);
   ui.el.speedUp.classList.toggle("on", state === "drive" && G.slowT > 1.2);
   ui.el.ghost.hidden = !(G.ghostT > 0 && state === "drive");
+  if (G.god && !ui.el.ghost.hidden) ui.el.ghost.textContent = "GOD MODE";
   ui.el.catchUp.hidden = !((G.catch || 0) > .05 && state === "drive");
   if (G.comboT <= 0) ui.el.combo.classList.remove("on");
   drawTach(d.rpm, d.s.redline, d.manual);
@@ -911,7 +935,8 @@ function frame(now) {
       // identity + engine character: twice a second, and right away when something changes
       if ((G.cfgTick = (G.cfgTick || 0) - 1) <= 0 || G.cfgDirty) {
         G.cfgTick = 10; G.cfgDirty = 0;
-        s.c = { car: G.def.id, col: carColor(G.def.id), md: P.settings.driveMode === "sport" ? 0 : 1, a: carAudio(G.def.id) };
+        const tq = Math.round(T * 2) / 2; // a time both clients can hash at
+        s.c = { car: G.def.id, col: carColor(G.def.id), md: P.settings.driveMode === "sport" ? 0 : 1, a: carAudio(G.def.id), tq, th: traffic.worldHash(tq) };
       }
       net.send({ t: "state", s });
     }
@@ -980,11 +1005,21 @@ const ui = new UI({
   play: (asMode) => { audio.init(); if (asMode === "online") partyDrive(); else { partyRound = 0; enterReady(asMode); } },
   revive, restart: () => { enterReady(mode); startDriving(); }, home: goHome,
   resume: () => togglePause(), applySettings,
+  toggleGod: () => { G.god = !G.god; G.ghostT = G.god ? 1e9 : 0; return G.god; },
   state: () => state, mode: () => mode, revivesUsed: () => G.revives,
 });
 const clickStart = () => { if (state === "ready" && !(mode === "online" && partyRound)) startDriving(); };
 canvas.addEventListener("pointerdown", clickStart);
 document.getElementById("ready").addEventListener("pointerdown", clickStart);
+// With the project's own server running, IT owns the wallet: purchases are reported for
+// validation and its balance is authoritative. On static hosting there is no server and the wallet
+// stays local to the browser.
+walletHooks.buy = (kind, id) => net.send({ t: "buy", kind, id });
+net.addEventListener("wallet", (e) => {
+  const m = e.detail;
+  if (typeof m.coins === "number" && m.coins !== P.coins) { P.coins = m.coins; save(); ui.renderTop(); if (!document.getElementById("tune").hidden) ui.renderTune(); }
+  if (m.denied) ui.toast(`Purchase refused by the server — ${m.reason}`);
+});
 net.addEventListener("chat", (e) => ui.chat(e.detail.name, e.detail.text));
 net.addEventListener("event", (e) => {
   const m = e.detail;
@@ -1006,9 +1041,12 @@ ui.renderHome();
 net.connect(P.name, P.equipped);
 requestAnimationFrame(frame);
 
+window.__ui = ui;
 window.__game = {
   G, sky, traffic, net, world, renderer, scene, camera, glows, frame, remotes, NET, CATCHUP,
   get state() { return state; }, get mode() { return mode; },
-  // quick sync check: two clients in the same party must print the same number
+  // quick sync check: two clients in the same party must print the same numbers
   trafficHash: () => traffic.stateHash(getT(), G.z),
+  worldHash: (T) => traffic.worldHash(T ?? Math.round(getT() * 2) / 2),
+  syncStats: () => ({ ok: syncOk, bad: syncBad }),
 };

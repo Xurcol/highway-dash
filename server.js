@@ -28,6 +28,22 @@ function save() {
 const byToken = new Map(), byCode = new Map();
 for (const u of Object.values(db.users)) { byToken.set(u.token, u); byCode.set(u.code, u); }
 
+// The price tables are shared with the client rather than duplicated here, so there is exactly one
+// place to change a price. When this server is running it owns the wallet: the client may ask to
+// buy something, but only the ledger below decides whether it can afford it.
+let ECONOMY = null;
+import("./public/js/economy.js").then((m) => (ECONOMY = m)).catch((e) => console.warn("economy tables unavailable:", e.message));
+const priceOf = (kind, id) => {
+  if (!ECONOMY) return null;
+  if (kind === "car") return ECONOMY.CAR_PRICES[id] ?? null;
+  if (kind === "ecu") return ECONOMY.TUNING_PRICES.ecu;
+  if (kind === "session") return ECONOMY.TUNING_PRICES.session;
+  if (kind === "paint") return ECONOMY.COSMETIC_PRICES.paint;
+  if (kind === "hearts") return { 1: 150, 5: 650, 15: 1800, 50: 5500 }[id] ?? null;
+  return ECONOMY.PART_PRICES[kind]?.[id] ?? null;
+};
+const wallet = (ws, u, extra = {}) => send(ws, { t: "wallet", coins: u.coins | 0, ...extra });
+
 const rid = (n) => crypto.randomBytes(n).toString("hex");
 function newCode() {
   const A = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
@@ -151,13 +167,14 @@ wss.on("connection", (ws) => {
     if (m.t === "hello") {
       let u = byToken.get(m.token);
       if (!u) {
-        u = { id: rid(8), token: rid(24), code: newCode(), name: cleanName(m.name), friends: [], incoming: [], best: 0, level: 1 };
+        u = { id: rid(8), token: rid(24), code: newCode(), name: cleanName(m.name), friends: [], incoming: [], best: 0, level: 1, coins: 1500 };
         db.users[u.id] = u; byToken.set(u.token, u); byCode.set(u.code, u); save();
       }
       const prev = online.get(u.id);
       if (prev && prev !== ws) { send(prev, { t: "error", msg: "Signed in from another tab" }); prev.close(); }
       ws.user = u; ws.car = cleanCar(m.car); online.set(u.id, ws);
-      send(ws, { t: "welcome", id: u.id, token: u.token, code: u.code, name: u.name, best: u.best, s: Date.now() });
+      if (u.coins === undefined) u.coins = 1500;
+      send(ws, { t: "welcome", id: u.id, token: u.token, code: u.code, name: u.name, best: u.best, coins: u.coins, s: Date.now() });
       pushSocial(u); notifyFriends(u);
       return;
     }
@@ -263,6 +280,37 @@ wss.on("connection", (ws) => {
         break;
       }
       case "leaderboard": send(ws, leaderboard(u)); break;
+      // ---- wallet: this server is the authority while it is connected ----
+      case "wallet": wallet(ws, u); break;
+      case "buy": {
+        const price = priceOf(String(m.kind || ""), String(m.id || ""));
+        if (price === null) return wallet(ws, u, { denied: true, reason: "unknown item" });
+        if ((u.coins | 0) < price) return wallet(ws, u, { denied: true, reason: "not enough coins", need: price - (u.coins | 0) });
+        u.coins = (u.coins | 0) - price;
+        save();
+        wallet(ws, u, { bought: `${m.kind}:${m.id}` });
+        break;
+      }
+      case "runEnd": {
+        // the server pays out from the same table the client shows, with sane caps
+        if (!ECONOMY) return;
+        const r = m.run || {};
+        const run = {
+          score: Math.max(0, Math.min(1e7, Math.floor(r.score) || 0)),
+          closeCalls: Math.max(0, Math.min(5000, r.closeCalls | 0)),
+          distance: Math.max(0, Math.min(1e6, +r.distance || 0)),
+          bestCombo: Math.max(0, Math.min(500, r.bestCombo | 0)),
+          newBest: !!r.newBest, newMedals: Math.max(0, Math.min(8, r.newMedals | 0)),
+          levelUps: Math.max(0, Math.min(20, r.levelUps | 0)), survivor: !!r.survivor, partyWin: !!r.partyWin,
+        };
+        const now = Date.now();
+        if (now - (u.lastPayout || 0) < 3000) return wallet(ws, u); // no payout spamming
+        u.lastPayout = now;
+        u.coins = (u.coins | 0) + ECONOMY.runReward(run).coins;
+        save();
+        wallet(ws, u);
+        break;
+      }
     }
   });
 });

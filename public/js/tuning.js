@@ -79,6 +79,42 @@ export const PARTS = {
       race: { label: "Race FMIC + meth", eff: .96 },
     },
   },
+  // ---- chassis: these don't touch the torque curve, they change how the car puts it down ----
+  tires: {
+    label: "Tires", chassis: true, opts: {
+      stock: { label: "Road tires", grip: 1 },
+      sport: { label: "Sport tires", grip: 1.07 },
+      slick: { label: "Semi-slicks", grip: 1.15 },
+    },
+  },
+  brakes: {
+    label: "Brakes", chassis: true, opts: {
+      stock: { label: "Stock brakes", brake: 1 },
+      sport: { label: "Big brake kit", brake: 1.18 },
+      race: { label: "Carbon ceramics", brake: 1.35 },
+    },
+  },
+  suspension: {
+    label: "Suspension", chassis: true, opts: {
+      stock: { label: "Stock springs", handling: 1 },
+      sport: { label: "Coilovers", handling: 1.12 },
+      race: { label: "Track-spec setup", handling: 1.26 },
+    },
+  },
+  transmission: {
+    label: "Transmission", chassis: true, opts: {
+      stock: { label: "Stock gearbox", shift: 1 },
+      sport: { label: "Solid mounts + TCU", shift: .78 },
+      race: { label: "Dog-box conversion", shift: .58 },
+    },
+  },
+  weight: {
+    label: "Weight reduction", chassis: true, opts: {
+      stock: { label: "Full interior", mass: 1 },
+      stage1: { label: "Stripped interior", mass: .96 },
+      stage2: { label: "Carbon panels + cage", mass: .91 },
+    },
+  },
 };
 export const partOpt = (kind, key) => PARTS[kind].opts[key] || PARTS[kind].opts[Object.keys(PARTS[kind].opts)[0]];
 
@@ -109,14 +145,16 @@ export function defaultTune(car) {
     final: s.final,
     gearing: 1,
     intake: "stock", exhaust: "stock", catalyst: "stock", turbo: "stock", intercooler: "stock",
+    tires: "stock", brakes: "stock", suspension: "stock", transmission: "stock", weight: "stock",
     burble: .75, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1,
   };
 }
+export const PART_KINDS = Object.keys(PARTS);
 // A stored tune may be older than the current schema or out of range: fold it onto the defaults.
 export function normalizeTune(car, stored) {
   const d = defaultTune(car), e = engineOf(car), s = specOf(car), t = { ...d, ...(stored || {}) };
   for (const [k, [lo, hi]] of Object.entries(TUNE_RANGE)) t[k] = clamp(Number.isFinite(+t[k]) ? +t[k] : d[k], lo, hi);
-  for (const kind of ["intake", "exhaust", "catalyst", "turbo", "intercooler"]) {
+  for (const kind of Object.keys(PARTS)) {
     if (!PARTS[kind].opts[t[kind]]) t[kind] = d[kind];
     if (PARTS[kind].boostedOnly && !isBoosted(e)) t[kind] = d[kind];
   }
@@ -334,6 +372,11 @@ export function tunedSpec(carId, tune) {
     ratios: s.ratios.map((r) => r * t.gearing),
     final: t.final,
     redline: t.revLimit,
+    grip: s.grip * partOpt("tires", t.tires).grip,
+    mass: s.mass * partOpt("weight", t.weight).mass,
+    shiftTime: s.shiftTime * partOpt("transmission", t.transmission).shift,
+    brakeMul: partOpt("brakes", t.brakes).brake,
+    handlingMul: partOpt("suspension", t.suspension).handling,
     torqueAt: (rpm) => torqueAt(car, t, rpm),
     boostAt: (rpm) => boostCurve(e, t, rpm),
     peakTorque: summaryCache(car, t).nm,
@@ -342,4 +385,12 @@ export function tunedSpec(carId, tune) {
     induction: e.induction,
     engineBrakeTune: t.engineBrake,
   };
+}
+
+// Peak power only - much cheaper than summary(), for previewing a part in the shop.
+export function peakHp(car, tune) {
+  const t = normalizeTune(car, tune);
+  let m = 0;
+  for (const p of dyno(car, t, 100)) if (p.rpm <= t.revLimit) m = Math.max(m, p.hp);
+  return Math.round(m);
 }
