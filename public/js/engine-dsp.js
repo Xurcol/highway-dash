@@ -45,7 +45,8 @@ export const ENGINE_PROFILES = {
   v12:     { label: "V12", cyl: 12, fire: even(12), amps: [1, .96, .98, .95, 1, .97, .99, .95, 1, .96, .98, .95], var: .03, header: 700, pipe: 185, fb: .48, muffler: 3300, body: [180, .9, .7], bark: [700, 1.5, .9], rough: .08, sub: .1, drive: 1.6, crackle: .5, gain: .92 },
 };
 export const SOUND_KEYS = Object.keys(ENGINE_PROFILES);
-export const DEFAULT_TUNE = { burble: 1, decay: 1.1, mix: .35, brap: true, turbo: 1, exhaust: 1, rasp: 1, release: "flutter" };
+export const SOUND_LABELS = { s58real: "BMW S58 (real recording)", ...Object.fromEntries(Object.entries(ENGINE_PROFILES).map(([k, p]) => [k, p.label])) };
+export const DEFAULT_TUNE = { burble: .75, decay: 1.1, mix: .2, brap: true, turbo: .8, exhaust: .9, rasp: .7, release: "flutter" };
 
 class Delay {
   constructor(n) { this.b = new Float32Array(n); this.w = 0; this.lp = 0; this.len = 16; }
@@ -91,9 +92,11 @@ export class EngineDSP {
     this.bodyF = biquad("bp", p.body[0], p.body[1], sr);
     this.barkF = biquad("bp", p.bark[0], p.bark[1], sr);
     this.inductF = biquad("bp", p.bark[0] * 1.6, 1.5, sr);
-    this.crackF = biquad("bp", 2800, 1.3, sr);
+    this.crackF = biquad("bp", 1700, 1.1, sr);
+    this.soft = biquad("lp", 4000, .6, sr);
+    this.soft2 = biquad("lp", 6500, .5, sr);
     this.raspLP = biquad("lp", 850, .7, sr);
-    this.chirpF = biquad("bp", 2100, 2.2, sr);
+    this.chirpF = biquad("bp", 1500, 1.8, sr);
     this.bovF = biquad("bp", 3400, .9, sr);
   }
   message(m) {
@@ -111,7 +114,7 @@ export class EngineDSP {
         this.blip = sport ? .15 : .08;
         this.crackle = Math.min(1.2, this.crackle + (sport ? .95 : .15) * p0(this));
         break;
-      case "limiter": this.cut = .045; break;
+      case "limiter": this.cut = .03; break;
       case "lift":
         this.crackle = Math.min(1.2, this.crackle + (sport ? .5 : .06) * p0(this));
         if (this.boost > .2) this.release(1);
@@ -141,7 +144,8 @@ export class EngineDSP {
     setLP(this.muff, p.muffler * open, .75, sr);
     setLP(this.muff2, p.muffler * open * 2.6, .6, sr);
     const eager = p.crackle * t.burble * (sport ? 1 : .12);
-    const outGain = p.gain * t.exhaust * (sport ? 1 : .62);
+    const outGain = p.gain * t.exhaust * (sport ? .75 : .5);
+    setLP(this.soft, sport ? 4200 : 2800, .6, sr); // ear-friendly top end
     if (sport && this.tThr < .08 && this.tRpm > 2400) this.crackle = Math.max(this.crackle, .16 * t.burble * p.crackle);
 
     for (let i = 0; i < n; i++) {
@@ -163,7 +167,7 @@ export class EngineDSP {
       for (let c = 0; c < this.fireFrac.length; c++) {
         const f = this.fireFrac[c];
         if (!(wrapped ? (f >= prev || f < this.crank) : (f >= prev && f < this.crank))) continue;
-        const load = this.cut > 0 ? .02 : .16 + .84 * thr;
+        const load = this.cut > 0 ? .14 : .16 + .84 * thr;
         const lope = p.jitter ? (this.rand() - .5) * p.jitter * .06 * Math.max(0, 1 - rpm / 3000) : 0;
         const a = p.amps[c] * load * (1 + (this.rand() - .5) * 2 * p.var) * (1 + lope * 20);
         if (this.pulses.length < 8) this.pulses.push({ t: -(this.runner[c] + Math.max(0, lope)), a, tau });
@@ -193,13 +197,13 @@ export class EngineDSP {
         if (P.t > P.dur) { this.pops.splice(k, 1); continue; }
         const e = Math.exp(-P.t / (P.dur * .25));
         if (P.sharp) crack += nz * e * P.amp;
-        else exc += P.amp * 2.2 * (e - Math.exp(-P.t / .0006)) + nz * e * P.amp * .5;
+        else exc += P.amp * 1.3 * (e - Math.exp(-P.t / .0008)) + nz * e * P.amp * .25;
       }
 
       // ---- exhaust system ----
       let y = this.header.pipe(exc, .35, .5);
       y = this.main.pipe(y, p.fb, .32);
-      const drive = p.drive * (.7 + .5 * thr) * (sport ? 1 : .8);
+      const drive = p.drive * .72 * (.7 + .5 * thr) * (sport ? 1 : .8);
       y = Math.tanh(y * drive) / Math.tanh(drive);
       const muffled = run(this.muff2, run(this.muff, y));
       let o = muffled * .9
@@ -207,9 +211,9 @@ export class EngineDSP {
         + run(this.barkF, y) * p.bark[2] * (.25 + .75 * thr) * (sport ? 1.15 : .45);
       this.rumble += (y - this.rumble) * .004;
       o += this.rumble * p.sub * 2.2;
-      o += (y - run(this.raspLP, y)) * (.25 + thr) * (sport ? .8 : .2) * (.3 + p.rough * 4) * t.rasp;
+      o += (y - run(this.raspLP, y)) * (.2 + .6 * thr) * (sport ? .35 : .12) * (.3 + p.rough * 4) * t.rasp;
       o += run(this.inductF, exc) * thr * rn * .35; // tonal induction growl
-      o += run(this.crackF, crack) * 2.4;
+      o += run(this.crackF, crack) * .8;
 
       // ---- forced induction ----
       if (p.turbo) {
@@ -217,8 +221,8 @@ export class EngineDSP {
         this.boost += (want - this.boost) * (want > this.boost ? dt / .8 : dt / .55);
         const b2 = this.boost * this.boost;
         this.whistle += (p.turboPitch + this.boost * 3800 + rpm * .12) * dt;
-        o += Math.sin(this.whistle * 6.2832) * b2 * .014 * p.turbo * t.turbo;
-        o += Math.sin(this.whistle * 12.566 + 1) * b2 * .004 * p.turbo * t.turbo;
+        o += Math.sin(this.whistle * 6.2832) * b2 * .006 * p.turbo * t.turbo;
+        o += Math.sin(this.whistle * 12.566 + 1) * b2 * .0015 * p.turbo * t.turbo;
         if (this.flutter > .004) { // compressor surge: slowing train of chirps
           this.flutterT += dt; this.nextChirp -= dt;
           if (this.nextChirp <= 0) {
@@ -228,7 +232,7 @@ export class EngineDSP {
             if (this.flutterT > .9) this.flutter = 0;
           }
         }
-        if (this.bov > .003) { o += run(this.bovF, nz) * this.bov * .5; this.bov *= 1 - dt / .16; }
+        if (this.bov > .003) { o += run(this.bovF, nz) * this.bov * .25; this.bov *= 1 - dt / .16; }
       }
       if (this.chirps.length) {
         let ch = 0;
@@ -239,16 +243,16 @@ export class EngineDSP {
           const e = Math.sin(Math.PI * C.t / C.dur);
           ch += (nz * .8 + Math.sin(C.t * 6.2832 * 190) * .6) * e * C.amp;
         }
-        o += run(this.chirpF, ch) * 1.6 + ch * .08;
+        o += run(this.chirpF, ch) * .55 + ch * .02;
       }
       if (p.blower) {
         this.blowerPh += (rpm / 60) * 38 * dt;
-        o += (Math.sin(this.blowerPh * 6.2832) * .6 + Math.sin(this.blowerPh * 12.566) * .25) * p.blower * (.15 + .85 * thr) * rn * .012 * t.turbo;
+        o += (Math.sin(this.blowerPh * 6.2832) * .6 + Math.sin(this.blowerPh * 12.566) * .25) * p.blower * (.15 + .85 * thr) * rn * .005 * t.turbo;
       }
 
       const dcOut = o - this.dcIn + .996 * this.dc;
       this.dcIn = o; this.dc = dcOut;
-      out[i] = Math.tanh(dcOut * .9) * this.gain * outGain;
+      out[i] = Math.tanh(run(this.soft2, run(this.soft, dcOut)) * .9) * this.gain * outGain;
     }
     const decay = Math.max(.15, t.decay) * (sport ? 1 : .4);
     this.crackle *= Math.exp(-n / sr / decay);

@@ -1,7 +1,7 @@
 // DOM side: garage, HUD helpers, game-over popup, leaderboards, online + settings panels.
 import { CARS, RARITY_COLORS, specOf, carStats } from "./cars.js";
 import { P, save, carById, carColor, carSound, carTune, TUNE_DEFAULT, PAINTS, MEDALS, HEART_PACKS, xpForLevel, medalCount } from "./profile.js";
-import { ENGINE_PROFILES } from "./engine-dsp.js";
+import { SOUND_LABELS } from "./engine-dsp.js";
 import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
 
@@ -133,7 +133,7 @@ export class UI {
     $("ciAction").onclick = () => this.buyOrEquip(this.view, () => this.renderHome());
     $("paintPick").oninput = (e) => this.paint(parseInt(e.target.value.slice(1), 16));
     const sp = $("soundPick");
-    sp.innerHTML = Object.entries(ENGINE_PROFILES).map(([k, p]) => `<option value="${k}">${p.label}</option>`).join("");
+    sp.innerHTML = Object.entries(SOUND_LABELS).map(([k, label]) => `<option value="${k}">${label}</option>`).join("");
     sp.onchange = () => { P.sounds[this.view] = sp.value; save(); this.ctx.revPreview(sp.value, this.view); if (this.view === P.equipped) this.ctx.applyTune(); };
     this.holdToRev($("revBtn"));
     $("tuneBtn").onclick = () => this.openModal("tune");
@@ -177,7 +177,7 @@ export class UI {
     const r = $("ciRarity"); r.textContent = car.rarity; r.style.background = RARITY_COLORS[car.rarity];
     $("ciName").textContent = car.name;
     $("ciName").style.fontSize = car.name.length > 20 ? "26px" : car.name.length > 12 ? "32px" : "";
-    $("ciSpec").textContent = `${ENGINE_PROFILES[carSound(car.id)]?.label || ""} · ${spec.ratios.length}-speed`;
+    $("ciSpec").textContent = `${SOUND_LABELS[carSound(car.id)] || ""} · ${spec.ratios.length}-speed`;
     const col = carColor(car.id);
     $("swatches").innerHTML = [car.color, ...PAINTS.filter((c) => c !== car.color)].slice(0, 12).map((c) => `<button data-c="${c}" class="${c === col ? "on" : ""}" style="background:#${c.toString(16).padStart(6, "0")}" title="${c === car.color ? "Factory" : ""}"></button>`).join("");
     [...$("swatches").children].forEach((b) => (b.onclick = () => this.paint(+b.dataset.c)));

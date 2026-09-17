@@ -5,10 +5,11 @@ import path from "path";
 const root = path.resolve(import.meta.dirname, "..");
 const out = path.join(root, "dist");
 const three = path.join(root, "node_modules", "three");
-const domain = process.argv[2] || "xurco.xyz";
+const domain = process.argv.slice(2).find((a) => !a.startsWith("--")) || "xurco.xyz";
+const withSounds = process.argv.includes("--with-sounds"); // recorded engine banks are third-party audio: opt-in only
 
 fs.rmSync(out, { recursive: true, force: true });
-fs.cpSync(path.join(root, "public"), out, { recursive: true });
+fs.cpSync(path.join(root, "public"), out, { recursive: true, filter: (src) => withSounds || !src.includes(path.join("public", "sounds")) });
 for (const rel of [
   "build/three.module.js", "build/three.core.js",
   "examples/jsm/environments", "examples/jsm/utils", "examples/jsm/loaders/GLTFLoader.js",
