@@ -13,7 +13,7 @@ import { P, save, carById, carColor, carSound, carTune, carAudio, earn, walletHo
 import { runReward } from "./economy.js";
 import { tunedSpec, peakHp, PARTS } from "./tuning.js";
 import { UI } from "./ui.js";
-import { loadModels, makeCar, ensureModel, hasModel, MODELS } from "./models.js";
+import { loadModels, makeCar, ensureModel, hasModel, MODELS, missingModels, downloadModels } from "./models.js";
 
 // ---------------- renderer / scenes ----------------
 const canvas = document.getElementById("c");
@@ -168,11 +168,12 @@ function makeThumbs(ids = CARS.map((c) => c.id)) {
     showCam.position.multiplyScalar(.82); showCam.lookAt(0, .7, 0);
     renderer.setScissorTest(true);
     renderer.setViewport(0, 0, w, h); renderer.setScissor(0, 0, w, h);
-    renderer.setClearColor(0x000000, 0); renderer.clear();
+    renderer.setClearColor(0x161920, 1); renderer.clear();
     renderer.render(show, showCam);
-    g.clearRect(0, 0, c2.width, c2.height);
+    g.fillStyle = "#161920"; g.fillRect(0, 0, c2.width, c2.height);
     g.drawImage(canvas, 0, canvas.height - h * pr, w * pr, h * pr, 0, 0, c2.width, c2.height);
-    out[def.id] = c2.toDataURL("image/png");
+    out[def.id] = c2.toDataURL("image/jpeg", .85);
+    if (MODELS[def.id]) thumbCache.put(def.id, out[def.id]);
     show.remove(car.group); car.dispose();
   }
   renderer.setScissorTest(false);
@@ -181,6 +182,39 @@ function makeThumbs(ids = CARS.map((c) => c.id)) {
   showDeco.visible = true;
   if (showCar) showCar.group.visible = true;
   return out;
+}
+
+// Garage pictures of the real models, stored per car + paint + style so they are only redrawn when
+// the car's look changes.
+const thumbCache = {
+  sig: (id) => `${carColor(id)}|${JSON.stringify(carStyle(id))}`,
+  read() { try { return JSON.parse(localStorage.getItem("hd_thumbs") || "{}"); } catch { return {}; } },
+  get(id) { const e = this.read()[id]; return e && e.sig === this.sig(id) ? e.url : null; },
+  all() { const r = this.read(), o = {}; for (const [id, e] of Object.entries(r)) if (e.sig === this.sig(id)) o[id] = e.url; return o; },
+  put(id, url) { const r = this.read(); r[id] = { sig: this.sig(id), url }; try { localStorage.setItem("hd_thumbs", JSON.stringify(r)); } catch { } },
+};
+// First visit: download every car once (with a progress screen), then draw each one's garage picture.
+async function firstRunLoader() {
+  const missing = await missingModels();
+  const needThumbs = CARS.filter((c) => hasModel(c.id) && !thumbCache.get(c.id)).map((c) => c.id);
+  if (!missing.length && !needThumbs.length) return;
+  const el = document.getElementById("loader"), bar = document.getElementById("loaderBar"), title = document.getElementById("loaderTitle"), sub = document.getElementById("loaderSub");
+  el.hidden = false;
+  if (missing.length) {
+    title.textContent = "Downloading cars";
+    await downloadModels(missing, (b, t, f, n) => {
+      bar.style.width = Math.min(100, (b / Math.max(1, t)) * 100).toFixed(1) + "%";
+      sub.textContent = `${(b / 1e6).toFixed(0)} / ${(t / 1e6).toFixed(0)} MB · car ${Math.min(n, f + 1)} of ${n}`;
+    });
+  }
+  title.textContent = "Preparing garage";
+  for (let i = 0; i < needThumbs.length; i++) {
+    bar.style.width = ((i / needThumbs.length) * 100).toFixed(1) + "%";
+    sub.textContent = `${carById(needThumbs[i]).name} (${i + 1} of ${needThumbs.length})`;
+    await new Promise((r) => setTimeout(r, 0)); // let the screen update
+    if (await ensureModel(needThumbs[i])) makeThumbs([needThumbs[i]]);
+  }
+  el.hidden = true;
 }
 
 // ---------------- input ----------------
@@ -1043,7 +1077,8 @@ function frame(now) {
 
   if (!thumbsReady && canvas.width >= 480 && canvas.height >= 260) {
     thumbsReady = true;
-    ui.thumbs = makeThumbs();
+    // real-model pictures come from the cache; everything else is drawn now
+    ui.thumbs = { ...makeThumbs(CARS.filter((c) => !thumbCache.get(c.id)).map((c) => c.id)), ...thumbCache.all() };
     if (state === "home") ui.renderHome();
   }
   if (canvas.width !== Math.floor(innerWidth * renderer.getPixelRatio())) resize();
@@ -1283,6 +1318,7 @@ net.addEventListener("event", (e) => {
 
 applySettings();
 await loadModels();
+await firstRunLoader();
 await ensureModel(P.equipped);
 // 3D model credits (CC-BY requires them to be shown)
 fetch("/models/models.json", { cache: "no-cache" }).then((r) => r.json()).then((mj) => { const el = document.getElementById("credits"); if (el) el.textContent = Object.values(mj.credits || {}).join(" · ") || "—"; }).catch(() => {});

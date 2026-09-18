@@ -505,3 +505,12 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 .presets button:hover{background:var(--primary)}
 .presets small{color:var(--ink-3);font-size:var(--t-xs);flex-basis:100%}
 .st-l{width:72px;font-size:var(--t-xs);font-weight:700;letter-spacing:1.2px;color:var(--ink-2)}
+
+/* ---------- first-run loader ---------- */
+.loader{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:var(--bg)}
+.loader-box{width:min(460px,90vw);text-align:center;display:flex;flex-direction:column;gap:var(--s3)}
+.loader .brand{font-size:44px}
+.loader-title{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:var(--t-xl);letter-spacing:1.5px;margin-top:var(--s4)}
+.loader-bar{height:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-pill);overflow:hidden}
+.loader-bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s linear}
+.loader-sub{font-size:var(--t-sm);color:var(--ink-2);font-variant-numeric:tabular-nums}

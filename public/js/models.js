@@ -27,12 +27,51 @@ export async function loadModels() {
   return manifest.available || [];
 }
 export const hasModel = (id) => (manifest.available || []).includes(id);
+// Car files are kept in the browser's Cache Storage after the first download, so a car never has to
+// come over the network twice. Bumping "rev" in models.json invalidates the cache.
+const cacheName = () => "hd-models-" + (manifest.rev || 1);
+const modelUrl = (id) => `/models/${manifest[id]?.file || id + ".glb"}`;
+const openCache = async () => { try { return await caches.open(cacheName()); } catch { return null; } };
+export async function missingModels() {
+  const c = await openCache();
+  if (!c) return [];
+  // drop caches from older model revisions
+  try { for (const k of await caches.keys()) if (k.startsWith("hd-models-") && k !== cacheName()) caches.delete(k); } catch { }
+  const out = [];
+  for (const id of manifest.available || []) if (!(await c.match(modelUrl(id)))) out.push(id);
+  return out;
+}
+// download with byte-level progress: onProgress(doneBytes, totalBytes, filesDone, filesTotal)
+export async function downloadModels(ids, onProgress) {
+  const c = await openCache();
+  if (!c) return;
+  let done = 0, total = 0, files = 0;
+  const heads = await Promise.all(ids.map(async (id) => { try { const r = await fetch(modelUrl(id), { method: "HEAD" }); return +r.headers.get("content-length") || 8e6; } catch { return 8e6; } }));
+  total = heads.reduce((a, b) => a + b, 0);
+  for (const id of ids) {
+    try {
+      const res = await fetch(modelUrl(id));
+      if (!res.ok || !res.body) continue;
+      const reader = res.body.getReader(), parts = [];
+      for (;;) { const { done: end, value } = await reader.read(); if (end) break; parts.push(value); done += value.length; onProgress(done, total, files, ids.length); }
+      await c.put(modelUrl(id), new Response(new Blob(parts), { headers: { "Content-Type": "model/gltf-binary" } }));
+    } catch (e) { console.warn("download failed", id, e); }
+    files++;
+    onProgress(done, total, files, ids.length);
+  }
+}
+async function modelBytes(id) {
+  const c = await openCache(), url = modelUrl(id);
+  let res = c && (await c.match(url));
+  if (!res) { res = await fetch(url); if (c && res.ok) c.put(url, res.clone()).catch(() => {}); }
+  return res.arrayBuffer();
+}
 export function ensureModel(id) {
   if (MODELS[id]) { touch(id); return Promise.resolve(true); }
   if (!hasModel(id)) return Promise.resolve(false);
   if (!loading.has(id)) {
     const car = CARS.find((c) => c.id === id), cfg = manifest[id] || {};
-    loading.set(id, loader.loadAsync(`/models/${cfg.file || id + ".glb"}`)
+    loading.set(id, modelBytes(id).then((buf) => loader.parseAsync(buf, "/models/"))
       .then((gltf) => { MODELS[id] = prepare(gltf.scene, car, cfg); touch(id); evict(); return true; })
       .catch((e) => { console.warn(`Model for ${id} failed to load`, e); return false; })
       .finally(() => loading.delete(id)));
