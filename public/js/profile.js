@@ -135,15 +135,29 @@ export function payPaint(carId) {
 }
 
 export const carStyle = (id) => ({ finish: "gloss", tint: "dark", stance: "stock", rim: null, caliper: null, glow: null, ...(P.styles?.[id] || {}) });
-// Changing a style option costs its listed price (going back to stock is free).
-export function buyStyle(id, key, val) {
-  const cur = carStyle(id)[key];
-  if (cur === val) return { ok: true, already: true };
-  const r = spend(stylePrice(key, val));
+// A style option is paid for once per car; after that it can be switched back to for free.
+// Whatever a car is already wearing counts as paid for.
+export function ownsStyle(id, key, val) {
+  if (stylePrice(key, val) === 0) return true;
+  if (carStyle(id)[key] === val) return true;
+  return !!P.styleOwned?.[id]?.[key + ":" + val];
+}
+// What saving these changes would cost: only options that are new AND not already paid for.
+export function styleCost(id, draft) {
+  let total = 0;
+  for (const [key, val] of Object.entries(draft || {})) if (!ownsStyle(id, key, val)) total += stylePrice(key, val);
+  return total;
+}
+// The only place styling costs money: one charge for everything in the draft, then it's saved.
+export function saveStyle(id, draft) {
+  const cost = styleCost(id, draft);
+  const r = spend(cost);
   if (!r.ok) return r;
-  (P.styles ||= {})[id] = { ...carStyle(id), [key]: val };
+  const owned = ((P.styleOwned ||= {})[id] ||= {});
+  for (const [key, val] of Object.entries(draft)) if (stylePrice(key, val) > 0) owned[key + ":" + val] = true;
+  (P.styles ||= {})[id] = { ...carStyle(id), ...draft };
   save();
-  return { ok: true, price: stylePrice(key, val) };
+  return { ok: true, price: cost };
 }
 export function medalCount(best) { return MEDALS.filter((m) => best >= m.at).length; }
 export function addXp(amount) {

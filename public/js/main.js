@@ -1061,6 +1061,8 @@ const ui = new UI({
   net, audio, sky,
   thumbs: {},
   selectCar: setShowCar,
+  // preview: shown on the garage car only, nothing saved or charged
+  previewStyle: (id, style) => { if (showCarId === id) showCar.applyStyle?.(style); },
   styleCar: (id) => {
     if (showCarId === id) showCar.applyStyle?.(carStyle(id));
     if (G.car && G.def.id === id) G.car.applyStyle?.(carStyle(id));

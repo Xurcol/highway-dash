@@ -458,3 +458,6 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .style-opts button.on{background:var(--accent);color:var(--accent-ink);border-color:transparent}
 .style-opts button.sw{width:20px;height:20px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.2)}
 .style-opts button.sw.on{box-shadow:0 0 0 2px var(--accent)}
+.style-save{display:flex;align-items:center;gap:var(--s2);margin-top:var(--s2);padding:var(--s2) var(--s3);background:var(--surface-2);border:1px solid var(--accent);border-radius:var(--r2)}
+.style-save div{flex:1}.style-save b{display:block;font-size:var(--t-sm)}.style-save small{color:var(--ink-3);font-size:var(--t-xs)}
+.style-save .btn{font-size:var(--t-xs);padding:7px 10px}

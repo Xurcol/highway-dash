@@ -1,7 +1,7 @@
 // DOM side: garage, HUD helpers, game-over popup, leaderboards, online + settings panels.
 import { CARS, RARITY_COLORS, specOf, carStats } from "./cars.js";
 import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAINTS, MEDALS, HEART_PACKS, xpForLevel, medalCount,
-  ownsPart, ownsEcu, buyPart, buyEcu, payTuneSession, payPaint, spend, earn, priceOfCar, walletHooks, carStyle, buyStyle } from "./profile.js";
+  ownsPart, ownsEcu, buyPart, buyEcu, payTuneSession, payPaint, spend, earn, priceOfCar, walletHooks, carStyle, ownsStyle, styleCost, saveStyle } from "./profile.js";
 import { FINISHES, TINTS, STANCES } from "./cars.js";
 import { stylePrice } from "./economy.js";
 import { SOUND_LABELS } from "./engine-dsp.js";
@@ -149,6 +149,7 @@ export class UI {
     });
     document.querySelectorAll(".filter").forEach((b) => b.onclick = () => { this.filter = b.dataset.f; this.renderHome(); });
     $("playBtn").onclick = () => {
+      this.discardStyle();
       if (this.onlineSelected && !this.net.room) return this.openModal("online");
       this.ctx.play(this.onlineSelected && this.net.room ? "online" : "solo");
     };
@@ -241,8 +242,17 @@ export class UI {
   }
 
   // ---------- styling ----------
+  // clicking an option only previews it; nothing is charged until Save
+  discardStyle() {
+    if (!this.styleDraft) return;
+    const id = this.styleDraft.id;
+    this.styleDraft = null;
+    this.ctx.previewStyle(id, carStyle(id));
+  }
   renderStyle(car) {
-    const st = carStyle(car.id), box = $("styleBox");
+    if (this.styleDraft && this.styleDraft.id !== car.id) this.discardStyle();
+    const draft = this.styleDraft?.patch || {};
+    const st = { ...carStyle(car.id), ...draft }, box = $("styleBox");
     const own = P.owned.includes(car.id);
     const COLORS = [0x16181c, 0xe8e8ea, 0x9aa0a8, 0xc9a24a, 0xd41f1f, 0x1f5fd6, 0x22b573, 0xff6a1a, 0xb84cff];
     const hex = (c) => "#" + c.toString(16).padStart(6, "0");
@@ -255,19 +265,38 @@ export class UI {
       ["glow", "Underglow", [{ v: null, label: "Off" }, ...[0x3dd6ff, 0xff2d95, 0x7cff5a, 0xb27dff, 0xffd12a, 0xff4a55].map((c) => ({ v: c, sw: hex(c) }))]],
     ];
     box.innerHTML = rows.map(([key, label, opts]) => `<div class="style-row"><span>${label}</span><div class="style-opts">${opts.map((o, i) => {
-      const on = st[key] === o.v, p = stylePrice(key, o.v);
-      const tip = `${o.label || ""}${p ? " — " + fmtCoins(p) + " coins" : ""}`;
+      const on = st[key] === o.v, p = stylePrice(key, o.v), paid = ownsStyle(car.id, key, o.v);
+      const tip = `${o.label || ""}${p ? (paid ? " — owned" : " — " + fmtCoins(p) + " coins") : ""}`;
       return o.sw ? `<button class="sw ${on ? "on" : ""}" data-k="${key}" data-i="${i}" title="${tip}" style="background:${o.sw}"></button>`
         : `<button class="${on ? "on" : ""}" data-k="${key}" data-i="${i}" title="${tip}">${o.label}</button>`;
     }).join("")}</div></div>`).join("") + (own ? "" : `<div class="muted small">Buy this car to style it.</div>`);
+    // pending changes: what they cost and the only button that takes money
+    const changed = Object.keys(draft).filter((k) => draft[k] !== carStyle(car.id)[k]);
+    if (changed.length) {
+      const cost = styleCost(car.id, draft), can = P.coins >= cost;
+      box.insertAdjacentHTML("beforeend", `<div class="style-save"><div><b>${changed.length} change${changed.length > 1 ? "s" : ""} previewed</b><small>${cost ? "Total " + fmtCoins(cost) + " coins" : "Already owned — free"}</small></div>
+        <button class="btn ghost" id="styleCancel">CANCEL</button>
+        <button class="btn ${can ? "accent" : "ghost"}" id="styleSave" ${can ? "" : "disabled"}>${can ? (cost ? "SAVE — " + fmtCoins(cost) : "SAVE") : "NEED " + fmtCoins(cost - P.coins)}</button></div>`);
+      $("styleCancel").onclick = () => { this.discardStyle(); this.renderStyle(car); };
+      $("styleSave").onclick = () => {
+        const r = saveStyle(car.id, draft);
+        if (!r.ok) return this.notEnough(r.short);
+        this.styleDraft = null;
+        if (r.price) { this.ctx.audio.coin(); this.toast(`Saved — ${fmtCoins(r.price)} coins`); walletHooks.buy?.("style", car.id); }
+        else this.toast("Saved");
+        this.ctx.styleCar(car.id);
+        this.renderTop(); this.renderStyle(car);
+      };
+    }
     box.querySelectorAll("button").forEach((b) => b.onclick = () => {
       if (!own) return this.toast("Buy this car first");
       const [, , opts] = rows.find((r) => r[0] === b.dataset.k);
-      const o = opts[+b.dataset.i], r = buyStyle(car.id, b.dataset.k, o.v);
-      if (!r.ok) return this.notEnough(r.short);
-      if (r.price) { this.ctx.audio.coin(); this.toast(`Styled — ${fmtCoins(r.price)} coins`); walletHooks.buy?.("style", b.dataset.k); }
-      this.ctx.styleCar(car.id);
-      this.renderTop(); this.renderStyle(car);
+      const o = opts[+b.dataset.i];
+      const patch = { ...(this.styleDraft?.id === car.id ? this.styleDraft.patch : {}), [b.dataset.k]: o.v };
+      if (patch[b.dataset.k] === carStyle(car.id)[b.dataset.k]) delete patch[b.dataset.k]; // back to what's saved
+      this.styleDraft = Object.keys(patch).length ? { id: car.id, patch } : null;
+      this.ctx.previewStyle(car.id, { ...carStyle(car.id), ...patch });
+      this.renderStyle(car);
     });
   }
 
