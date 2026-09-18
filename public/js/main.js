@@ -828,26 +828,9 @@ function updateDrive(dt, T) {
   G.steer += (steerIn - G.steer) * Math.min(1, dt * 9);
   const hMul = d.s.handlingMul || 1;
   const maxLat = (4.5 + def.handling * .07) * hMul * Math.min(1, v / 14);
-  // lateral acceleration the driver is asking for vs what the tyres can give (friction circle)
-  const mu = (d.s.grip || 1) * d.surface * (.92 + hMul * .08) * (1 - Math.min(.15, (d.s.mass - 1500) / 8000));
-  const longUse = Math.min(.9, Math.abs(d.accel) / (9.81 * mu));
-  const latAvail = 9.81 * mu * Math.sqrt(Math.max(.05, 1 - longUse * longUse)) * 1.05;
-  const drift = !!P.settings.drift;
-  const latDemand = Math.abs(G.steer) * v * v / (drift ? Math.max(18, 26 + v * .9) : Math.max(40, 70 + v * 2.4));
-  let over = Math.max(0, latDemand / latAvail - (drift ? 1 : 1.15));
-  // power oversteer: spinning rear tyres lose side grip. AWD shares it, FWD pushes wide instead.
+  // grip-driven steering, no sliding: the car goes where it is pointed
+  G.vx += (G.steer * maxLat - G.vx) * Math.min(1, dt * (3.5 + def.handling * .05) * hMul);
   const spin = d.wheelspin || 0;
-  if (d.drive === "rwd") over += spin * Math.abs(G.steer) * (drift ? 1.6 : .35);
-  else if (d.drive === "awd") over += spin * Math.abs(G.steer) * (drift ? .6 : .1);
-  G.slide = (G.slide || 0) + (Math.min(1.2, over) - (G.slide || 0)) * Math.min(1, dt * (over > G.slide ? 4 : 1.6));
-  const grip = 1 - Math.min(.75, G.slide * (d.drive === "fwd" ? .9 : .7));
-  G.vx += (G.steer * maxLat * grip - G.vx) * Math.min(1, dt * (3.5 + def.handling * .05) * hMul * grip);
-  // the rear steps out: extra body angle while sliding, countersteer (opposite input) catches it
-  const counter = G.steer * (G.slideDir || 0) < -.2 ? 3 : 1;
-  if (G.slide > .08 && d.drive !== "fwd") G.slideDir = G.slideDir || Math.sign(G.steer || G.vx);
-  if (G.slide < .04) G.slideDir = 0;
-  G.driftYaw = (G.driftYaw || 0) + ((G.slideDir || 0) * Math.min(.45, G.slide * .5) - (G.driftYaw || 0)) * Math.min(1, dt * 3 * counter);
-  if (G.slide > .05) d.v *= 1 - dt * G.slide * .22; // scrubbing speed
   G.x += G.vx * dt;
   const lim = ROAD_HALF + SHOULDER - B.W / 2 - .1;
   G.scraping = false;
@@ -858,11 +841,11 @@ function updateDrive(dt, T) {
   }
   G.z -= v * dt;
   G.dist += v * dt;
-  G.yaw += (-Math.atan2(G.vx, Math.max(v, 6)) * .9 - (G.driftYaw || 0) - G.yaw) * Math.min(1, dt * 10);
+  G.yaw += (-Math.atan2(G.vx, Math.max(v, 6)) * .9 - G.yaw) * Math.min(1, dt * 10);
   // tyre smoke, squeal and exhaust flames
-  const smokeAmt = Math.max(G.slide > .15 ? G.slide : 0, spin > .15 ? spin : 0);
+  const smokeAmt = spin > .15 ? spin : 0; // wheelspin only (launches)
   if (smokeAmt > 0) for (const k of [-1, 1]) smoke.emit(G.x + k * (B.W / 2 - .3), .35, G.z + B.L * .32, smokeAmt, G.vx * .3, -v * .15);
-  audio.tires?.(G.slide || 0, spin, kmh);
+  audio.tires?.(0, spin, kmh);
   if (G.flameT > 0) {
     G.flameT -= dt;
     if (Math.random() < .35) for (const e of (B.exhaust || [[-B.L / 2, .3, .45]])) glows.add(G.x + (e[2] || 0) * .9, (e[1] || .3), G.z + B.L / 2 + .15, 1, .55 + Math.random() * .3, .15, .6 + Math.random() * .9);

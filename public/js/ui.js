@@ -1007,7 +1007,7 @@ export class UI {
     chips("weathers", Object.keys(WEATHERS), (n) => s.weather === n, (n) => { s.weather = n; this.ctx.sky.setWeather(n); });
     chips("trafficLevels", Object.keys(TRAFFIC_LEVELS), (n) => s.traffic === n, (n) => { s.traffic = n; });
     for (const [id, key] of [["volMaster", "volMaster"], ["volEngine", "volEngine"], ["volFx", "volFx"], ["volWind", "volWind"], ["optRes", "res"]]) $(id).oninput = (e) => { s[key] = +e.target.value; apply(); };
-    for (const [id, key] of [["optManual", "manual"], ["optShadows", "shadows"], ["optHideNames", "hideNames"], ["optDrift", "drift"]]) $(id).onchange = (e) => { s[key] = e.target.checked; apply(); if (this.ctx.state() === "home") this.renderHome(); };
+    for (const [id, key] of [["optManual", "manual"], ["optShadows", "shadows"], ["optHideNames", "hideNames"]]) $(id).onchange = (e) => { s[key] = e.target.checked; apply(); if (this.ctx.state() === "home") this.renderHome(); };
   }
   syncTime(hour) {
     const h = Math.floor(hour), m = Math.floor((hour - h) * 60);
@@ -1021,7 +1021,7 @@ export class UI {
     this.syncTime(s.hour);
     $("timeFlow").checked = s.flow;
     $("volMaster").value = s.volMaster; $("volEngine").value = s.volEngine; $("volFx").value = s.volFx; $("volWind").value = s.volWind; $("optRes").value = s.res;
-    $("optManual").checked = s.manual; $("optShadows").checked = s.shadows; $("optHideNames").checked = !!s.hideNames; $("optDrift").checked = !!s.drift;
+    $("optManual").checked = s.manual; $("optShadows").checked = s.shadows; $("optHideNames").checked = !!s.hideNames;
     this.chipSync?.forEach((f) => f());
   }
 }

@@ -85,8 +85,10 @@ function prepare(scene, car, cfg) {
 
   const paintRe = re(cfg.paint, "paint|carpaint|body|exterior|coat|shell");
   const notPaint = /glass|window|tyre|tire|rim|wheel|light|lamp|chrome|interior|seat|black|rubber|plastic|brake|caliper|grille|mirror_glass|plate|carbon/i;
-  const tailRe = re(cfg.tail, "tail|brake.?light|rear.?(lamp|light)|stop.?lamp");
-  const headRe = re(cfg.head, "head.?(lamp|light)|front.?(lamp|light)|drl");
+  // lights glow, so they are only ever the materials named in the car config - a guess here would
+  // light up whatever shares a texture sheet with the lamps (windows, mirrors, trim)
+  const tailRe = cfg.tail ? re(cfg.tail) : null;
+  const headRe = cfg.head ? re(cfg.head) : null;
   const wheelRe = re(cfg.wheels, "wheel|tyre|tire|rim");
   const glassRe = re(cfg.glass, "glass|window|windscreen|windshield");
   const rimRe = re(cfg.rim, "rim|jante|alloy");
@@ -101,11 +103,12 @@ function prepare(scene, car, cfg) {
     o.castShadow = true; o.receiveShadow = false;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     for (const m of mats) {
-      const name = `${m.name} ${o.name}`;
+      // with an explicit config, match material names only (node names are unreliable)
+      const name = cfg.paint ? (m.name || "") : `${m.name} ${o.name}`;
       if (m.isMeshStandardMaterial) patchLit(m);
-      if (paintRe.test(name) && !notPaint.test(name)) m.userData.role = "paint";
-      else if (tailRe.test(name)) m.userData.role = "tail";
-      else if (headRe.test(name)) m.userData.role = "head";
+      if (paintRe.test(name) && (cfg.paint || !notPaint.test(name))) m.userData.role = "paint";
+      else if (tailRe?.test(name)) m.userData.role = "tail";
+      else if (headRe?.test(name)) m.userData.role = "head";
       else if (glassRe.test(name) && !/light|lamp|signal/i.test(name)) m.userData.role = "glass";
       else if (rimRe.test(name)) m.userData.role = "rim";
       else if (caliperRe.test(name)) m.userData.role = "caliper";
