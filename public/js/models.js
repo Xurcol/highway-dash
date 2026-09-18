@@ -121,6 +121,9 @@ function prepare(scene, car, cfg) {
   box = new THREE.Box3().setFromObject(inner);
   const c = box.getCenter(new THREE.Vector3());
   inner.position.set(-c.x, -box.min.y + (cfg.yOffset || 0), -c.z);
+  inner.updateMatrixWorld(true);
+  const carH = new THREE.Box3().setFromObject(inner).getSize(new THREE.Vector3()).y;
+  const lens = new Map();
 
   const paintRe = re(cfg.paint, "paint|carpaint|body|exterior|coat|shell");
   const notPaint = /glass|window|tyre|tire|rim|wheel|light|lamp|chrome|interior|seat|black|rubber|plastic|brake|caliper|grille|mirror_glass|plate|carbon/i;
@@ -157,6 +160,13 @@ function prepare(scene, car, cfg) {
     if (wheelMatRe && mats.some((m) => wheelMatRe.test(m.name || "")) && !(o.parent && o.parent.userData.wheel)) o.userData.wheel = true;
     // swap paint and glass for proper car-paint / glass materials, keeping any texture maps
     o.material = Array.isArray(o.material) ? o.material.map((m) => upgrade(m, upgraded)) : upgrade(o.material, upgraded);
+    // glass that sits entirely below the beltline is a lamp lens, not a window: keep it clear and
+    // out of the tint so headlights and taillights never get tinted
+    if (!Array.isArray(o.material) && o.material.userData.role === "glass" && new THREE.Box3().setFromObject(o).max.y < carH * .6) {
+      const g = o.material;
+      if (!lens.has(g)) { const l = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, transparent: true, opacity: .22, envMapIntensity: 2 }); l.name = g.name + "_lens"; patchLit(l); lens.set(g, l); }
+      o.material = lens.get(g);
+    }
   });
   const root = new THREE.Group();
   root.add(inner);

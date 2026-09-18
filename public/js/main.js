@@ -188,10 +188,10 @@ function makeThumbs(ids = CARS.map((c) => c.id)) {
 // the car's look changes.
 const thumbCache = {
   sig: (id) => `${carColor(id)}|${JSON.stringify(carStyle(id))}`,
-  read() { try { return JSON.parse(localStorage.getItem("hd_thumbs") || "{}"); } catch { return {}; } },
+  read() { try { return JSON.parse(localStorage.getItem("hd_thumbs2") || "{}"); } catch { return {}; } },
   get(id) { const e = this.read()[id]; return e && e.sig === this.sig(id) ? e.url : null; },
   all() { const r = this.read(), o = {}; for (const [id, e] of Object.entries(r)) if (e.sig === this.sig(id)) o[id] = e.url; return o; },
-  put(id, url) { const r = this.read(); r[id] = { sig: this.sig(id), url }; try { localStorage.setItem("hd_thumbs", JSON.stringify(r)); } catch { } },
+  put(id, url) { const r = this.read(); r[id] = { sig: this.sig(id), url }; try { localStorage.setItem("hd_thumbs2", JSON.stringify(r)); } catch { } },
 };
 // First visit: download every car once (with a progress screen), then draw each one's garage picture.
 async function firstRunLoader() {
