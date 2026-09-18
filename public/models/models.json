@@ -1,1 +1,8 @@
-{ "available": [] }
+{
+  "available": ["a4", "b330i"],
+  "a4": { "paint": ["Glacier_White_Metallic"], "glass": ["Clear.?glass", "Windows$", "Windows black"], "rim": ["Rims"], "caliper": ["BrakeFrLeft"], "tail": ["Color_M02"], "head": ["Glass.?Lights"], "wheels": ["no-wheel-nodes"] },
+  "b330i": { "paint": ["CarPaint"], "glass": ["MI_Glass$"], "rim": ["Material[.]002", "CRBN_JANTE"], "caliper": ["plaquette"], "tail": ["reD_glass"], "head": ["MI_Light", "MI_Glass_Light"], "wheels": ["Object_13"] },
+  "credits": {
+    "a4": "Audi A4 B9 by Nieve5677 (sketchfab.com/niev), CC-BY-4.0, https://sketchfab.com/3d-models/audi-a4-b9-7ba4f7fa8f32436a9685a8abaa5da302"
+  }
+}

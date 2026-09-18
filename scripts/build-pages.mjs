@@ -28,6 +28,16 @@ for (const f of fs.readdirSync(path.join(out, "js"))) {
 for (const f of ["index.html", "viewer.html"]) bust(path.join(out, f), (src) => src
   .replace(/(src="js\/[\w-]+\.js)(")/g, `$1?v=${v}$2`)
   .replace(/(href="style\.css)(")/g, `$1?v=${v}$2`));
+// Only car models with a recorded licence/credit go on the public site; the rest stay local.
+{
+  const mf = path.join(out, "models", "models.json");
+  const m = JSON.parse(fs.readFileSync(mf, "utf8")), credited = m.credits || {};
+  const held = (m.available || []).filter((id) => !credited[id]);
+  m.available = (m.available || []).filter((id) => credited[id]);
+  for (const id of held) fs.rmSync(path.join(out, "models", (m[id]?.file || id + ".glb")), { force: true });
+  fs.writeFileSync(mf, JSON.stringify(m, null, 2));
+  if (held.length) console.log("Held back (no licence recorded):", held.join(", "));
+}
 fs.writeFileSync(path.join(out, "CNAME"), domain + "\n");
 fs.writeFileSync(path.join(out, ".nojekyll"), "");
 console.log(`Built ${out} for ${domain}`);

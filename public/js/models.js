@@ -4,7 +4,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/addons/loaders/DRACOLoader.js";
-import { BODIES, CARS, DetailedCar } from "./cars.js";
+import { BODIES, CARS, DetailedCar, FINISHES, TINTS, STANCES } from "./cars.js";
 import { patchLit } from "./lights.js";
 import { contactShadow } from "./carmesh.js";
 
@@ -32,6 +32,18 @@ export async function loadModels() {
   return Object.keys(MODELS);
 }
 
+function upgrade(m, cache) {
+  const role = m.userData.role;
+  if (role !== "paint" && role !== "glass") return m;
+  if (cache.has(m)) return cache.get(m);
+  const n = role === "paint"
+    ? new THREE.MeshPhysicalMaterial({ color: m.color?.clone() || new THREE.Color(0xffffff), map: m.map || null, normalMap: m.normalMap || null, metalness: .55, roughness: .3, clearcoat: 1, clearcoatRoughness: .04, envMapIntensity: 1.4, sheenColor: new THREE.Color(0xffffff), sheenRoughness: .35 })
+    : new THREE.MeshPhysicalMaterial({ color: 0x080b10, metalness: .3, roughness: .03, clearcoat: 1, clearcoatRoughness: 0, envMapIntensity: 2.2, transparent: true, opacity: .9 });
+  n.name = m.name; n.userData.role = role; n.side = m.side;
+  patchLit(n);
+  cache.set(m, n);
+  return n;
+}
 // normalise orientation (front toward -z), real-world length, grounding, and tag paint/lights/wheels
 function prepare(scene, car, cfg) {
   const inner = new THREE.Group();
@@ -54,6 +66,11 @@ function prepare(scene, car, cfg) {
   const tailRe = re(cfg.tail, "tail|brake.?light|rear.?(lamp|light)|stop.?lamp");
   const headRe = re(cfg.head, "head.?(lamp|light)|front.?(lamp|light)|drl");
   const wheelRe = re(cfg.wheels, "wheel|tyre|tire|rim");
+  const glassRe = re(cfg.glass, "glass|window|windscreen|windshield");
+  const rimRe = re(cfg.rim, "rim|jante|alloy");
+  const caliperRe = re(cfg.caliper, "caliper|frein|brake(?!.?light)");
+  const hideRe = cfg.hide ? re(cfg.hide) : null;
+  const upgraded = new Map();
   inner.traverse((o) => {
     if (wheelRe.test(o.name) && !(o.parent && o.parent.userData.wheel)) o.userData.wheel = true;
     if (!o.isMesh) return;
@@ -65,7 +82,13 @@ function prepare(scene, car, cfg) {
       if (paintRe.test(name) && !notPaint.test(name)) m.userData.role = "paint";
       else if (tailRe.test(name)) m.userData.role = "tail";
       else if (headRe.test(name)) m.userData.role = "head";
+      else if (glassRe.test(name) && !/light|lamp|signal/i.test(name)) m.userData.role = "glass";
+      else if (rimRe.test(name)) m.userData.role = "rim";
+      else if (caliperRe.test(name)) m.userData.role = "caliper";
     }
+    if (hideRe && mats.some((m) => hideRe.test(`${m.name} ${o.name}`))) o.visible = false;
+    // swap paint and glass for proper car-paint / glass materials, keeping any texture maps
+    o.material = Array.isArray(o.material) ? o.material.map((m) => upgrade(m, upgraded)) : upgrade(o.material, upgraded);
   });
   const root = new THREE.Group();
   root.add(inner);
@@ -79,7 +102,7 @@ export class ModelCar {
     this.group = new THREE.Group();
     this.bodyGroup = tpl.root.clone(true);
     this.group.add(this.bodyGroup, contactShadow(this.B.L, this.B.W));
-    this.paint = []; this.tails = []; this.heads = [];
+    this.paint = []; this.tails = []; this.heads = []; this.glass = []; this.rims = []; this.calipers = [];
     const cloned = new Map();
     this.bodyGroup.traverse((o) => {
       if (!o.isMesh) return;
@@ -87,7 +110,8 @@ export class ModelCar {
         if (!m.userData.role) return m;
         if (!cloned.has(m)) { const c = m.clone(); c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey; cloned.set(m, c); }
         const c = cloned.get(m);
-        ({ paint: this.paint, tail: this.tails, head: this.heads })[m.userData.role].includes(c) || ({ paint: this.paint, tail: this.tails, head: this.heads })[m.userData.role].push(c);
+        const list = { paint: this.paint, tail: this.tails, head: this.heads, glass: this.glass, rim: this.rims, caliper: this.calipers }[m.userData.role];
+        if (!list.includes(c)) list.push(c);
         return c;
       };
       o.material = Array.isArray(o.material) ? o.material.map(own) : own(o.material);
@@ -106,15 +130,45 @@ export class ModelCar {
       steer.position.copy(centre);
       steer.updateMatrixWorld(true);
       spin.attach(w);
-      this.wheels.push({ w: spin, front: centre.z < 0 });
+      this.wheels.push({ w: spin, front: centre.z < 0, holder: steer, side: Math.sign(centre.x) || 1, baseX: centre.x, baseY: centre.y });
     }
+    this.rimBase = this.rims.map((m) => m.color.clone());
+    this.calBase = this.calipers.map((m) => m.color.clone());
+    // underglow pool, same as the built-in cars
+    const ug = document.createElement("canvas"); ug.width = ug.height = 64;
+    const gg = ug.getContext("2d"), rg = gg.createRadialGradient(32, 32, 4, 32, 32, 32);
+    rg.addColorStop(0, "rgba(255,255,255,1)"); rg.addColorStop(1, "rgba(255,255,255,0)"); gg.fillStyle = rg; gg.fillRect(0, 0, 64, 64);
+    this.glow = new THREE.Mesh(new THREE.PlaneGeometry(this.B.W * 1.9, this.B.L * 1.25).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(ug), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+    this.glow.position.y = .03; this.glow.visible = false; this.group.add(this.glow);
     this.spin = 0;
     if (color !== undefined) this.setColor(color);
   }
   setColor(c) { for (const m of this.paint) m.color.set(c); }
+  // same styling as the built-in cars: finish, wheel/caliper colour, tint, fitment, underglow, DRLs
+  applyStyle(st = {}) {
+    const f = FINISHES[st.finish] || FINISHES.gloss;
+    for (const m of this.paint) { m.metalness = f.metalness; m.roughness = f.roughness; m.clearcoat = f.clearcoat; m.clearcoatRoughness = f.clearcoatRoughness; m.sheen = f.sheen; m.needsUpdate = true; }
+    this.rims.forEach((m, i) => m.color.copy(st.rim != null ? new THREE.Color(st.rim) : this.rimBase[i]));
+    this.calipers.forEach((m, i) => m.color.copy(st.caliper != null ? new THREE.Color(st.caliper) : this.calBase[i]));
+    const t = TINTS[st.tint] || TINTS.dark;
+    for (const m of this.glass) { m.color.set(t.c); m.opacity = t.o; m.transparent = t.o < 1; }
+    const drop = st.drop != null ? st.drop : (STANCES[st.stance] || STANCES.stock).drop;
+    this.bodyGroup.position.y = -drop;
+    const off = st.offset || 0, cam = (st.camber || 0) * Math.PI / 180, ws = st.wsize || 1;
+    for (const w of this.wheels) {
+      w.holder.position.x = w.baseX + w.side * off;
+      w.holder.position.y = w.baseY * ws;
+      w.holder.rotation.z = -w.side * cam;
+      w.w.scale.setScalar(ws);
+    }
+    this.glow.visible = st.glow != null;
+    if (st.glow != null) { this.glow.material.color.set(st.glow); this.glow.material.opacity = .9; }
+    this.drl = st.drl != null ? new THREE.Color(st.drl) : null;
+  }
   setLights(brake, left, right, night) {
     for (const m of this.tails) if (m.emissive) { m.emissive.setRGB(1, .05, .05); m.emissiveIntensity = brake ? 3 : .6 + night; }
-    for (const m of this.heads) if (m.emissive) { m.emissive.setRGB(1, .97, .9); m.emissiveIntensity = .6 + night * 2; }
+    for (const m of this.heads) if (m.emissive) { if (this.drl) m.emissive.copy(this.drl); else m.emissive.setRGB(1, .97, .9); m.emissiveIntensity = (this.drl ? 1.4 : .6) + night * 2; }
   }
   update(dist, steer) {
     this.spin -= dist / this.B.r;
