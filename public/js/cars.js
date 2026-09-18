@@ -129,7 +129,7 @@ export const CARS = [
   { id: "svj", name: "Lamborghini Aventador SVJ", rarity: "MYTHIC", price: 20000, body: "svj", color: 0x72c02c, handling: 92, sound: "svj",
     spec: spec({ hp: 770, torque: 720, mass: 1750, ratios: [3.909, 2.438, 1.81, 1.458, 1.185, .967, .844], final: 3.73, redline: 8700, idle: 1000, cda: .66, grip: 1.2, tire: .35, shiftTime: .05, vmax: 350 }) },
 ];
-export const RARITY_COLORS = { COMMON: "#9aa3ad", RARE: "#3d8bff", EPIC: "#b44cff", LEGENDARY: "#f5a623", MYTHIC: "#ff3b5c" };
+export const RARITY_COLORS = { COMMON: "#9aa3ad", RARE: "#3d8bff", EPIC: "#b44cff", LEGENDARY: "#e8f04a", MYTHIC: "#ff3b5c" };
 export const specOf = (car) => car.spec || ENGINE_SPECS[car.body];
 
 export function carStats(car) {

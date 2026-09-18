@@ -92,7 +92,7 @@ function pushSocial(u) {
 const notifyFriends = (u) => u.friends.forEach((f) => db.users[f] && pushSocial(db.users[f]));
 
 function roomInfo(r) {
-  return { t: "room", code: r.code, seed: r.seed, epoch: r.epoch, round: r.round, roundState: r.roundState, public: r.public, traffic: r.traffic,
+  return { t: "room", code: r.code, seed: r.seed, epoch: r.epoch, round: r.round, roundState: r.roundState, public: r.public, traffic: r.traffic, mode: r.mode, target: r.target, dur: r.dur,
     players: [...r.members].map((id) => ({ id, name: db.users[id].name, car: online.get(id)?.car || "", build: online.get(id)?.build || null })) };
 }
 function leaveRoom(ws) {
@@ -125,18 +125,19 @@ function startRound(r, delay = COUNTDOWN) {
   r.timer = setTimeout(() => { if (rooms.get(r.code) === r && r.round === round) { r.roundState = "running"; } }, delay);
   r.members.forEach((id) => { const w = online.get(id); if (w) w.lastScore = 0; toUser(id, roomInfo(r)); });
 }
-function endRound(r, crasher) {
+function endRound(r, crasher, win = false, timed = false) {
   if (r.roundState !== "running") return;
   r.roundState = "ended";
   const scores = [...r.members].map((id) => ({ id, name: db.users[id].name, score: online.get(id)?.lastScore || 0 })).sort((a, b) => b.score - a.score);
-  r.members.forEach((id) => toUser(id, { t: "roundEnd", round: r.round, by: crasher.name, byId: crasher.id, scores }));
+  const by = win && timed && scores[0] ? { name: scores[0].name, id: scores[0].id } : { name: crasher.name, id: crasher.id };
+  r.members.forEach((id) => toUser(id, { t: "roundEnd", round: r.round, by: by.name, byId: by.id, scores, win }));
   clearTimeout(r.timer);
   r.timer = setTimeout(() => { if (rooms.get(r.code) === r && r.members.size) startRound(r); }, RESULTS);
 }
 function makeRoom(isPublic, traffic) {
   let code;
   do { code = String(crypto.randomInt(100000, 999999)); } while (rooms.has(code));
-  const r = { code, seed: crypto.randomInt(1, 2 ** 31), epoch: Date.now(), round: 0, roundState: "lobby", members: new Set(), public: isPublic, traffic: LEVELS.includes(traffic) ? traffic : "Heavy" };
+  const r = { code, seed: crypto.randomInt(1, 2 ** 31), epoch: Date.now(), round: 0, roundState: "lobby", members: new Set(), public: isPublic, traffic: LEVELS.includes(traffic) ? traffic : "Heavy", mode: "crash", target: 10000, dur: 120 };
   rooms.set(code, r);
   return r;
 }
@@ -260,6 +261,16 @@ wss.on("connection", (ws) => {
         r.members.forEach((id) => toUser(id, { t: "chat", name: u.name, text }));
         break;
       }
+      case "roomSettings": {
+        const r = rooms.get(ws.room);
+        if (!r || [...r.members][0] !== u.id || r.roundState === "running") return;
+        r.mode = ["crash", "target", "timed"].includes(m.mode) ? m.mode : "crash";
+        r.target = Math.max(1000, Math.min(100000, m.target | 0 || 10000));
+        r.dur = Math.max(30, Math.min(600, m.dur | 0 || 120));
+        if (LEVELS.includes(m.traffic)) r.traffic = m.traffic;
+        r.members.forEach((id) => toUser(id, roomInfo(r)));
+        break;
+      }
       case "startRound": {
         const r = rooms.get(ws.room);
         if (r && (r.roundState === "lobby" || r.roundState === "running" && m.force)) startRound(r);
@@ -270,7 +281,7 @@ wss.on("connection", (ws) => {
         const r = rooms.get(ws.room);
         if (!r || m.round !== r.round) return;
         ws.lastScore = Math.max(ws.lastScore || 0, Math.floor(Number(m.score) || 0));
-        endRound(r, u);
+        endRound(r, u, !!m.win, !!m.timed);
         break;
       }
       case "event": { // close calls, crashes: shown to party

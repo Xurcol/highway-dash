@@ -70,7 +70,7 @@ export class Drivetrain {
     if (armed) {
       if (!this.launch) this.events.push("launchArm");
       this.launch = 1;
-      rpm = s.redline * (this.drive === "awd" ? .62 : this.drive === "fwd" ? .45 : .5);
+      rpm = s.redline * (s.launchFrac || (this.drive === "awd" ? .62 : this.drive === "fwd" ? .45 : .5));
     } else if (this.launch === 1) {
       this.launch = 0;
       if (throttle > .85) { this.launchT = 2.2; this.events.push("launch"); }
@@ -104,7 +104,7 @@ export class Drivetrain {
     const excess = F > 0 ? F / Math.max(1, limit) - 1 : -1;
     // traction control lets a little slip through (it's fast that way) and cuts progressively beyond
     // it; launch control holds the tyres right at the optimal slip for the first couple of seconds
-    const allowed = this.launchT > 0 ? .1 : this.tcOff ? 1 : .22;
+    const allowed = this.launchT > 0 ? .1 : s.tcAllowed ?? .22;
     const spinWant = Math.max(0, Math.min(1, excess));
     this.wheelspin += (spinWant - this.wheelspin) * Math.min(1, dt * (spinWant > this.wheelspin ? 6 : 3));
     this.tcCut = Math.max(0, this.wheelspin - allowed);

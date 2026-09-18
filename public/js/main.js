@@ -206,6 +206,15 @@ let state = "home";       // home | ready | drive | crashed | over
 let paused = false;
 let mode = "solo";        // solo | online
 let soloT = 0;
+// Game modes. Solo: classic (one life), police (outrun the cops), timeattack (2 minutes, crashes cost score).
+// Party: crash (first crash ends the round), target (first to a score), timed (highest score when time's up).
+const SOLO_MODES = { classic: "Classic", police: "Police Chase", timeattack: "Time Attack" };
+const PARTY_MODES = { crash: "Last One Standing", target: "First To Score", timed: "Timed Battle" };
+const TIME_ATTACK = 120;
+const soloMode = () => (SOLO_MODES[P.settings.soloMode] ? P.settings.soloMode : "classic");
+const partyMode = () => (mode === "online" && net.room ? net.room.mode || "crash" : null);
+// crashes respawn you (with a score penalty) instead of ending the run in these modes
+const respawnMode = () => (mode === "online" ? partyMode() !== "crash" : soloMode() === "timeattack");
 let camMode = 0;
 const G = {
   def: carById(P.equipped), car: null, dt: null, engine: null,
@@ -289,12 +298,13 @@ function enterReady(asMode) {
     soloT = 0; G.z = 0;
   }
   G.x = pickSpawn(getT(), G.z);
-  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: G.god ? 1e9 : 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, bestCombo: 0, slide: 0, driftYaw: 0, slideDir: 0, flameT: 0, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
+  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: G.god ? 1e9 : 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, sentWin: false, bestCombo: 0, slide: 0, driftYaw: 0, slideDir: 0, flameT: 0, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
   G.prevDz.clear();
   G.dt.v = 0; G.readyRpm = G.dt.s.idle;
   G.car.group.position.set(G.x, 0, G.z); G.car.group.rotation.set(0, 0, 0);
   G.runStartBest = P.best;
   state = "ready"; paused = false;
+  police.reset(mode === "solo" && soloMode() === "police");
   ui.show("ready");
   ensureAudio().then(() => { G.engine.setProfile(carSound(G.def.id)); applyTune(); });
 }
@@ -326,7 +336,8 @@ function crash(hitCar) {
   audio.crash(Math.min(1, v / 50));
   G.crashT = 0; G.shake = 1;
   G.engine?.params(G.dt.s.idle, 0, 0);
-  if (mode === "online" && partyRound) { const res = awardRun(); ui.toast(`🪙 +${res.coins.toLocaleString()} coins`); G.awarded = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score) }); }
+  if (respawnMode()) { G.score *= .9; G.combo = 0; ui.toast("Crashed — respawning (-10% score)"); if (mode === "online") net.send({ t: "event", kind: "crash", v: Math.floor(G.score) }); return; }
+  if (mode === "online" && partyRound) { const res = awardRun(); ui.toast(`+${res.coins.toLocaleString()} coins`); G.awarded = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score) }); }
   else net.send({ t: "event", kind: "crash", v: Math.floor(G.score) });
 }
 function awardRun(opts = {}) {
@@ -350,8 +361,28 @@ function awardRun(opts = {}) {
   net.send({ t: "runEnd", run: { score, closeCalls: G.closeCalls, distance: G.dist, bestCombo: G.bestCombo || 0, newBest: score > prevBest && score > 0, newMedals: nowMedals - prevMedals, levelUps, survivor: !!opts.survivor } });
   return { score, prevBest, coins: reward.coins, extras: reward.extras, closeCalls: G.closeCalls, newMedals: nowMedals - prevMedals, levelUps, revives: G.revives };
 }
+// back on the road after a crash in a respawn mode: no hearts spent, short invulnerability
+function respawn() {
+  G.x = pickSpawn(getT(), G.z);
+  G.thrown = null; G.vx = 0; G.yaw = 0; G.slide = 0; G.driftYaw = 0;
+  G.car.group.rotation.set(0, 0, 0); G.car.group.position.set(G.x, 0, G.z);
+  G.dt = makeDrivetrain(); applyTune();
+  shieldSpawn(); setSpeed(100);
+  G.ghostT = 2.5; G.prevDz.clear();
+  state = "drive";
+}
+// end a run that wasn't ended by a crash (time up, busted, a party round decided)
+function endRunNow(reason) {
+  if (state !== "drive" && state !== "crashed") return;
+  state = "over";
+  audio.horn(false);
+  const result = awardRun();
+  result.reason = reason;
+  ui.showOver(result);
+}
 function finishRun() {
   if (state !== "crashed") return;
+  if (respawnMode()) return respawn();
   state = "over";
   if (G.awarded) { G.awarded = false; return; }
   const result = awardRun();
@@ -401,6 +432,8 @@ net.addEventListener("room", () => {
 net.addEventListener("roundEnd", (e) => {
   const m = e.detail;
   if (mode !== "online" || m.round !== partyRound || state === "home") return;
+  if (m.win) ui.toast(m.byId === (net.me?.id ?? net.me?.code) ? "🏆 You won the round!" : `🏆 ${m.by} won the round`);
+  if (state === "crashed") { state = "drive"; G.thrown = null; }
   roundOver();
   lastResults = m;
 });
@@ -469,11 +502,11 @@ function sendChat() {
 
 // ---------------- remote players ----------------
 const remotes = new Map();
-const PLAYER_COLORS = ["#3dd6ff", "#ff5ad1", "#ffd23d", "#7dff5a", "#ff8a3d", "#b27dff", "#ff4a55", "#4dffc3"];
+const PLAYER_COLORS = ["#3dd6ff", "#ff5ad1", "#e8f04a", "#7dff5a", "#5b8cff", "#b27dff", "#ff4a55", "#4dffc3"];
 function nameTag(name, color) {
   const c = document.createElement("canvas"); c.width = 512; c.height = 128;
   const g = c.getContext("2d");
-  g.font = "700 60px Fredoka, sans-serif";
+  g.font = "700 60px 'Barlow Condensed', sans-serif";
   const w = Math.min(496, g.measureText(name).width + 70);
   const x0 = 256 - w / 2;
   g.fillStyle = "rgba(10,14,24,.88)"; g.strokeStyle = color; g.lineWidth = 8;
@@ -639,6 +672,108 @@ function allPlayers() {
   return out;
 }
 
+// ---------------- police chase ----------------
+// Cops are local AI (solo only): they spawn behind you, run you down through traffic, and try to box
+// you in. Touching one fills the BUSTED meter; being slow near one fills it too. Get far enough ahead
+// for long enough and you escape - the heat goes up and the next wave is bigger.
+const police = (() => {
+  const P2 = { on: false, cops: [], heat: 1, bounty: 0, meter: 0, escapeT: 0, next: 0, flash: 0 };
+  function lightBar(car) {
+    const B = car.B || BODIES.charger, bar = new THREE.Group();
+    const red = new THREE.MeshBasicMaterial({ color: 0xff2030, toneMapped: false }), blue = new THREE.MeshBasicMaterial({ color: 0x2050ff, toneMapped: false });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.1, .09, .3), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+    const r = new THREE.Mesh(new THREE.BoxGeometry(.5, .1, .26), red), b = new THREE.Mesh(new THREE.BoxGeometry(.5, .1, .26), blue);
+    r.position.x = -.27; b.position.x = .27; r.position.y = b.position.y = .07;
+    bar.add(base, r, b); bar.position.set(0, (B.top || 1.45) + .05, 0);
+    car.bodyGroup.add(bar);
+    return { red, blue };
+  }
+  function spawn() {
+    const car = makeCar("charger", 0x0d0f14);
+    car.applyStyle?.({ finish: "gloss", tint: "dark", rim: 0x16181c });
+    // white doors, cop livery
+    const l = lightBar(car);
+    scene.add(car.group);
+    // spawn in a lane that is actually clear, so a cop never appears inside a traffic car
+    const z = G.z + 160 + Math.random() * 60, T = getT();
+    const lanes = [0, 1, 2, 3, 4].sort(() => Math.random() - .5);
+    const lane = lanes.find((i) => traffic.laneClear(T, laneX(i), z, 40, 20)) ?? lanes[0];
+    P2.cops.push({ car, l, x: laneX(lane), z, v: G.dt.v + 8, vx: 0, down: false, age: 0 });
+    if (P2.cops.length === 1) ui.toast("🚨 Police pursuit! Outrun them or get busted");
+  }
+  function clear() { for (const c of P2.cops) { scene.remove(c.car.group); c.car.dispose(); } P2.cops.length = 0; audio.siren?.(0, 0); }
+  return {
+    get state() { return P2; },
+    reset(on) { clear(); Object.assign(P2, { on, heat: 1, bounty: 0, meter: 0, escapeT: 0, next: 6 }); },
+    update(dt, T) {
+      if (!P2.on) return;
+      P2.flash += dt;
+      if (state !== "drive") { audio.siren?.(0, 0); return; }
+      if (!P2.cops.length) { P2.next -= dt; if (P2.next <= 0) for (let i = 0; i < Math.min(4, P2.heat); i++) spawn(); }
+      else { P2.bounty += dt * 18 * P2.heat; G.score += dt * 6 * P2.heat; }
+      const d = G.dt, B = BODIES[G.def.body];
+      let nearest = 1e9, allFar = P2.cops.length > 0;
+      for (const c of P2.cops) {
+        if (c.down) continue;
+        c.age += dt;
+        const behind = c.z - G.z;                         // + = the cop is behind you
+        const want = Math.min(95, Math.max(20, d.v + Math.max(-12, Math.min(28, behind * .08)) + 2));
+        c.v += Math.max(-14, Math.min(11, want - c.v)) * dt;
+        // steer: at your lane when close, around traffic otherwise
+        let tx = Math.abs(behind) < 45 ? G.x : c.x;
+        const ahead = traffic.query(T, c.z - 32, c.z - 2, [1]).filter((t) => Math.abs(t.x - c.x) < 2.6);
+        if (ahead.length) { for (const lx of [c.x - 4, c.x + 4]) if (Math.abs(lx) < 9 && traffic.laneClear(T, lx, c.z, 30, 6)) { tx = lx; break; } }
+        c.vx += (Math.max(-7, Math.min(7, (tx - c.x) * 2.2)) - c.vx) * Math.min(1, dt * 5);
+        c.x = Math.max(-8.8, Math.min(8.8, c.x + c.vx * dt));
+        c.z -= c.v * dt;
+        // cops that hit traffic are out of the chase
+        if (c.age > 1.5) for (const t of traffic.query(T, c.z - 6, c.z + 6, [1])) if (Math.abs(t.x - c.x) < 1.9 && Math.abs(t.z - c.z) < 4.2 && !traffic.bumped.has(t.key)) {
+          traffic.bump(t, c.v, Math.sign(t.x - c.x) || 1); c.down = true; c.v *= .3; audio.crash(.5);
+          P2.bounty += 1500; G.score += 400; ui.toast("💥 Cop down! +1,500 bounty");
+        }
+        c.car.group.position.set(c.x, 0, c.z);
+        c.car.group.rotation.set(0, -Math.atan2(c.vx, Math.max(c.v, 6)) * .9, 0);
+        c.car.update(c.v * dt, 0);
+        const on = Math.floor(P2.flash * 6) % 2 === 0;
+        c.l.red.color.setScalar(on ? 2.5 : .15).multiply(new THREE.Color(1, .12, .15));
+        c.l.blue.color.setScalar(on ? .15 : 2.5).multiply(new THREE.Color(.12, .3, 1));
+        glows.add(c.x + (on ? -.3 : .3), 1.7, c.z, on ? 1 : .15, on ? .1 : .3, on ? .15 : 1, 1.8);
+        // contact and boxing in
+        const dx = Math.abs(c.x - G.x), dz = Math.abs(c.z - G.z);
+        if (G.ghostT <= 0 && dx < (B.W + 1.9) / 2 && dz < (B.L + 5) / 2) { P2.meter += dt * 1.4; d.v *= 1 - dt * .9; G.shake = Math.max(G.shake || 0, .25); }
+        else if (d.v < 14 && dz < 16) P2.meter += dt * .6;
+        nearest = Math.min(nearest, Math.hypot(dx, dz));
+        if (behind < 380) allFar = false;
+      }
+      P2.meter = Math.max(0, P2.meter - dt * .25);
+      audio.siren?.(Math.max(0, 1 - nearest / 260) * .5, 0);
+      if (P2.meter >= 1) { ui.toast(`🚔 BUSTED — bounty ${Math.floor(P2.bounty).toLocaleString()} lost`); P2.bounty = 0; clear(); endRunNow("busted"); return; }
+      if (P2.cops.length && (allFar || P2.cops.every((c) => c.down))) {
+        P2.escapeT += dt;
+        if (P2.escapeT > 5) {
+          const won = Math.floor(P2.bounty);
+          G.score += won / 4; ui.toast(`🟢 ESCAPED! +${won.toLocaleString()} bounty — heat ${P2.heat + 1}`);
+          clear(); P2.heat++; P2.bounty = 0; P2.escapeT = 0; P2.next = 10;
+        }
+      } else P2.escapeT = 0;
+    },
+  };
+})();
+function updateModeHud(T) {
+  const el = document.getElementById("modeHud");
+  let txt = "";
+  if (state === "drive" || state === "crashed") {
+    if (mode === "solo" && soloMode() === "timeattack") txt = `TIME ${Math.max(0, Math.ceil(TIME_ATTACK - T))}s`;
+    else if (mode === "solo" && soloMode() === "police") {
+      const p = police.state;
+      txt = p.cops.length ? `HEAT ${p.heat} · BOUNTY ${Math.floor(p.bounty).toLocaleString()} · BUSTED ${"▮".repeat(Math.round(p.meter * 5))}${"▯".repeat(5 - Math.round(p.meter * 5))}${p.escapeT > 0 ? " · ESCAPING " + Math.ceil(5 - p.escapeT) : ""}` : `HEAT ${p.heat} · cops in ${Math.max(0, Math.ceil(p.next))}s`;
+    } else if (partyMode() === "target") txt = `FIRST TO ${(net.room.target || 10000).toLocaleString()} · ${Math.floor(G.score).toLocaleString()}`;
+    else if (partyMode() === "timed") txt = `TIMED · ${Math.max(0, Math.ceil((net.room.dur || 120) - T))}s LEFT`;
+  }
+  if (el.textContent !== txt) el.textContent = txt;
+  el.hidden = !txt;
+}
+
 // ---------------- simulation ----------------
 const tmpV = new THREE.Vector3();
 const lights = [];
@@ -718,6 +853,10 @@ function updateDrive(dt, T) {
 
   // score
   if (kmh >= 80) G.score += (v * dt) / 10 * Math.max(1, kmh / 130);
+  if (partyMode() === "target" && partyRound && !G.sentWin && G.score >= (net.room.target || 10000)) {
+    G.sentWin = true;
+    net.send({ t: "crash", round: partyRound, score: Math.floor(G.score), win: true });
+  }
   G.slowT = kmh < 80 ? G.slowT + dt : 0;
   G.comboT -= dt;
   if (G.comboT <= 0) G.combo = 0;
@@ -765,7 +904,7 @@ function updateThrown(dt) {
   const t = G.thrown;
   if (!t) return;
   G.crashT += dt;
-  if (state === "crashed" && G.crashT > 1.15) finishRun();
+  if (state === "crashed" && G.crashT > (respawnMode() ? 1.3 : 1.15)) finishRun();
   t.vel.y -= 22 * dt;
   t.pos.addScaledVector(t.vel, dt);
   t.rot.x += t.ang.x * dt; t.rot.y += t.ang.y * dt; t.rot.z += t.ang.z * dt;
@@ -865,9 +1004,9 @@ function drawTach(rpm, redline, manual) {
   const f = Math.min(1, rpm / maxR);
   const hot = rpm > redline * .92;
   const grad = g.createLinearGradient(0, 260, 260, 0);
-  grad.addColorStop(0, "#3fb8ff"); grad.addColorStop(.7, "#ffc629"); grad.addColorStop(1, "#ff3b3b");
+  grad.addColorStop(0, "#3ee0ff"); grad.addColorStop(.7, "#9d7bff"); grad.addColorStop(1, "#ff3b5c");
   g.beginPath(); g.arc(cx, cy, R, a0, a0 + span * f); g.lineWidth = 12; g.strokeStyle = hot && manual && Math.floor(performance.now() / 70) % 2 ? "#ff2a2a" : grad; g.stroke();
-  g.fillStyle = "#fff"; g.font = "700 15px Fredoka, sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillStyle = "#fff"; g.font = "700 15px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
   for (let k = 0; k <= maxR / 1000; k++) {
     const a = a0 + span * (k * 1000 / maxR);
     g.fillText(k, cx + Math.cos(a) * (R - 26), cy + Math.sin(a) * (R - 26));
@@ -914,7 +1053,7 @@ function frame(now) {
     renderer.clear();
     const rect = previewEl.getBoundingClientRect();
     if (rect.width > 10 && !ui.anyModalOpen()) {
-      if (!dragging) showSpin += dt * .25;
+      if (!dragging && P.settings.spin !== false) showSpin += dt * .25;
       if (showCar) {
         showCar.group.rotation.y = showSpin;
         frameShowCam(carById(showCarId).body, rect.width / rect.height);
@@ -933,8 +1072,8 @@ function frame(now) {
   traffic.setPlayers(allPlayers());
 
   if (state === "ready" && mode === "online" && partyRound) {
-    const recap = lastResults && lastResults.round === partyRound - 1 ? `💥 ${lastResults.by} crashed — ${lastResults.scores.map((p) => `${p.name} ${p.score.toLocaleString()}`).join(" · ")}` : net.room ? net.room.players.map((p) => p.name).join(" · ") : "";
-    ui.setReady(`ROUND ${partyRound}`, recap, T < 0 ? String(Math.ceil(-T)) : "GO!");
+    const recap = lastResults && lastResults.round === partyRound - 1 ? `${lastResults.win ? "🏆 " + lastResults.by + " wins" : "💥 " + lastResults.by + " crashed"} — ${lastResults.scores.map((p) => `${p.name} ${p.score.toLocaleString()}`).join(" · ")}` : net.room ? net.room.players.map((p) => p.name).join(" · ") : "";
+    ui.setReady(`ROUND ${partyRound} · ${PARTY_MODES[partyMode()] || ""}${partyMode() === "target" ? " " + (net.room.target || 10000).toLocaleString() : ""}`, recap, T < 0 ? String(Math.ceil(-T)) : "GO!");
     if (T >= 0) startDriving();
   }
   if (state === "ended") { // coast to a stop after the round ended
@@ -942,7 +1081,13 @@ function frame(now) {
     G.car.group.position.set(G.x, 0, G.z); G.car.update(G.dt.v * simDt, 0);
   }
   if (state === "drive" && !paused) updateDrive(simDt, T);
-  else if (state === "crashed" || state === "over") updateThrown(simDt);
+  if (!paused && (state === "drive" || state === "crashed")) police.update(simDt, T);
+  if (state === "drive" && mode === "solo" && soloMode() === "timeattack" && T >= TIME_ATTACK) endRunNow("time");
+  if (state === "drive" && partyMode() === "timed" && partyRound && T >= (net.room.dur || 120)) {
+    if (!G.sentWin && net.room.players?.[0]?.id === (net.me?.id ?? net.me?.code)) { G.sentWin = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score), win: true, timed: true }); }
+  }
+  updateModeHud(T);
+  if (state === "crashed" || state === "over") updateThrown(simDt);
   if (!paused) updateSignals(simDt);
 
   // player car lights
@@ -1087,6 +1232,7 @@ const ui = new UI({
   thumbs: {},
   selectCar: (id) => { if (!showOffKey) setShowCar(id); },
   showOff: showOffCar, endShowOff,
+  SOLO_MODES, PARTY_MODES,
   // preview: shown on the garage car only, nothing saved or charged
   previewStyle: (id, style) => { if (showCarId === id) showCar.applyStyle?.(style); },
   styleCar: (id) => {

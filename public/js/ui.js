@@ -5,7 +5,7 @@ import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAIN
 import { FINISHES, TINTS, STANCES, FITMENT } from "./cars.js";
 import { stylePrice, STYLE_PRICES } from "./economy.js";
 import { SOUND_LABELS } from "./engine-dsp.js";
-import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, summary, defaultTune, maxBoostFor, peakHp } from "./tuning.js";
+import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, summary, defaultTune, maxBoostFor, peakHp, stageMap } from "./tuning.js";
 import { partPrice, TUNING_PRICES, COSMETIC_PRICES, fmtCoins, CAR_PRICES } from "./economy.js";
 import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
@@ -160,6 +160,7 @@ export class UI {
     $("paintPick").oninput = (e) => this.paint(parseInt(e.target.value.slice(1), 16));
     this.holdToRev($("revBtn"));
     $("tuneBtn").onclick = () => this.openModal("tune");
+    $("spinBtn").onclick = () => { P.settings.spin = P.settings.spin === false; save(); this.renderHome(); };
   }
   holdToRev(btn) {
     const start = (e) => { e.preventDefault(); btn.setPointerCapture?.(e.pointerId); this.ctx.revHold(carSound(this.view), this.view, true); };
@@ -242,6 +243,14 @@ export class UI {
     pb.hidden = !this.net.room;
     if (this.net.room) pb.textContent = `🟢 Party ${this.net.room.code} · ${this.net.room.players.length} driver${this.net.room.players.length > 1 ? "s" : ""}`;
     $("playBtn").textContent = this.onlineSelected ? (this.net.room ? "PLAY ONLINE" : "FIND PARTY") : "PLAY";
+    const ms = $("modeSelect");
+    if (this.onlineSelected) ms.innerHTML = this.net.room ? `<span class="ms-label">PARTY MODE</span><b>${this.ctx.PARTY_MODES[this.net.room.mode || "crash"]}</b>` : "";
+    else {
+      const cur = this.ctx.SOLO_MODES[P.settings.soloMode] ? P.settings.soloMode : "classic";
+      ms.innerHTML = `<span class="ms-label">MODE</span>` + Object.entries(this.ctx.SOLO_MODES).map(([k, v]) => `<button data-m="${k}" class="${k === cur ? "on" : ""}">${v}</button>`).join("");
+      ms.querySelectorAll("button").forEach((b) => b.onclick = () => { P.settings.soloMode = b.dataset.m; save(); this.ctx.audio.ui(); this.renderHome(); });
+    }
+    $("spinBtn").classList.toggle("on", P.settings.spin !== false);
   }
 
   // ---------- show off ----------
@@ -357,6 +366,7 @@ export class UI {
   }
   showOver(r) {
     this.show("over");
+    document.querySelector("#over .go-title").textContent = r.reason === "busted" ? "BUSTED" : r.reason === "time" ? "TIME UP" : "GAME OVER";
     // restart pop animations
     document.querySelectorAll("#over .pop").forEach((p) => { p.style.animation = "none"; void p.offsetWidth; p.style.animation = ""; });
     const scoreEl = $("goScore"), t0 = performance.now();
@@ -500,18 +510,33 @@ export class UI {
     $("partyIn").hidden = !n.room;
     if (n.room) {
       $("partyCode").textContent = n.room.code;
+      this.renderPartySettings();
       const members = $("partyMembers");
       members.innerHTML = "";
       for (const p of n.room.players) {
         const b = p.build, me = p.id === n.me?.id || p.id === n.me?.code;
         const d = document.createElement("div");
         d.className = "friend build";
-        d.innerHTML = `<span class="dot on"></span><div class="nm">${esc(p.name)}${me ? " (you)" : ""}
+        const host = n.room.players[0]?.id === p.id;
+        d.innerHTML = `<span class="dot on"></span><div class="nm">${host ? '<span class="host">HOST</span>' : ""}${esc(p.name)}${me ? " (you)" : ""}
           <small>${esc(carById(b?.car || p.car).name || "")}${b?.hp ? " · " + b.hp + " hp" : ""}${b?.parts?.length ? " · " + b.parts.length + " mods" : ""}</small></div>`;
         if (b && !me) d.appendChild(this.mini("VIEW", "primary", () => this.viewBuild(p)));
         members.appendChild(d);
       }
     }
+  }
+  renderPartySettings() {
+    const n = this.net, r = n.room, box = $("partySettings");
+    const isHost = r.players[0]?.id === (n.me?.id ?? n.me?.code) || r.players[0]?.id === n.me?.code;
+    const locked = !isHost || r.roundState === "running";
+    const set = (patch) => n.send({ t: "roomSettings", mode: r.mode, target: r.target, dur: r.dur, traffic: r.traffic, ...patch });
+    const chip = (group, val, label, cur) => `<button data-g="${group}" data-v="${val}" class="${String(cur) === String(val) ? "on" : ""}" ${locked ? "disabled" : ""}>${label}</button>`;
+    box.innerHTML = `<div class="ps-row"><span>Mode</span><div class="chips">${Object.entries(this.ctx.PARTY_MODES).map(([k, v]) => chip("mode", k, v, r.mode || "crash")).join("")}</div></div>
+      ${(r.mode || "crash") === "target" ? `<div class="ps-row"><span>Target</span><div class="chips">${[5000, 10000, 25000, 50000].map((v) => chip("target", v, (v / 1000) + "K", r.target || 10000)).join("")}</div></div>` : ""}
+      ${r.mode === "timed" ? `<div class="ps-row"><span>Time</span><div class="chips">${[60, 120, 180, 300].map((v) => chip("dur", v, v / 60 + " min", r.dur || 120)).join("")}</div></div>` : ""}
+      <div class="ps-row"><span>Traffic</span><div class="chips">${Object.keys(TRAFFIC_LEVELS).map((k) => chip("traffic", k, k, r.traffic || "Heavy")).join("")}</div></div>
+      <div class="muted small">${isHost ? (r.roundState === "running" ? "Settings unlock between rounds." : "You're the host — settings apply to the next round.") : "Only the host can change these."}</div>`;
+    box.querySelectorAll("button[data-g]").forEach((b) => b.onclick = () => set({ [b.dataset.g]: b.dataset.g === "target" || b.dataset.g === "dur" ? +b.dataset.v : b.dataset.v }));
   }
   mini(label, cls, run) { const b = document.createElement("button"); b.className = "btn " + cls; b.textContent = label; b.onclick = run; return b; }
 
@@ -559,6 +584,10 @@ export class UI {
       { key: "revLimit", label: "Rev limit", fmt: (v) => Math.round(v) + " rpm", hint: "Raising it keeps a gear alive longer, but the curve is already falling up there." },
       { key: "final", label: "Final drive", fmt: (v) => v.toFixed(2), hint: "Shorter (higher number) = more wheel torque, lower top speed." },
       { key: "gearing", label: "Gear spread", fmt: (v) => v.toFixed(2) + "x " + (v > 1.005 ? "shorter" : v < .995 ? "taller" : "stock"), hint: "Scales every gear. Above 1 = shorter: more wheel torque and revs, less speed per 1000 rpm." },
+    ];
+    this.AID_CONTROLS = [
+      { key: "tc", label: "Traction control", fmt: (v) => ["Off", "Low", "Medium", "High"][Math.round(v)] },
+      { key: "launchRpm", label: "Launch RPM", fmt: (v) => Math.round(v * 100) + "% of limit" },
     ];
     this.EXHAUST_CONTROLS = [
       { key: "burble", label: "Decel fuel cut", fmt: (v) => Math.round(v * 100) + "%" },
@@ -693,6 +722,12 @@ export class UI {
     };
     rows("tuneSliders", this.ENGINE_CONTROLS, t, !hasEcu);
     rows("tuneExhaust", this.EXHAUST_CONTROLS, t, false);
+    // driver aids apply straight away and cost nothing
+    rows("tuneAids", this.AID_CONTROLS, t, false);
+    $("tuneAids").querySelectorAll("input").forEach((inp, i) => inp.oninput = (ev) => { setTune(this.view, { [this.AID_CONTROLS[i].key]: +ev.target.value }); this.afterTune(); });
+    // one-click stage maps, computed from this car's parts and fuel (still a paid dyno session to apply)
+    $("tunePresets").innerHTML = hasEcu ? `<span>AUTO-MAP</span>${[1, 2, 3].map((s) => `<button data-s="${s}">STAGE ${s}</button>`).join("")}<small>Safe maps for your parts &amp; fuel</small>` : "";
+    $("tunePresets").querySelectorAll("button").forEach((b) => b.onclick = () => { this.editTune(stageMap(car, t, +b.dataset.s)); this.toast(`Stage ${b.dataset.s} map loaded — press APPLY to flash it`); });
     $("tBrap").checked = t.brap;
     [...$("tRelease").children].forEach((b) => b.classList.toggle("on", b.dataset.v === t.release));
 
@@ -779,7 +814,7 @@ export class UI {
     const xs = series[0].pts.map((p) => p[0]);
     const x0 = Math.min(...xs), x1 = Math.max(...xs);
     const px = (x) => padL + ((x - x0) / Math.max(1, x1 - x0)) * (W - padL - padR);
-    g.strokeStyle = "#1e2636"; g.lineWidth = 1; g.font = "11px Fredoka, sans-serif"; g.fillStyle = "#6b7689";
+    g.strokeStyle = "#1e2636"; g.lineWidth = 1; g.font = "600 11px Barlow, sans-serif"; g.fillStyle = "#6b7689";
     for (let r = Math.ceil(x0 / 1000) * 1000; r <= x1; r += 1000) {
       g.beginPath(); g.moveTo(px(r), padT); g.lineTo(px(r), H - padB); g.stroke();
       g.textAlign = "center"; g.fillText(r / 1000 + "k", px(r), H - 7);
@@ -813,7 +848,7 @@ export class UI {
       { pts: pick(sc, (p) => p.hp), color: "#3a5675", dash: [5, 4], max: hpMax, min: 0 },
       { pts: pick(sc, (p) => p.nm), color: "#6b4a2e", dash: [5, 4], max: nmMax, min: 0 },
       { pts: pick(c, (p) => p.hp), color: "#3fb8ff", max: hpMax, min: 0, label: "hp" },
-      { pts: pick(c, (p) => p.nm), color: "#ffc629", max: nmMax, min: 0, label: "Nm", right: true },
+      { pts: pick(c, (p) => p.nm), color: "#b89bff", max: nmMax, min: 0, label: "Nm", right: true },
     ], { mark });
     const bMax = Math.max(2, ...c.map((p) => Math.max(p.boost, p.target))) * 1.2;
     this.chart("chartBoost", boosted ? [
@@ -821,12 +856,12 @@ export class UI {
       { pts: pick(c, (p) => p.boost), color: "#3dff6a", max: bMax, min: 0, label: "psi" },
     ] : [{ pts: pick(c, () => 0), color: "#3a4256", max: 1, min: 0, label: "naturally aspirated" }], { mark });
     this.chart("chartFuel", [
-      { pts: pick(c, (p) => p.afr), color: "#ff8a3d", min: 10, max: 15, label: "AFR" },
+      { pts: pick(c, (p) => p.afr), color: "#3ee0ff", min: 10, max: 15, label: "AFR" },
       { pts: pick(c, (p) => p.timing), color: "#b27dff", min: -8, max: 12, label: "timing", right: true },
     ], { mark });
     this.chart("chartTemp", [
       { pts: pick(c, (p) => p.egt), color: "#ff4a55", min: 200, max: 1100, label: "EGT" },
-      { pts: pick(c, (p) => p.oil), color: "#ffd23d", min: 20, max: 1100 },
+      { pts: pick(c, (p) => p.oil), color: "#e8f04a", min: 20, max: 1100 },
       { pts: pick(c, (p) => p.coolant), color: "#4dffc3", min: 20, max: 1100 },
       { pts: pick(c, (p) => p.iat), color: "#3dd6ff", min: 20, max: 1100, label: "IAT", right: true },
     ], { mark });

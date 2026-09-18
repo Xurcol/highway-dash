@@ -145,6 +145,8 @@ export const TUNE_RANGE = {
   decay: [.2, 3, .05, "s"],
   mix: [0, 1, .05, ""],
   engineBrake: [0, 2, .05, ""],
+  tc: [0, 3, 1, ""],          // traction control: off / low / medium / high
+  launchRpm: [.3, .85, .01, ""], // launch control hold, as a fraction of the rev limit
 };
 
 export function defaultTune(car) {
@@ -159,7 +161,7 @@ export function defaultTune(car) {
     gearing: 1,
     intake: "stock", exhaust: "stock", catalyst: "stock", turbo: "stock", intercooler: "stock", fuel: "stock",
     tires: "stock", brakes: "stock", suspension: "stock", transmission: "stock", weight: "stock",
-    burble: .75, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1,
+    burble: .75, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1, tc: 2, launchRpm: .55,
   };
 }
 export const PART_KINDS = Object.keys(PARTS);
@@ -404,11 +406,27 @@ export function tunedSpec(carId, tune) {
     induction: e.induction,
     engineBrakeTune: t.engineBrake,
     drive: DRIVE_LAYOUT[car.id] || "rwd",
+    tcAllowed: [1, .38, .22, .1][Math.round(t.tc)] ?? .22,
+    launchFrac: t.launchRpm,
     eth: partOpt("fuel", t.fuel).eth,
     antiLag: isBoosted(e) && e.induction !== "super",
   };
 }
 
+// Auto-map: the most boost and timing this car's parts and fuel can take while staying clear of knock.
+// Stage 1 is conservative, stage 3 runs right up to the edge. Purely deterministic search.
+export function stageMap(car, tune, stage = 2) {
+  const e = engineOf(car), margin = [0, .9, .96, 1.0][stage] || .96;
+  const t = { ...tune, timing: 0, afr: isBoosted(e) ? (stage === 3 ? 11.4 : 11.7) : 12.8, wastegate: [0, .5, .6, .72][stage] };
+  const peakKnock = (tt) => dyno(car, tt, 250).reduce((a, p) => Math.max(a, p.knock), 0);
+  if (isBoosted(e)) {
+    let lo = 4, hi = maxBoostFor(e, t);
+    for (let i = 0; i < 14; i++) { const mid = (lo + hi) / 2; if (peakKnock({ ...t, boost: mid }) <= margin) lo = mid; else hi = mid; }
+    t.boost = Math.round(lo * 2) / 2;
+  }
+  for (let deg = 0; deg <= 8; deg += .5) { if (peakKnock({ ...t, timing: deg }) <= margin) t.timing = deg; else break; }
+  return { boost: t.boost, timing: t.timing, afr: t.afr, wastegate: t.wastegate };
+}
 // Peak power only - much cheaper than summary(), for previewing a part in the shop.
 export function peakHp(car, tune) {
   const t = normalizeTune(car, tune);

@@ -242,7 +242,7 @@ export class RelayNet extends EventTarget {
       for (const p of players) { const peer = this.peers.get(p.id); if (peer) { peer.name = p.name; peer.car = p.car || peer.car; } }
       const now = this.now();
       const roundState = !info.round ? "lobby" : now < info.epoch ? "countdown" : "running";
-      this.room = { code: this.room.code, seed: info.seed ?? 1, epoch: info.epoch ?? now, round: info.round || 0, roundState, traffic: info.traffic || "Heavy", public: !!info.public, players };
+      this.room = { code: this.room.code, seed: info.seed ?? 1, epoch: info.epoch ?? now, round: info.round || 0, roundState, traffic: info.traffic || "Heavy", public: !!info.public, mode: info.mode || "crash", target: info.target || 10000, dur: info.dur || 120, players };
       const fresh = this.freshRoom; this.freshRoom = false;
       if (!fresh && this.prevPlayers) for (const p of players) if (p.id !== this.me.code && !this.prevPlayers.has(p.id)) this.emit("toast", { msg: `🟢 ${p.name} joined the party` });
       this.prevPlayers = new Set(players.map((p) => p.id));
@@ -253,7 +253,7 @@ export class RelayNet extends EventTarget {
   }
   newRoundInfo(extra = {}) {
     const info = this.roomInfo || {};
-    return { round: (info.round || 0) + 1, seed: (Math.random() * 2 ** 31) | 0, epoch: this.now() + 3000, traffic: info.traffic || "Heavy", public: !!info.public, ...extra };
+    return { round: (info.round || 0) + 1, seed: (Math.random() * 2 ** 31) | 0, epoch: this.now() + 3000, traffic: info.traffic || "Heavy", public: !!info.public, mode: info.mode || "crash", target: info.target || 10000, dur: info.dur || 120, ...extra };
   }
 
   // ---------- leaderboard ----------
@@ -320,11 +320,20 @@ export class RelayNet extends EventTarget {
         break;
       }
       case "leaderboard": this.leaderboard(); break;
+      // the host (first to join) sets the party's mode, score target, time and traffic between rounds
+      case "roomSettings": {
+        if (!this.room || this.room.players?.[0]?.id !== c || this.room.roundState === "running") return;
+        const info = { ...(this.roomInfo || {}), mode: ["crash", "target", "timed"].includes(m.mode) ? m.mode : "crash", target: Math.max(1000, Math.min(100000, m.target | 0 || 10000)), dur: Math.max(30, Math.min(600, m.dur | 0 || 120)), traffic: m.traffic || this.roomInfo?.traffic || "Heavy" };
+        this.pub(`room/${this.room.code}/info`, info, true);
+        break;
+      }
       case "startRound": if (this.room && !this.room.round) this.pub(`room/${this.room.code}/info`, this.newRoundInfo(), true); break;
       case "crash": {
         if (!this.room || m.round !== this.room.round) return;
         const scores = this.room.players.map((p) => ({ id: p.id, name: p.name, score: p.id === c ? Math.max(this.myScore, m.score | 0) : this.peers.get(p.id)?.buf.at(-1)?.sc || 0 })).sort((a, b) => b.score - a.score);
-        const prevEnd = { round: this.room.round, by: this.me.name, byId: c, scores };
+        // "win" rounds (first to a score / time up) name the winner; crash rounds name who crashed
+        const top = scores[0] || { name: this.me.name, id: c };
+        const prevEnd = m.win ? { round: this.room.round, by: m.timed ? top.name : this.me.name, byId: m.timed ? top.id : c, scores, win: true } : { round: this.room.round, by: this.me.name, byId: c, scores };
         this.pub(`room/${this.room.code}/info`, this.newRoundInfo({ epoch: this.now() + 3000, prevEnd }), true);
         break;
       }

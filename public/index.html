@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Highway Dash</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:ital,wght@0,600;0,700;1,700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script type="importmap">
 { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
@@ -35,6 +35,8 @@
         <button class="btn icon" data-open="settings" title="Settings">⚙️</button>
       </div>
       <div id="preview">
+        <div id="modeSelect" class="mode-select"></div>
+        <button id="spinBtn" class="spin-btn" title="Turntable">⟳ SPIN</button>
         <div class="stats">
           <div><span>⚡</span><div class="sbar"><i id="stSpd"></i></div><b id="stSpdN">0</b></div>
           <div><span>🚀</span><div class="sbar"><i id="stAcc"></i></div><b id="stAccN">0</b></div>
@@ -113,6 +115,7 @@
     <button class="mw-btn" id="mwNext" title="Next">⏭</button>
     <div class="mw-bar"><i id="mwBar"></i></div>
   </div>
+  <div id="modeHud" class="mode-hud" hidden></div>
   <div id="catchUp" class="catchup" hidden>CATCHING UP</div>
   <div id="ghostNote" class="ghostnote" hidden>INVULNERABLE</div>
   <div id="roundBanner" class="round-banner" hidden></div>
@@ -199,11 +202,12 @@
         </div>
         <div id="partyIn" hidden>
           <div class="row code">Party code <b id="partyCode">000000</b><button class="btn gray" id="copyParty">COPY</button></div>
+          <div id="partySettings" class="party-settings"></div>
           <div id="partyMembers" class="members"></div>
           <button class="btn green wide big2" id="driveParty">DRIVE WITH PARTY</button>
           <button class="btn red wide" id="leaveParty">LEAVE PARTY</button>
         </div>
-        <p class="muted small">Everyone in a party shares the same traffic. Cars don't collide with each other, so cut up freely. Respawn next to friends after a crash.</p>
+        <p class="muted small">Everyone in a party drives the same traffic. The host picks the mode: Last One Standing (first crash ends the round), First To Score, or Timed Battle.</p>
       </div>
     </div>
   </div>
@@ -315,7 +319,10 @@
       <div class="tune-col">
         <div id="tabMap">
           <div id="ecuGate" class="gate" hidden></div>
+          <div id="tunePresets" class="presets"></div>
           <div id="tuneSliders"></div>
+          <h3>DRIVER AIDS <small>free to change</small></h3>
+          <div id="tuneAids"></div>
           <h3>EXHAUST CHARACTER</h3>
           <div id="tuneExhaust"></div>
           <label class="toggle"><input type="checkbox" id="tBrap"> Upshift crackle when hot &amp; loaded</label>

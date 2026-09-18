@@ -299,6 +299,19 @@ export class AudioManager {
     this.set(this.scrape.g.gain, scraping ? 0.25 : 0, 0.03);
   }
 
+  // two-tone wail; level 0 silences it
+  siren(level, pan = 0) {
+    if (!this.ready) return;
+    if (!this.sirenNodes && level > 0) {
+      const o = this.ctx.createOscillator(), lfo = this.ctx.createOscillator(), depth = this.ctx.createGain(), g = this.ctx.createGain(), p = this.ctx.createStereoPanner();
+      o.type = "square"; o.frequency.value = 900; lfo.frequency.value = .55; depth.gain.value = 320;
+      const lp = this.ctx.createBiquadFilter(); lp.frequency.value = 2200;
+      lfo.connect(depth).connect(o.frequency); o.connect(lp).connect(g).connect(p).connect(this.fx);
+      g.gain.value = 0; o.start(); lfo.start();
+      this.sirenNodes = { g, p };
+    }
+    if (this.sirenNodes) { this.set(this.sirenNodes.g.gain, level * .09, .2); this.set(this.sirenNodes.p.pan, pan, .2); }
+  }
   // slide 0..1 (lateral), spin 0..1 (wheelspin), speed km/h
   tires(slide, spin, kmh) {
     if (!this.ready) return;
