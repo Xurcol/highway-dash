@@ -1,0 +1,371 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Highway Dash</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:ital,wght@0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=mu6adgwj">
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<!-- ============ FIRST-RUN LOADER ============ -->
+<section id="loader" class="loader" hidden>
+  <div class="loader-box">
+    <div class="brand">HIGHWAY <span>DASH</span></div>
+    <div class="loader-title" id="loaderTitle">Downloading cars</div>
+    <div class="loader-bar"><i id="loaderBar"></i></div>
+    <div class="loader-sub" id="loaderSub">Starting…</div>
+    <p class="muted small">One-time download. After this every car loads instantly.</p>
+  </div>
+</section>
+
+<!-- ============ HOME / GARAGE ============ -->
+<section id="home" class="screen">
+  <header class="topbar">
+    <div class="brand">HIGHWAY <span>DASH</span></div>
+    <div class="spacer"></div>
+    <div class="lvl"><div class="star"><b id="hLevel">1</b></div><div class="xpbar"><i id="hXp"></i><span id="hXpText">0/200</span></div></div>
+    <div class="chip gold">🏅 <b id="hMedals">0/8</b><small>MEDALS</small></div>
+    <div class="chip coin">🪙 <b id="hCoins">0</b><small>COINS</small></div>
+    <div class="chip heart">❤️ <b id="hHearts">0</b><small>REVIVES</small></div>
+  </header>
+  <div class="garage">
+    <div class="garage-left">
+      <div class="modes">
+        <button class="mode on" data-mode="solo">🏁 SOLO</button>
+        <button class="mode" data-mode="online">🌐 ONLINE <em id="onlineDot" class="dot"></em></button>
+        <div class="spacer"></div>
+        <button class="btn icon" data-open="leader" title="Leaderboard [L]">🏆</button>
+        <button class="btn icon" data-open="media" title="Music [J]">🎵</button>
+        <button class="btn icon" data-open="settings" title="Settings">⚙️</button>
+      </div>
+      <div id="preview">
+        <div id="modeSelect" class="mode-select"></div>
+        <button id="spinBtn" class="spin-btn" title="Turntable">⟳ SPIN</button>
+        <div class="stats">
+          <div><span class="st-l">SPEED</span><div class="sbar"><i id="stSpd"></i></div><b id="stSpdN">0</b></div>
+          <div><span class="st-l">ACCEL</span><div class="sbar"><i id="stAcc"></i></div><b id="stAccN">0</b></div>
+          <div><span class="st-l">HANDLING</span><div class="sbar"><i id="stHan"></i></div><b id="stHanN">0</b></div>
+        </div>
+        <div id="partyBadge" class="party-badge" hidden></div>
+        <div id="showOff" class="show-off" hidden></div>
+        <button id="playBtn" class="btn green big">PLAY</button>
+      </div>
+    </div>
+    <aside class="carinfo panel">
+      <div id="ciRarity" class="rarity">LEGENDARY</div>
+      <h1 id="ciName">Car</h1>
+      <div id="ciSpec" class="spec">V10 · 7-speed DCT</div>
+      <div id="ciTop" class="spec">Top speed 205 mph</div>
+      <div class="custom">
+        <div class="custom-label">PAINT</div>
+        <div class="swatches" id="swatches"></div>
+        <label class="custom-pick">Custom <input type="color" id="paintPick"></label>
+        <div class="custom-label">STYLE</div>
+        <div id="styleBox" class="style-box"></div>
+        <div class="custom-label">ENGINE</div>
+        <div id="ciEngine" class="engine-badge"></div>
+        <div class="row"><button class="btn accent" id="revBtn" style="flex:1">HOLD REV</button><button class="btn primary" id="tuneBtn" style="flex:1">WORKSHOP</button></div>
+      </div>
+      <button id="ciAction" class="btn gray wide">EQUIPPED</button>
+    </aside>
+  </div>
+  <div class="cardbar">
+    <div class="filters">
+      <button class="filter on" data-f="all">ALL <b id="fAll">0</b></button>
+      <button class="filter" data-f="owned">OWNED <b id="fOwned">0</b></button>
+      <button class="filter" data-f="locked">LOCKED <b id="fLocked">0</b></button>
+    </div>
+    <div id="cards" class="cards"></div>
+  </div>
+</section>
+
+<!-- ============ PRE-START ============ -->
+<section id="ready" class="screen clickthrough" hidden>
+  <div class="ready-title" id="readyTitle">HIGHWAY DASH</div>
+  <div class="ready-sub" id="readySub">Five lanes. Thread the needle.</div>
+  <div class="ready-click" id="readyClick">CLICK TO START</div>
+  <div class="ready-keys">W/S gas &amp; brake · A/D steer · hold S+W at a stop for launch control · M manual · Q/E shift · Z/X signals · H horn · C camera</div>
+</section>
+
+<!-- ============ HUD ============ -->
+<section id="hud" hidden>
+  <div class="hud-tl">
+    <button class="btn red sq" id="hudHome" title="Home">⬅</button>
+    <button class="btn gray sq" data-open="leader" title="Leaderboard">🏆<small>[L]</small></button>
+  </div>
+  <div class="hud-tr">
+    <button class="btn gray sq" data-open="settings" title="Settings">⚙️</button>
+    <button class="btn gray sq" id="hudPause">⏸<small>[P]</small></button>
+    <button class="btn red sq" id="hudRestart">↻<small>[R]</small></button>
+  </div>
+  <div class="score"><div id="score">0</div><div id="best">BEST 0</div></div>
+  <div id="speedUp" class="speedup">SPEED UP!</div>
+  <div class="speedo">
+    <span id="sigL" class="sig">◀</span>
+    <div><div id="speed">0 MPH</div><div id="dist">0.0Mi</div></div>
+    <span id="sigR" class="sig">▶</span>
+  </div>
+  <div id="combo" class="combo">CLOSE CALL! x1</div>
+  <div class="tach"><canvas id="tach" width="260" height="260"></canvas><div class="gear"><b id="gear">1</b><span id="gearMode">AUTO</span></div></div>
+  <div id="partyList" class="partylist"></div>
+  <div id="peerMarkers" class="peer-markers"></div>
+  <div id="chatLog" class="chatlog"></div>
+  <input id="chatInput" class="chatinput" maxlength="120" placeholder="Say something… (Enter)" hidden>
+  <div id="musicWidget" class="music-widget" hidden>
+    <div class="mw-art" id="mwArt"></div>
+    <div class="mw-text"><div class="mw-title" id="mwTitle"></div><div class="mw-artist" id="mwArtist"></div></div>
+    <button class="mw-btn" id="mwPrev" title="Previous">⏮</button>
+    <button class="mw-btn" id="mwPlay" title="Play / pause">▶</button>
+    <button class="mw-btn" id="mwNext" title="Next">⏭</button>
+    <div class="mw-bar"><i id="mwBar"></i></div>
+  </div>
+  <div id="modeHud" class="mode-hud" hidden></div>
+  <div id="catchUp" class="catchup" hidden>CATCHING UP</div>
+  <div id="ghostNote" class="ghostnote" hidden>INVULNERABLE</div>
+  <div id="roundBanner" class="round-banner" hidden></div>
+</section>
+
+<!-- ============ PAUSE ============ -->
+<section id="pause" class="screen dim" hidden>
+  <div class="panel center-panel">
+    <h2>PAUSED</h2>
+    <button class="btn green wide" id="resumeBtn">RESUME</button>
+    <button class="btn blue wide" data-open="settings">SETTINGS</button>
+    <button class="btn red wide" id="pauseHome">HOME</button>
+  </div>
+</section>
+
+<!-- ============ GAME OVER ============ -->
+<section id="over" class="screen dim" hidden>
+  <div class="over-grid">
+    <div class="over-left">
+      <div class="panel go-main pop" style="--d:0ms">
+        <h1 class="go-title">GAME OVER</h1>
+        <div id="goScore" class="go-score">0</div>
+        <div id="goBest" class="go-best">BEST 0</div>
+        <div id="goNewBest" class="go-newbest" hidden>NEW BEST!</div>
+        <div class="go-coins"><span class="coin-ico">🪙</span><div class="coinbar"><i id="goCoinFill"></i><b id="goCoins">0</b></div></div>
+        <div id="goRewards" class="reward-list"></div>
+        <div class="medal-title">MEDAL LADDER</div>
+        <div id="medals" class="medals"></div>
+        <div id="medalNext" class="medal-next"></div>
+        <button class="btn gold xl" id="reviveBtn">REVIVE 0/3 — 1 ❤️</button>
+        <button class="btn blue xl" id="restartBtn">RESTART [R]</button>
+        <button class="btn red xl" id="homeBtn">HOME</button>
+      </div>
+      <div class="panel go-level pop" style="--d:120ms">
+        <div class="star"><b id="goLevel">1</b></div>
+        <div class="xpbar big"><i id="goXp"></i><span id="goXpText">0/200</span></div>
+      </div>
+    </div>
+    <div class="over-shop pop" style="--d:80ms">
+      <h2 class="shop-title">GAME SHOP</h2>
+      <div id="goShop" class="panel shop-list"></div>
+    </div>
+    <div class="over-hearts pop" style="--d:160ms">
+      <div class="heart-head">❤️ REVIVES <b id="goHearts">0</b></div>
+      <div id="heartShop" class="heart-shop"></div>
+    </div>
+    <div class="over-board pop" style="--d:220ms">
+      <div class="panel board" id="goBoard"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MODALS ============ -->
+<section id="leader" class="modal" hidden>
+  <div class="panel modal-box board-modal">
+    <button class="close" data-close>✕</button>
+    <div class="board" id="leaderBoard"></div>
+  </div>
+</section>
+
+<section id="online" class="modal" hidden>
+  <div class="panel modal-box online-box">
+    <button class="close" data-close>✕</button>
+    <h2>🌐 ONLINE</h2>
+    <div id="relayStatus" class="muted small" style="margin-bottom:8px"></div>
+    <div id="offlineNote" class="note" hidden>Can't reach any multiplayer relay. Check your internet connection. Some school or work networks block these connections.</div>
+    <div class="online-cols">
+      <div class="col">
+        <h3>YOU</h3>
+        <div class="row"><input id="nameInput" maxlength="16" placeholder="Driver name"><button class="btn blue" id="nameSave">SAVE</button></div>
+        <div class="row code">Friend code <b id="myCode">------</b><button class="btn gray" id="copyCode">COPY</button></div>
+        <h3>ADD FRIEND</h3>
+        <div class="row"><input id="friendCode" maxlength="6" placeholder="ABC123"><button class="btn green" id="addFriend">ADD</button></div>
+        <div id="requests"></div>
+        <h3>FRIENDS</h3>
+        <div id="friendList" class="friendlist"><div class="muted">No friends yet — share your code!</div></div>
+      </div>
+      <div class="col">
+        <h3>PARTY</h3>
+        <div id="partyNone">
+          <button class="btn green wide" id="createParty">CREATE PARTY</button>
+          <button class="btn blue wide" id="quickPlay">QUICK PLAY (PUBLIC)</button>
+          <div class="row"><input id="joinCode" maxlength="6" placeholder="Party code"><button class="btn gold" id="joinParty">JOIN</button></div>
+        </div>
+        <div id="partyIn" hidden>
+          <div class="row code">Party code <b id="partyCode">000000</b><button class="btn gray" id="copyParty">COPY</button></div>
+          <div id="partySettings" class="party-settings"></div>
+          <div id="partyMembers" class="members"></div>
+          <button class="btn green wide big2" id="driveParty">DRIVE WITH PARTY</button>
+          <button class="btn red wide" id="leaveParty">LEAVE PARTY</button>
+        </div>
+        <p class="muted small">Everyone in a party drives the same traffic. The host picks the mode: Last One Standing (first crash ends the round), First To Score, or Timed Battle.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="settings" class="modal" hidden>
+  <div class="panel modal-box settings-box">
+    <button class="close" data-close>✕</button>
+    <h2>⚙️ SETTINGS</h2>
+    <div class="settings-grid">
+      <div>
+        <h3>TIME OF DAY <b id="timeLabel">18:36</b></h3>
+        <input type="range" id="timeSlider" min="0" max="24" step="0.05">
+        <div class="chips" id="timePresets"></div>
+        <label class="toggle"><input type="checkbox" id="timeFlow"> Time passes (1 hour / minute)</label>
+        <h3>SKY <small>[V]</small></h3>
+        <div class="chips" id="skyStyles"></div>
+        <h3>WEATHER <small>[B]</small></h3>
+        <div class="chips" id="weathers"></div>
+      </div>
+      <div>
+        <h3>AUDIO</h3>
+        <label class="slider">Master <input type="range" id="volMaster" min="0" max="1" step="0.01"></label>
+        <label class="slider">Engine <input type="range" id="volEngine" min="0" max="1.5" step="0.01"></label>
+        <label class="slider">Effects <input type="range" id="volFx" min="0" max="1.5" step="0.01"></label>
+        <label class="slider">Wind/road <input type="range" id="volWind" min="0" max="1" step="0.01"></label>
+        <h3>TRAFFIC <small>(solo &amp; parties you create)</small></h3>
+        <div class="chips" id="trafficLevels"></div>
+        <h3>DRIVING</h3>
+        <label class="toggle"><input type="checkbox" id="optManual"> Start in manual gearbox [M]</label>
+        <label class="toggle"><input type="checkbox" id="optHideNames"> Hide other players' names</label>
+        <h3>GRAPHICS</h3>
+        <label class="toggle"><input type="checkbox" id="optShadows"> Shadows</label>
+        <label class="slider">Resolution <input type="range" id="optRes" min="0.5" max="2" step="0.25"></label>
+        <h3>ADMIN</h3>
+        <div id="adminLocked" class="row">
+          <input type="password" id="adminCode" placeholder="Access code" autocomplete="off">
+          <button class="btn ghost" id="adminUnlock">UNLOCK</button>
+        </div>
+        <div id="adminTools" class="admin-tools" hidden>
+          <div class="row"><input type="number" id="adminCoins" placeholder="Coins" min="0"><button class="btn accent" id="adminSetCoins">SET COINS</button></div>
+          <div class="row"><input type="number" id="adminHearts" placeholder="Revives" min="0"><button class="btn accent" id="adminSetHearts">SET REVIVES</button></div>
+          <div class="row"><input type="number" id="adminBest" placeholder="Best score" min="0"><button class="btn accent" id="adminSetBest">SET BEST</button></div>
+          <div class="admin-grid">
+            <button class="btn ghost" id="adminUnlockCars">UNLOCK ALL CARS</button>
+            <button class="btn ghost" id="adminUnlockParts">UNLOCK ALL PARTS</button>
+            <button class="btn ghost" id="adminClearTunes">CLEAR ALL TUNES</button>
+            <button class="btn ghost" id="adminGod">GOD MODE: OFF</button>
+            <button class="btn danger" id="adminWipe">RESET PROFILE</button>
+            <button class="btn ghost" id="adminLock">LOCK PANEL</button>
+          </div>
+          <p class="muted small">Local developer tools — they change this browser's save only.</p>
+        </div>
+        <h3>CREDITS</h3>
+        <p id="credits" class="muted small">—</p>
+        <h3>CONTROLS</h3>
+        <div class="keys">
+          <span>W / ↑</span>Throttle<span>S / ↓</span>Brake<span>A D / ← →</span>Steer<span>M</span>Manual / auto
+          <span>Q / E</span>Shift down / up<span>Z / X</span>Left / right signal<span>H</span>Horn<span>C</span>Camera
+          <span>S + W</span>Launch control (at a stop)<span>T</span>Next time of day<span>Enter</span>Chat (online)<span>P / R</span>Pause / restart<span>L</span>Leaderboard
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="media" class="modal" hidden>
+  <div class="panel modal-box media-box">
+    <button class="close" data-close>✕</button>
+    <h2>MUSIC</h2>
+    <div class="media-main">
+      <div class="media-art" id="mediaArt"><span>♪</span></div>
+      <div class="media-info">
+        <div class="media-title" id="mediaTitle">Nothing playing</div>
+        <div class="media-artist" id="mediaArtist">—</div>
+        <div class="media-album" id="mediaAlbum"></div>
+        <div class="media-bar" id="mediaBar"><i></i></div>
+        <div class="media-times"><span id="mediaNow">0:00</span><span id="mediaDur">0:00</span></div>
+        <div class="media-controls">
+          <button class="btn ghost" id="mediaPrev" title="Previous">⏮</button>
+          <button class="btn primary lg" id="mediaPlay" title="Play / pause">▶</button>
+          <button class="btn ghost" id="mediaNext" title="Next">⏭</button>
+          <label class="media-vol">Volume <input type="range" id="mediaVol" min="0" max="1" step="0.01"></label>
+        </div>
+      </div>
+    </div>
+    <div class="media-add">
+      <button class="btn accent" id="mediaAdd">ADD TRACKS</button>
+      <input type="file" id="mediaFiles" accept="audio/*" multiple hidden>
+      <p class="muted small" id="mediaNote"></p>
+    </div>
+    <div id="mediaList" class="media-list"></div>
+  </div>
+</section>
+
+<section id="tune" class="modal" hidden>
+  <div class="panel modal-box tune-box">
+    <button class="close" data-close>✕</button>
+    <h2>🔧 TUNING <small id="tuneCar"></small></h2>
+    <div class="tune-head">
+      <div class="tune-engine" id="tuneEngine"></div>
+      <div class="tune-nums" id="tuneNums"></div>
+    </div>
+    <div class="tune-tabs">
+      <button class="tab on" data-tab="map">ENGINE MAP</button>
+      <button class="tab" data-tab="parts">UPGRADE SHOP</button>
+      <div class="spacer"></div>
+      <div class="wallet">🪙 <b id="tuneCoins">0</b></div>
+    </div>
+    <div class="tune-grid">
+      <div class="tune-col">
+        <div id="tabMap">
+          <div id="ecuGate" class="gate" hidden></div>
+          <div id="tunePresets" class="presets"></div>
+          <div id="tuneSliders"></div>
+          <h3>DRIVER AIDS <small>free to change</small></h3>
+          <div id="tuneAids"></div>
+          <h3>EXHAUST CHARACTER</h3>
+          <div id="tuneExhaust"></div>
+          <label class="toggle"><input type="checkbox" id="tBrap"> Upshift crackle when hot &amp; loaded</label>
+          <div class="muted small" style="margin-top:8px">Sound when you lift off W</div>
+          <div class="chips" id="tRelease"></div>
+          <div id="tuneApplyBar" class="apply-bar" hidden></div>
+        </div>
+        <div id="tabParts" hidden></div>
+      </div>
+      <div class="tune-col">
+        <h3>DYNO <small>hp &amp; torque vs rpm</small></h3>
+        <canvas id="chartDyno" class="chart" width="560" height="230"></canvas>
+        <h3>BOOST <small>psi vs rpm</small></h3>
+        <canvas id="chartBoost" class="chart" width="560" height="160"></canvas>
+        <h3>FUEL &amp; TIMING</h3>
+        <canvas id="chartFuel" class="chart" width="560" height="150"></canvas>
+        <h3>TEMPERATURES</h3>
+        <canvas id="chartTemp" class="chart" width="560" height="150"></canvas>
+      </div>
+      <div class="tune-col">
+        <div id="tuneWarn" class="tune-warn" hidden></div>
+        <h3>FITTED</h3>
+        <div id="tuneFitted" class="fitted"></div>
+        <div class="row" style="margin-top:14px"><button class="btn accent" id="tuneRev">HOLD TO REV</button><button class="btn ghost" id="tuneReset">RESET TO STOCK</button></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div id="toasts" class="toasts"></div>
+<script type="module" src="js/main.js?v=mu6adgwj"></script>
+</body>
+</html>
