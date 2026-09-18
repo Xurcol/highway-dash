@@ -1,8 +1,35 @@
 {
-  "available": ["a4", "b330i"],
+  "available": ["a4", "b330i", "m4", "c8", "charger", "c63", "m340i", "q50", "rs3", "x3m", "golfr", "m2", "gt3rs", "svj", "m3"],
   "a4": { "paint": ["Glacier_White_Metallic"], "glass": ["Clear.?glass", "Windows$", "Windows black"], "rim": ["Rims"], "caliper": ["BrakeFrLeft"], "tail": ["Color_M02"], "head": ["Glass.?Lights"], "wheels": ["no-wheel-nodes"] },
   "b330i": { "paint": ["CarPaint"], "glass": ["MI_Glass$"], "rim": ["Material[.]002", "CRBN_JANTE"], "caliper": ["plaquette"], "tail": ["reD_glass"], "head": ["MI_Light", "MI_Glass_Light"], "wheels": ["Object_13"] },
+  "m4": { "paint": ["mm_ext"], "glass": ["mm_windows"], "rim": ["mm_wheel"], "head": ["mm_lights"], "wheelMats": ["mm_wheel", "mm_tyre", "mm_rotor"], "wheels": ["no-wheel-nodes"] },
+  "c8": { "paint": ["Body_Color"], "glass": ["Other_Glasses", "Windshield"], "rim": ["^material$"], "tail": ["Taillights", "Brake_Lights"], "head": ["Day_Lights", "Headlights"], "wheelMats": ["^material$", "Tire_", "Brake_Disc"], "wheels": ["no-wheel-nodes"] },
+  "charger": { "paint": ["d2phong2SG1"], "glass": ["d2phong7SG1"], "rim": ["riphong18"], "tail": ["d2phong12SG1"], "wheelMats": ["riphong18", "rl2phong19"], "wheels": ["no-wheel-nodes"] },
+  "c63": { "paint": ["AMG_C63_Base"], "glass": ["c63MAT_Glass1"], "rim": ["Tire_Hub"], "caliper": ["Tire_Brake"], "head": ["c63MAT_Lights1"], "wheelMats": ["Tire_Hub", "wheeMercedes", "Tire_Disk"], "wheels": ["no-wheel-nodes"] },
+  "m340i": { "paint": ["Kuzov"], "glass": ["^d_glass$"], "tail": ["Glass_backlights", "Back_lights_emissive"], "head": ["front_lights"], "wheelMats": ["Koleso", "Tire_mat"], "wheels": ["no-wheel-nodes"] },
+  "q50": { "paint": ["^CarPaint$"], "glass": ["Glass_L", "Winsow"], "rim": ["LRim"], "tail": ["Red_glass"], "head": ["GL_emiss"], "wheelMats": ["LRim", "tire1"], "wheels": ["no-wheel-nodes"] },
+  "rs3": { "paint": ["2023Paint_Material"], "glass": ["2023Window_Material"], "rim": ["3DWheel1A"], "caliper": ["CallipersCalliperA"], "tail": ["red_glass"], "head": ["2023LightA"], "wheelMats": ["3DWheel1A"], "wheels": ["no-wheel-nodes"] },
+  "x3m": { "paint": ["X3MI_1347060001"], "glass": ["X3MI_Glass_02"], "rim": ["ChangeA_Rim"], "caliper": ["Change_Brake"], "tail": ["X3MI_Glass_Light"], "head": ["X3MI_Light"], "wheelMats": ["ChangeA_Rim", "ChangeA_Tyre"], "wheels": ["no-wheel-nodes"] },
+  "golfr": { "paint": ["^CarPaint$"], "glass": ["^windows$", "^D_glass$"], "tail": ["red_glass", "red_glow"], "head": ["glass_light"], "wheelMats": ["^tire$"], "wheels": ["no-wheel-nodes"] },
+  "m2": { "paint": ["m2g87undg_Paint"], "glass": ["Glass_Clear", "Glass_Dark"], "rim": ["Wheel1A_Rim"], "caliper": ["Calliper_Color"], "head": ["Light_Common"], "wheelMats": ["Wheel1A_Rim", "Wheel2A_Tire"], "wheels": ["no-wheel-nodes"] },
+  "gt3rs": { "paint": ["^paint$", "^coat$"], "glass": ["^window$", "^glass$"], "rim": ["^silver$"], "head": ["^lights$"], "wheelMats": ["^rubber$", "^silver$"], "wheels": ["no-wheel-nodes"] },
+  "svj": { "paint": ["CARROSSERIE"], "glass": ["^GLASS$"], "rim": ["Bling_Bling", "Material[.]009", "Default_Material[.]005"], "caliper": ["plaquette", "Material[.]012"], "tail": ["GlassRedLights"], "head": ["GlassWhite", "HdLightsLens", "LightEmissiveWhite"], "wheelMats": ["pneu", "Bling_Bling", "Material[.]009", "Default_Material[.]005", "PZEO", "visse"], "wheels": ["no-wheel-nodes"] },
+  "m3": { "paint": ["^Material[.]001$"], "tail": ["^Material[.]022$"], "wheels": ["no-wheel-nodes"] },
   "credits": {
-    "a4": "Audi A4 B9 by Nieve5677 (sketchfab.com/niev), CC-BY-4.0, https://sketchfab.com/3d-models/audi-a4-b9-7ba4f7fa8f32436a9685a8abaa5da302"
+    "a4": "Audi A4 B9 by Nieve5677 (sketchfab.com/niev), CC-BY-4.0",
+    "b330i": "BMW 330i (user-supplied free model)",
+    "m4": "2021 BMW M4 G82 by OUTPISTON (sketchfab.com/outpiston), CC-BY-NC-SA-4.0",
+    "c8": "2019 Chevrolet Corvette C8 Stingray by Hari (sketchfab.com/Hari31), CC-BY-4.0",
+    "charger": "2015 Dodge Charger SRT Hellcat by Ddiaz Design (sketchfab.com/ddiaz-design), CC-BY-NC-SA-4.0",
+    "c63": "2019 Mercedes-Benz C63 S AMG Coupe by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "m340i": "2020 BMW M340i xDrive by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "q50": "2021 Infiniti Q50 3.0t by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "rs3": "2023 Audi RS3 Sedan by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "x3m": "2024 BMW X3 M40i by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "golfr": "2025 Volkswagen Golf R by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "m2": "BMW M2 G87 by kevin (sketchfab.com/sohyalebret), CC-BY-4.0",
+    "gt3rs": "Porsche 911 Carrera 4S by Karol Miklas (sketchfab.com/karolmiklas), CC-BY-SA-4.0",
+    "svj": "Aventador SVJ Black Ghost by SDC PERFORMANCE (sketchfab.com/3Duae), CC-BY-NC-4.0",
+    "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0"
   }
 }

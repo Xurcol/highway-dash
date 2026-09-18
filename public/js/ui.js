@@ -419,7 +419,7 @@ export class UI {
       const st = carStats(c), own = P.owned.includes(c.id), eq = P.equipped === c.id;
       const d = document.createElement("div");
       d.className = "shop-item";
-      d.innerHTML = `<div class="chipsrow"><span>⚡${st.speed}</span><span>🚀${st.accel}</span><span>🎯${st.handling}</span></div>
+      d.innerHTML = `<div class="chipsrow"><span>SPD ${st.speed}</span><span>ACC ${st.accel}</span><span>HAN ${st.handling}</span></div>
         <img src="${this.thumbs[c.id] || ""}" alt=""><button class="btn ${eq ? "ghost" : own ? "primary" : "accent"}">${eq ? "EQUIPPED" : own ? "EQUIP" : "🪙 " + fmtCoins(priceOfCar(c.id))}</button>`;
       d.querySelector("button").onclick = () => this.buyOrEquip(c.id, () => { this.renderOverShop(); this.toast(`${c.name} equipped — restart to drive it`); });
       shop.appendChild(d);
@@ -1007,7 +1007,7 @@ export class UI {
     chips("weathers", Object.keys(WEATHERS), (n) => s.weather === n, (n) => { s.weather = n; this.ctx.sky.setWeather(n); });
     chips("trafficLevels", Object.keys(TRAFFIC_LEVELS), (n) => s.traffic === n, (n) => { s.traffic = n; });
     for (const [id, key] of [["volMaster", "volMaster"], ["volEngine", "volEngine"], ["volFx", "volFx"], ["volWind", "volWind"], ["optRes", "res"]]) $(id).oninput = (e) => { s[key] = +e.target.value; apply(); };
-    for (const [id, key] of [["optManual", "manual"], ["optShadows", "shadows"], ["optHideNames", "hideNames"]]) $(id).onchange = (e) => { s[key] = e.target.checked; apply(); if (this.ctx.state() === "home") this.renderHome(); };
+    for (const [id, key] of [["optManual", "manual"], ["optShadows", "shadows"], ["optHideNames", "hideNames"], ["optDrift", "drift"]]) $(id).onchange = (e) => { s[key] = e.target.checked; apply(); if (this.ctx.state() === "home") this.renderHome(); };
   }
   syncTime(hour) {
     const h = Math.floor(hour), m = Math.floor((hour - h) * 60);
@@ -1021,7 +1021,7 @@ export class UI {
     this.syncTime(s.hour);
     $("timeFlow").checked = s.flow;
     $("volMaster").value = s.volMaster; $("volEngine").value = s.volEngine; $("volFx").value = s.volFx; $("volWind").value = s.volWind; $("optRes").value = s.res;
-    $("optManual").checked = s.manual; $("optShadows").checked = s.shadows; $("optHideNames").checked = !!s.hideNames;
+    $("optManual").checked = s.manual; $("optShadows").checked = s.shadows; $("optHideNames").checked = !!s.hideNames; $("optDrift").checked = !!s.drift;
     this.chipSync?.forEach((f) => f());
   }
 }

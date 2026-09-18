@@ -17,19 +17,41 @@ export const MODELS = {};
 const re = (v, fallback) => new RegExp(Array.isArray(v) ? v.join("|") : v || fallback, "i");
 const FRONT = { "+z": Math.PI, "-z": 0, "+x": Math.PI / 2, "-x": -Math.PI / 2 };
 
+// Models load on demand (the garage car, your car, friends' cars) and only a few stay in memory:
+// loading every car up front used enough memory to crash the tab.
+let manifest = {};
+const loading = new Map(), users = new Map(), recent = [];
+const KEEP = 4;
 export async function loadModels() {
-  let manifest = {};
   try { const r = await fetch("/models/models.json", { cache: "no-cache" }); if (r.ok) manifest = await r.json(); } catch { }
-  const ids = manifest.available || [];
-  await Promise.all(CARS.filter((car) => ids.includes(car.id)).map(async (car) => {
-    const cfg = manifest[car.id] || {};
-    const url = `/models/${cfg.file || car.id + ".glb"}`;
-    try {
-      const gltf = await loader.loadAsync(url);
-      MODELS[car.id] = prepare(gltf.scene, car, cfg);
-    } catch (e) { console.warn(`Model for ${car.id} failed to load`, e); }
-  }));
-  return Object.keys(MODELS);
+  return manifest.available || [];
+}
+export const hasModel = (id) => (manifest.available || []).includes(id);
+export function ensureModel(id) {
+  if (MODELS[id]) { touch(id); return Promise.resolve(true); }
+  if (!hasModel(id)) return Promise.resolve(false);
+  if (!loading.has(id)) {
+    const car = CARS.find((c) => c.id === id), cfg = manifest[id] || {};
+    loading.set(id, loader.loadAsync(`/models/${cfg.file || id + ".glb"}`)
+      .then((gltf) => { MODELS[id] = prepare(gltf.scene, car, cfg); touch(id); evict(); return true; })
+      .catch((e) => { console.warn(`Model for ${id} failed to load`, e); return false; })
+      .finally(() => loading.delete(id)));
+  }
+  return loading.get(id);
+}
+function touch(id) { const i = recent.indexOf(id); if (i >= 0) recent.splice(i, 1); recent.push(id); }
+function evict() {
+  while (recent.length > KEEP) {
+    const id = recent.find((x) => !(users.get(x) > 0));
+    if (!id) break;
+    recent.splice(recent.indexOf(id), 1);
+    MODELS[id].root.traverse((o) => {
+      if (!o.isMesh) return;
+      o.geometry.dispose();
+      for (const m of Array.isArray(o.material) ? o.material : [o.material]) { for (const k of ["map", "normalMap", "roughnessMap", "metalnessMap", "emissiveMap", "aoMap"]) m[k]?.dispose(); m.dispose(); }
+    });
+    delete MODELS[id];
+  }
 }
 
 function upgrade(m, cache) {
@@ -70,11 +92,13 @@ function prepare(scene, car, cfg) {
   const rimRe = re(cfg.rim, "rim|jante|alloy");
   const caliperRe = re(cfg.caliper, "caliper|frein|brake(?!.?light)");
   const hideRe = cfg.hide ? re(cfg.hide) : null;
+  const wheelMatRe = cfg.wheelMats ? re(cfg.wheelMats) : null;
   const upgraded = new Map();
   inner.traverse((o) => {
     if (wheelRe.test(o.name) && !(o.parent && o.parent.userData.wheel)) o.userData.wheel = true;
     if (!o.isMesh) return;
-    o.castShadow = true; o.receiveShadow = true;
+    // cars cast shadows but don't receive their own: self-shadowing on glossy paint shows up as stripes
+    o.castShadow = true; o.receiveShadow = false;
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     for (const m of mats) {
       const name = `${m.name} ${o.name}`;
@@ -87,6 +111,8 @@ function prepare(scene, car, cfg) {
       else if (caliperRe.test(name)) m.userData.role = "caliper";
     }
     if (hideRe && mats.some((m) => hideRe.test(`${m.name} ${o.name}`))) o.visible = false;
+    // wheel parts identified by material: each becomes its own spinning piece
+    if (wheelMatRe && mats.some((m) => wheelMatRe.test(m.name || "")) && !(o.parent && o.parent.userData.wheel)) o.userData.wheel = true;
     // swap paint and glass for proper car-paint / glass materials, keeping any texture maps
     o.material = Array.isArray(o.material) ? o.material.map((m) => upgrade(m, upgraded)) : upgrade(o.material, upgraded);
   });
@@ -98,6 +124,7 @@ function prepare(scene, car, cfg) {
 export class ModelCar {
   constructor(carId, color) {
     const tpl = MODELS[carId], def = CARS.find((c) => c.id === carId);
+    this.carId = carId; users.set(carId, (users.get(carId) || 0) + 1); this.isModel = true;
     this.B = BODIES[def.body];
     this.group = new THREE.Group();
     this.bodyGroup = tpl.root.clone(true);
@@ -124,6 +151,9 @@ export class ModelCar {
     for (const w of wheelNodes) {
       const box = new THREE.Box3().setFromObject(w);
       if (box.isEmpty()) continue;
+      // a "wheel" that spans the car is really all four wheels merged together - it can't spin on its own
+      const sz = box.getSize(new THREE.Vector3());
+      if (sz.x > this.B.W * .45 || sz.z > 1.1 || sz.y > 1.1) continue;
       const centre = box.getCenter(new THREE.Vector3());
       const steer = new THREE.Group(), spin = new THREE.Group();
       this.group.add(steer); steer.add(spin);
@@ -153,7 +183,8 @@ export class ModelCar {
     this.calipers.forEach((m, i) => m.color.copy(st.caliper != null ? new THREE.Color(st.caliper) : this.calBase[i]));
     const t = TINTS[st.tint] || TINTS.dark;
     for (const m of this.glass) { m.color.set(t.c); m.opacity = t.o; m.transparent = t.o < 1; }
-    const drop = st.drop != null ? st.drop : (STANCES[st.stance] || STANCES.stock).drop;
+    // lowering sinks the body over the wheels, so it only works when the wheels are separate parts
+    const drop = this.wheels.length >= 4 ? (st.drop != null ? st.drop : (STANCES[st.stance] || STANCES.stock).drop) : 0;
     this.bodyGroup.position.y = -drop;
     const off = st.offset || 0, cam = (st.camber || 0) * Math.PI / 180, ws = st.wsize || 1;
     for (const w of this.wheels) {
@@ -177,7 +208,10 @@ export class ModelCar {
       w.parent.rotation.y = front ? -steer * .35 : 0;
     }
   }
-  dispose() { for (const m of [...this.paint, ...this.tails, ...this.heads]) m.dispose(); }
+  dispose() {
+    for (const m of [...this.paint, ...this.tails, ...this.heads, ...this.glass, ...this.rims, ...this.calipers]) m.dispose();
+    users.set(this.carId, Math.max(0, (users.get(this.carId) || 1) - 1));
+  }
 }
 
 export function makeCar(carId, color) {

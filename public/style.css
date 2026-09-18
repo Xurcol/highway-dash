@@ -504,3 +504,4 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 .presets button{background:var(--surface-2);border:1px solid var(--primary);color:var(--ink);border-radius:var(--r2);padding:6px 12px;font-family:"Barlow Condensed";font-weight:700;letter-spacing:.8px}
 .presets button:hover{background:var(--primary)}
 .presets small{color:var(--ink-3);font-size:var(--t-xs);flex-basis:100%}
+.st-l{width:72px;font-size:var(--t-xs);font-weight:700;letter-spacing:1.2px;color:var(--ink-2)}

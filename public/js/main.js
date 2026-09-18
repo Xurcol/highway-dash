@@ -13,7 +13,7 @@ import { P, save, carById, carColor, carSound, carTune, carAudio, earn, walletHo
 import { runReward } from "./economy.js";
 import { tunedSpec, peakHp, PARTS } from "./tuning.js";
 import { UI } from "./ui.js";
-import { loadModels, makeCar } from "./models.js";
+import { loadModels, makeCar, ensureModel, hasModel, MODELS } from "./models.js";
 
 // ---------------- renderer / scenes ----------------
 const canvas = document.getElementById("c");
@@ -84,7 +84,7 @@ const showCam = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
   show.environmentIntensity = 0.9;
   show.add(new THREE.HemisphereLight(0xdfe8ff, 0x303030, 1.2));
   const key = new THREE.DirectionalLight(0xffffff, 2.5); key.position.set(4, 8, 5); key.castShadow = true;
-  key.shadow.mapSize.set(1024, 1024); Object.assign(key.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5 });
+  key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0004; key.shadow.normalBias = .02; Object.assign(key.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5 });
   show.add(key);
 }
 const showDeco = new THREE.Group();
@@ -116,6 +116,11 @@ function setShowCar(id) {
   showCar.group.traverse((o) => (o.castShadow = true));
   show.add(showCar.group);
   showCarId = id;
+  if (hasModel(id) && !MODELS[id]) ensureModel(id).then((ok) => {
+    if (!ok || showCarId !== id || showOffKey) return;
+    showCarId = null; setShowCar(id);
+    Object.assign(ui.thumbs, makeThumbs([id])); if (state === "home") ui.renderHome();
+  });
 }
 const previewEl = document.getElementById("preview");
 previewEl.addEventListener("pointerdown", (e) => {
@@ -153,6 +158,7 @@ function makeThumbs(ids = CARS.map((c) => c.id)) {
   const c2 = document.createElement("canvas"); c2.width = w * 2; c2.height = h * 2;
   const g = c2.getContext("2d");
   showDeco.visible = false;
+  if (showCar) showCar.group.visible = false; // the garage car must not appear in every thumbnail
   const saved = lampUniforms.lampCount.value; lampUniforms.lampCount.value = 0;
   for (const def of CARS.filter((c) => ids.includes(c.id))) {
     const car = makeCar(def.id, carColor(def.id));
@@ -173,6 +179,7 @@ function makeThumbs(ids = CARS.map((c) => c.id)) {
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   lampUniforms.lampCount.value = saved;
   showDeco.visible = true;
+  if (showCar) showCar.group.visible = true;
   return out;
 }
 
@@ -266,6 +273,14 @@ function buildPlayerCar() {
   G.dt = makeDrivetrain();
   G.cfgDirty = 1;
   if (G.engine) G.engine.setProfile(carSound(G.def.id));
+  const id = G.def.id;
+  if (hasModel(id) && !MODELS[id]) ensureModel(id).then((ok) => {
+    if (!ok || G.def.id !== id || !G.car || G.car.isModel) return;
+    const old = G.car;
+    G.car = makeCar(id, carColor(id)); G.car.applyStyle?.(carStyle(id));
+    G.car.group.position.copy(old.group.position); G.car.group.rotation.copy(old.group.rotation);
+    scene.remove(old.group); old.dispose(); scene.add(G.car.group);
+  });
 }
 
 function pickSpawn(T, z) {
@@ -533,7 +548,8 @@ function syncRemote(id, peer) {
   if (newest?.c && !newest._cfg) { newest._cfg = 1; peer.cfg = newest.c; peer.cfgN = (peer.cfgN || 0) + 1; } // identity/tune block, a couple of times a second
   const last = peer.cfg || {};
   const def = carById(last.car || CARS[0].id);
-  if (!r || r.carId !== def.id) {
+  if (hasModel(def.id) && !MODELS[def.id]) ensureModel(def.id);
+  if (!r || r.carId !== def.id || (!r.car.isModel && MODELS[def.id])) {
     if (r) { scene.remove(r.car.group); r.car.dispose(); }
     const car = makeCar(def.id, last.col ?? def.color);
     if (last.st) car.applyStyle?.(last.st);
@@ -816,12 +832,13 @@ function updateDrive(dt, T) {
   const mu = (d.s.grip || 1) * d.surface * (.92 + hMul * .08) * (1 - Math.min(.15, (d.s.mass - 1500) / 8000));
   const longUse = Math.min(.9, Math.abs(d.accel) / (9.81 * mu));
   const latAvail = 9.81 * mu * Math.sqrt(Math.max(.05, 1 - longUse * longUse)) * 1.05;
-  const latDemand = Math.abs(G.steer) * v * v / Math.max(18, 26 + v * .9);
-  let over = Math.max(0, latDemand / latAvail - 1);
+  const drift = !!P.settings.drift;
+  const latDemand = Math.abs(G.steer) * v * v / (drift ? Math.max(18, 26 + v * .9) : Math.max(40, 70 + v * 2.4));
+  let over = Math.max(0, latDemand / latAvail - (drift ? 1 : 1.15));
   // power oversteer: spinning rear tyres lose side grip. AWD shares it, FWD pushes wide instead.
   const spin = d.wheelspin || 0;
-  if (d.drive === "rwd") over += spin * Math.abs(G.steer) * 1.6;
-  else if (d.drive === "awd") over += spin * Math.abs(G.steer) * .6;
+  if (d.drive === "rwd") over += spin * Math.abs(G.steer) * (drift ? 1.6 : .35);
+  else if (d.drive === "awd") over += spin * Math.abs(G.steer) * (drift ? .6 : .1);
   G.slide = (G.slide || 0) + (Math.min(1.2, over) - (G.slide || 0)) * Math.min(1, dt * (over > G.slide ? 4 : 1.6));
   const grip = 1 - Math.min(.75, G.slide * (d.drive === "fwd" ? .9 : .7));
   G.vx += (G.steer * maxLat * grip - G.vx) * Math.min(1, dt * (3.5 + def.handling * .05) * hMul * grip);
@@ -1188,6 +1205,7 @@ setInterval(() => {
 let showOffKey = null;
 function showOffCar(b) {
   if (!b || !CARS.some((c) => c.id === b.car)) return false;
+  if (hasModel(b.car) && !MODELS[b.car]) ensureModel(b.car).then((ok) => { if (ok && showOffKey === JSON.stringify(b)) showOffCar(b); });
   if (showCar) { show.remove(showCar.group); showCar.dispose(); }
   showCar = makeCar(b.car, b.col ?? carById(b.car).color);
   if (b.st) showCar.applyStyle?.(b.st);
@@ -1282,6 +1300,7 @@ net.addEventListener("event", (e) => {
 
 applySettings();
 await loadModels();
+await ensureModel(P.equipped);
 // 3D model credits (CC-BY requires them to be shown)
 fetch("/models/models.json", { cache: "no-cache" }).then((r) => r.json()).then((mj) => { const el = document.getElementById("credits"); if (el) el.textContent = Object.values(mj.credits || {}).join(" · ") || "—"; }).catch(() => {});
 sky.update(0.016, camera, new THREE.Vector3(), 0);
