@@ -157,7 +157,7 @@ export function bodyMaterial(color) {
 }
 export const MATS = {
   trim: patchLit(new THREE.MeshStandardMaterial({ vertexColors: true, metalness: .35, roughness: .5 })),
-  glass: patchLit(new THREE.MeshPhysicalMaterial({ color: 0x0a1018, metalness: .2, roughness: .03, clearcoat: 1, clearcoatRoughness: .02, envMapIntensity: 1.6 })),
+  glass: patchLit(new THREE.MeshPhysicalMaterial({ color: 0x080b10, metalness: .35, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, envMapIntensity: 2.2, reflectivity: 1 })),
   lights: new THREE.MeshBasicMaterial({ vertexColors: true, toneMapped: false }),
 };
 
@@ -617,6 +617,18 @@ export function makeTrafficCar(bodyKey, color) {
 }
 
 // Player / remote car: separate animated wheels and controllable lights.
+// Paint finishes: each is a set of physical material parameters, not a texture.
+export const FINISHES = {
+  gloss: { label: "Gloss", metalness: .55, roughness: .3, clearcoat: 1, clearcoatRoughness: .04, sheen: 0 },
+  metallic: { label: "Metallic", metalness: .9, roughness: .24, clearcoat: 1, clearcoatRoughness: .03, sheen: .2 },
+  pearl: { label: "Pearl", metalness: .45, roughness: .18, clearcoat: 1, clearcoatRoughness: .02, sheen: 1 },
+  satin: { label: "Satin", metalness: .45, roughness: .5, clearcoat: .35, clearcoatRoughness: .35, sheen: .1 },
+  matte: { label: "Matte", metalness: .15, roughness: .82, clearcoat: 0, clearcoatRoughness: 1, sheen: 0 },
+  chrome: { label: "Chrome wrap", metalness: 1, roughness: .06, clearcoat: 1, clearcoatRoughness: 0, sheen: 0 },
+};
+export const TINTS = { none: { label: "Clear", c: 0x3a4a58, o: .55 }, light: { label: "Light", c: 0x1a2430, o: .8 }, dark: { label: "Dark", c: 0x080b10, o: .92 }, limo: { label: "Limo", c: 0x020203, o: 1 } };
+export const STANCES = { stock: { label: "Stock", drop: 0 }, lowered: { label: "Lowered", drop: .045 }, slammed: { label: "Slammed", drop: .09 } };
+
 export class DetailedCar {
   constructor(bodyKey, color) {
     const B = BODIES[bodyKey], g = geos(bodyKey, true);
@@ -624,10 +636,23 @@ export class DetailedCar {
     this.group = new THREE.Group();
     this.bodyGroup = new THREE.Group();
     this.group.add(this.bodyGroup);
-    this.bodyMat = patchLit(new THREE.MeshPhysicalMaterial({ color, metalness: .6, roughness: .32, clearcoat: 1, clearcoatRoughness: .05 }));
+    this.bodyMat = patchLit(new THREE.MeshPhysicalMaterial({ color, metalness: .55, roughness: .3, clearcoat: 1, clearcoatRoughness: .04, envMapIntensity: 1.4, sheenColor: new THREE.Color(0xffffff), sheenRoughness: .35 }));
+    this.glassMat = MATS.glass.clone();
     this.group.add(contactShadow(B.L, B.W));
     const add = (geo, mat, shadow = true) => { const m = new THREE.Mesh(geo, mat); m.castShadow = shadow; this.bodyGroup.add(m); return m; };
-    add(g.body, this.bodyMat); add(g.trim, MATS.trim); add(g.glass, MATS.glass, false);
+    add(g.body, this.bodyMat); add(g.trim, MATS.trim); add(g.glass, this.glassMat, false);
+    // each car gets its own wheel geometry so rim and caliper colours can be changed per car
+    this.wheelGeo = g.wheel.clone();
+    this.wheelBase = this.wheelGeo.attributes.color.array.slice();
+    this.rimOrig = new THREE.Color(B.rim?.color ?? 0xc9ced6);
+    this.calOrig = new THREE.Color(B.rim?.caliper ?? 0xd41f1f);
+    // underglow: an additive light pool under the car, off until fitted
+    const ug = document.createElement("canvas"); ug.width = ug.height = 64;
+    const gg = ug.getContext("2d"), rg = gg.createRadialGradient(32, 32, 4, 32, 32, 32);
+    rg.addColorStop(0, "rgba(255,255,255,1)"); rg.addColorStop(1, "rgba(255,255,255,0)"); gg.fillStyle = rg; gg.fillRect(0, 0, 64, 64);
+    this.glow = new THREE.Mesh(new THREE.PlaneGeometry(B.W * 1.9, B.L * 1.25).rotateX(-Math.PI / 2),
+      new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(ug), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, opacity: 0 }));
+    this.glow.position.y = .03; this.glow.visible = false; this.group.add(this.glow);
     this.headMat = new THREE.MeshBasicMaterial({ color: 0xfff6e0, toneMapped: false });
     this.tailMat = new THREE.MeshBasicMaterial({ color: 0x991010, toneMapped: false });
     this.sigLMat = new THREE.MeshBasicMaterial({ color: 0x4a2c08, toneMapped: false });
@@ -636,7 +661,7 @@ export class DetailedCar {
     this.wheels = [];
     const wx = B.W / 2 - .16;
     B.wheels.forEach((x) => [1, -1].forEach((s) => {
-      const w = new THREE.Mesh(g.wheel, MATS.trim); w.castShadow = true;
+      const w = new THREE.Mesh(this.wheelGeo, MATS.trim); w.castShadow = true;
       if (s < 0) w.rotation.y = Math.PI;
       const spinner = new THREE.Group(); spinner.add(w);
       const holder = new THREE.Group(); holder.position.set(s * wx, B.r, -x); holder.add(spinner);
@@ -645,6 +670,25 @@ export class DetailedCar {
     this.spin = 0;
   }
   setColor(c) { this.bodyMat.color.set(c); }
+  // finish, wheel/caliper colour, tint, stance and underglow
+  applyStyle(st = {}) {
+    const f = FINISHES[st.finish] || FINISHES.gloss, m = this.bodyMat;
+    m.metalness = f.metalness; m.roughness = f.roughness; m.clearcoat = f.clearcoat; m.clearcoatRoughness = f.clearcoatRoughness; m.sheen = f.sheen;
+    m.needsUpdate = true;
+    const col = this.wheelGeo.attributes.color, a = col.array, base = this.wheelBase;
+    const rim = st.rim != null ? new THREE.Color(st.rim) : this.rimOrig, cal = st.caliper != null ? new THREE.Color(st.caliper) : this.calOrig;
+    const near = (i, c) => Math.abs(base[i] - c.r) < .01 && Math.abs(base[i + 1] - c.g) < .01 && Math.abs(base[i + 2] - c.b) < .01;
+    for (let i = 0; i < a.length; i += 3) {
+      const src = near(i, this.rimOrig) ? rim : near(i, this.calOrig) ? cal : null;
+      if (src) { a[i] = src.r; a[i + 1] = src.g; a[i + 2] = src.b; } else { a[i] = base[i]; a[i + 1] = base[i + 1]; a[i + 2] = base[i + 2]; }
+    }
+    col.needsUpdate = true;
+    const t = TINTS[st.tint] || TINTS.dark;
+    this.glassMat.color.set(t.c); this.glassMat.opacity = t.o; this.glassMat.transparent = t.o < 1;
+    this.bodyGroup.position.y = -(STANCES[st.stance] || STANCES.stock).drop;
+    this.glow.visible = st.glow != null;
+    if (st.glow != null) { this.glow.material.color.set(st.glow); this.glow.material.opacity = .9; }
+  }
   setLights(brake, left, right, night) {
     this.tailMat.color.setRGB(brake ? 2.2 : .45 + night * .5, brake ? .08 : .03, brake ? .08 : .03);
     const on = [1.8, .9, .08], off = [.18, .1, .02];

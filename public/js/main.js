@@ -8,6 +8,7 @@ import { Drivetrain } from "./vehicle.js";
 import { AudioManager } from "./audio.js";
 import { Glows, uploadLights, lampUniforms } from "./lights.js";
 import { createNet, RemoteView, NET } from "./net.js";
+import { carStyle } from "./profile.js";
 import { P, save, carById, carColor, carSound, carTune, carAudio, earn, walletHooks, MEDALS, addXp, medalCount } from "./profile.js";
 import { runReward } from "./economy.js";
 import { tunedSpec } from "./tuning.js";
@@ -111,6 +112,7 @@ function setShowCar(id) {
   if (showCar) { show.remove(showCar.group); showCar.dispose(); }
   const def = carById(id);
   showCar = makeCar(def.id, carColor(id));
+  showCar.applyStyle?.(carStyle(id));
   showCar.group.traverse((o) => (o.castShadow = true));
   show.add(showCar.group);
   showCarId = id;
@@ -154,6 +156,7 @@ function makeThumbs(ids = CARS.map((c) => c.id)) {
   const saved = lampUniforms.lampCount.value; lampUniforms.lampCount.value = 0;
   for (const def of CARS.filter((c) => ids.includes(c.id))) {
     const car = makeCar(def.id, carColor(def.id));
+    car.applyStyle?.(carStyle(def.id));
     show.add(car.group);
     frameShowCam(def.body, w / h, .35);
     showCam.position.multiplyScalar(.82); showCam.lookAt(0, .7, 0);
@@ -249,6 +252,7 @@ function buildPlayerCar() {
   if (G.car) { scene.remove(G.car.group); G.car.dispose(); }
   G.def = carById(P.equipped);
   G.car = makeCar(G.def.id, carColor(G.def.id));
+  G.car.applyStyle?.(carStyle(G.def.id));
   scene.add(G.car.group);
   G.dt = makeDrivetrain();
   G.cfgDirty = 1;
@@ -499,6 +503,7 @@ function syncRemote(id, peer) {
   if (!r || r.carId !== def.id) {
     if (r) { scene.remove(r.car.group); r.car.dispose(); }
     const car = makeCar(def.id, last.col ?? def.color);
+    if (last.st) car.applyStyle?.(last.st);
     const color = PLAYER_COLORS[[...id].reduce((a, ch) => a + ch.charCodeAt(0), 0) % PLAYER_COLORS.length];
     const B = BODIES[def.body];
     const tag = nameTag(peer.name, color);
@@ -999,7 +1004,7 @@ function frame(now) {
       if ((G.cfgTick = (G.cfgTick || 0) - 1) <= 0 || G.cfgDirty) {
         G.cfgTick = 10; G.cfgDirty = 0;
         const tq = Math.round(T * 2) / 2; // a time both clients can hash at
-        s.c = { car: G.def.id, col: carColor(G.def.id), md: P.settings.driveMode === "sport" ? 0 : 1, a: carAudio(G.def.id), tq, th: traffic.worldHash(tq) };
+        s.c = { car: G.def.id, col: carColor(G.def.id), st: carStyle(G.def.id), md: P.settings.driveMode === "sport" ? 0 : 1, a: carAudio(G.def.id), tq, th: traffic.worldHash(tq) };
       }
       net.send({ t: "state", s });
     }
@@ -1056,6 +1061,13 @@ const ui = new UI({
   net, audio, sky,
   thumbs: {},
   selectCar: setShowCar,
+  styleCar: (id) => {
+    if (showCarId === id) showCar.applyStyle?.(carStyle(id));
+    if (G.car && G.def.id === id) G.car.applyStyle?.(carStyle(id));
+    G.cfgDirty = 1;
+    clearTimeout(paintTimer);
+    paintTimer = setTimeout(() => { Object.assign(ui.thumbs, makeThumbs([id])); if (state === "home") ui.renderHome(); }, 250);
+  },
   paintCar: (id, hex) => {
     P.colors[id] = hex; save();
     if (showCarId === id) showCar.setColor(hex);

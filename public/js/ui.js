@@ -1,7 +1,9 @@
 // DOM side: garage, HUD helpers, game-over popup, leaderboards, online + settings panels.
 import { CARS, RARITY_COLORS, specOf, carStats } from "./cars.js";
 import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAINTS, MEDALS, HEART_PACKS, xpForLevel, medalCount,
-  ownsPart, ownsEcu, buyPart, buyEcu, payTuneSession, payPaint, spend, earn, priceOfCar, walletHooks } from "./profile.js";
+  ownsPart, ownsEcu, buyPart, buyEcu, payTuneSession, payPaint, spend, earn, priceOfCar, walletHooks, carStyle, buyStyle } from "./profile.js";
+import { FINISHES, TINTS, STANCES } from "./cars.js";
+import { stylePrice } from "./economy.js";
 import { SOUND_LABELS } from "./engine-dsp.js";
 import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, summary, defaultTune, maxBoostFor, peakHp } from "./tuning.js";
 import { partPrice, TUNING_PRICES, COSMETIC_PRICES, fmtCoins, CAR_PRICES } from "./economy.js";
@@ -205,6 +207,7 @@ export class UI {
     $("swatches").innerHTML = [car.color, ...PAINTS.filter((c) => c !== car.color)].slice(0, 12).map((c) => `<button data-c="${c}" class="${c === col ? "on" : ""}" style="background:#${c.toString(16).padStart(6, "0")}" title="${c === car.color ? "Factory" : ""}"></button>`).join("");
     [...$("swatches").children].forEach((b) => (b.onclick = () => this.paint(+b.dataset.c)));
     $("paintPick").value = "#" + col.toString(16).padStart(6, "0");
+    this.renderStyle(car);
     $("ciEngine").textContent = engineOf(car).label; // the engine belongs to the car - no swapping
     $("ciTop").textContent = `Top speed ${Math.round(st.top * MPH)} mph · ${spec.torque} Nm`;
     const a = $("ciAction");
@@ -235,6 +238,37 @@ export class UI {
     pb.hidden = !this.net.room;
     if (this.net.room) pb.textContent = `🟢 Party ${this.net.room.code} · ${this.net.room.players.length} driver${this.net.room.players.length > 1 ? "s" : ""}`;
     $("playBtn").textContent = this.onlineSelected ? (this.net.room ? "PLAY ONLINE" : "FIND PARTY") : "PLAY";
+  }
+
+  // ---------- styling ----------
+  renderStyle(car) {
+    const st = carStyle(car.id), box = $("styleBox");
+    const own = P.owned.includes(car.id);
+    const COLORS = [0x16181c, 0xe8e8ea, 0x9aa0a8, 0xc9a24a, 0xd41f1f, 0x1f5fd6, 0x22b573, 0xff6a1a, 0xb84cff];
+    const hex = (c) => "#" + c.toString(16).padStart(6, "0");
+    const rows = [
+      ["finish", "Finish", Object.entries(FINISHES).map(([k, v]) => ({ v: k, label: v.label }))],
+      ["rim", "Wheels", [{ v: null, label: "Stock" }, ...COLORS.map((c) => ({ v: c, sw: hex(c) }))]],
+      ["caliper", "Calipers", [{ v: null, label: "Stock" }, ...[0xd41f1f, 0xf2c230, 0x1f5fd6, 0x22b573, 0xff6a1a, 0x16181c].map((c) => ({ v: c, sw: hex(c) }))]],
+      ["tint", "Window tint", Object.entries(TINTS).map(([k, v]) => ({ v: k, label: v.label }))],
+      ["stance", "Stance", Object.entries(STANCES).map(([k, v]) => ({ v: k, label: v.label }))],
+      ["glow", "Underglow", [{ v: null, label: "Off" }, ...[0x3dd6ff, 0xff2d95, 0x7cff5a, 0xb27dff, 0xffd12a, 0xff4a55].map((c) => ({ v: c, sw: hex(c) }))]],
+    ];
+    box.innerHTML = rows.map(([key, label, opts]) => `<div class="style-row"><span>${label}</span><div class="style-opts">${opts.map((o, i) => {
+      const on = st[key] === o.v, p = stylePrice(key, o.v);
+      const tip = `${o.label || ""}${p ? " — " + fmtCoins(p) + " coins" : ""}`;
+      return o.sw ? `<button class="sw ${on ? "on" : ""}" data-k="${key}" data-i="${i}" title="${tip}" style="background:${o.sw}"></button>`
+        : `<button class="${on ? "on" : ""}" data-k="${key}" data-i="${i}" title="${tip}">${o.label}</button>`;
+    }).join("")}</div></div>`).join("") + (own ? "" : `<div class="muted small">Buy this car to style it.</div>`);
+    box.querySelectorAll("button").forEach((b) => b.onclick = () => {
+      if (!own) return this.toast("Buy this car first");
+      const [, , opts] = rows.find((r) => r[0] === b.dataset.k);
+      const o = opts[+b.dataset.i], r = buyStyle(car.id, b.dataset.k, o.v);
+      if (!r.ok) return this.notEnough(r.short);
+      if (r.price) { this.ctx.audio.coin(); this.toast(`Styled — ${fmtCoins(r.price)} coins`); walletHooks.buy?.("style", b.dataset.k); }
+      this.ctx.styleCar(car.id);
+      this.renderTop(); this.renderStyle(car);
+    });
   }
 
   // ---------- game over ----------
@@ -547,6 +581,17 @@ export class UI {
     if (!hasEcu) $("ecuBuy").onclick = () => this.buyEcuUI();
 
     const rows = (host, list, tune, disabled) => {
+      // while a slider is being dragged, rebuilding the rows would drop the drag - just refresh the readouts
+      const active = document.activeElement;
+      if (active?.type === "range" && $(host).contains(active) && $(host).children.length) {
+        let i = 0;
+        for (const c of list) {
+          if (c.boosted && !boosted) continue;
+          const row = $(host).children[i++];
+          if (row) row.querySelector("b").textContent = c.fmt(+tune[c.key]);
+        }
+        return;
+      }
       $(host).innerHTML = "";
       for (const c of list) {
         if (c.boosted && !boosted) continue;

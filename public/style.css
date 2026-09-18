@@ -448,3 +448,13 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
   #score{font-size:var(--t-2xl)}#speed{font-size:var(--t-xl)}
   .music-widget{width:calc(100% - 32px)}.chatlog,.chatinput{width:calc(100% - 32px)}
 }
+
+/* ---------- styling picker ---------- */
+.style-box{display:flex;flex-direction:column;gap:var(--s2)}
+.style-row{display:grid;grid-template-columns:78px 1fr;align-items:center;gap:var(--s2)}
+.style-row>span{font-size:var(--t-xs);color:var(--ink-3)}
+.style-opts{display:flex;flex-wrap:wrap;gap:4px}
+.style-opts button{background:var(--surface-2);border:1px solid var(--line);color:var(--ink-2);border-radius:var(--r1);padding:4px 7px;font-size:var(--t-xs);font-weight:600}
+.style-opts button.on{background:var(--accent);color:var(--accent-ink);border-color:transparent}
+.style-opts button.sw{width:20px;height:20px;padding:0;border-radius:50%;border:1px solid rgba(255,255,255,.2)}
+.style-opts button.sw.on{box-shadow:0 0 0 2px var(--accent)}

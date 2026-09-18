@@ -3,7 +3,7 @@
 import { store } from "./net.js";
 import { CARS, specOf } from "./cars.js";
 import { normalizeTune, defaultTune, audioConfig, PARTS } from "./tuning.js";
-import { carPrice, partPrice, TUNING_PRICES, COSMETIC_PRICES } from "./economy.js";
+import { carPrice, partPrice, TUNING_PRICES, COSMETIC_PRICES, stylePrice } from "./economy.js";
 
 export const MEDALS = [
   { at: 500, name: "Bronze", icon: "🥉", color: "#c47a3a" },
@@ -21,7 +21,7 @@ export const HEART_PACKS = [
 export const xpForLevel = (lvl) => 200 + (lvl - 1) * 60;
 
 const DEFAULTS = {
-  name: "", colors: {}, tunes: {}, parts: {}, ecu: {}, painted: {}, coins: 500, hearts: 3, owned: ["b330i", "a4", "c300"], equipped: "b330i", best: 0, level: 1, xp: 0, medals: 0, sv: 0,
+  name: "", colors: {}, styles: {}, tunes: {}, parts: {}, ecu: {}, painted: {}, coins: 500, hearts: 3, owned: ["b330i", "a4", "c300"], equipped: "b330i", best: 0, level: 1, xp: 0, medals: 0, sv: 0,
   settings: { hour: 18.6, flow: false, sky: "Aurora", weather: "Clear", traffic: "Heavy", volMaster: .8, volEngine: .9, volFx: .9, volWind: .35, driveMode: "sport", manual: false, shadows: true, res: 1, hideNames: false },
 };
 
@@ -134,6 +134,17 @@ export function payPaint(carId) {
   return { ok: true, price: COSMETIC_PRICES.paint };
 }
 
+export const carStyle = (id) => ({ finish: "gloss", tint: "dark", stance: "stock", rim: null, caliper: null, glow: null, ...(P.styles?.[id] || {}) });
+// Changing a style option costs its listed price (going back to stock is free).
+export function buyStyle(id, key, val) {
+  const cur = carStyle(id)[key];
+  if (cur === val) return { ok: true, already: true };
+  const r = spend(stylePrice(key, val));
+  if (!r.ok) return r;
+  (P.styles ||= {})[id] = { ...carStyle(id), [key]: val };
+  save();
+  return { ok: true, price: stylePrice(key, val) };
+}
 export function medalCount(best) { return MEDALS.filter((m) => best >= m.at).length; }
 export function addXp(amount) {
   P.xp += amount;
