@@ -117,7 +117,7 @@ export class RelayNet extends EventTarget {
   pruneSeen() { const cut = Date.now() - 120000; for (const [k, t] of this.seen) if (t < cut) this.seen.delete(k); }
 
   presence(offline = false) {
-    return { name: this.me.name, best: this.me.best || 0, level: this.me.level || 1, car: this.car, room: offline ? null : this.room?.code || null, joinT: this.joinT, offline, t: Date.now() };
+    return { name: this.me.name, best: this.me.best || 0, level: this.me.level || 1, car: this.car, build: this.build || null, room: offline ? null : this.room?.code || null, joinT: this.joinT, offline, t: Date.now() };
   }
   publishPresence() { if (this.connected) this.pub(`presence/${this.me.code}`, this.presence(false), true); }
 
@@ -237,7 +237,7 @@ export class RelayNet extends EventTarget {
       const players = [...this.players.entries()]
         .filter(([code, p]) => (p.room === this.room.code && live(p)) || code === this.me.code)
         .sort((a, b) => (a[1].joinT || 0) - (b[1].joinT || 0))
-        .map(([id, p]) => ({ id, name: id === this.me.code ? this.me.name : p.name, car: id === this.me.code ? this.car : p.car }));
+        .map(([id, p]) => ({ id, name: id === this.me.code ? this.me.name : p.name, car: id === this.me.code ? this.car : p.car, build: id === this.me.code ? this.build : p.build || null }));
       for (const id of this.peers.keys()) if (!players.some((p) => p.id === id)) { this.emit("peerLeft", id); this.peers.delete(id); }
       for (const p of players) { const peer = this.peers.get(p.id); if (peer) { peer.name = p.name; peer.car = p.car || peer.car; } }
       const now = this.now();
@@ -272,6 +272,7 @@ export class RelayNet extends EventTarget {
     switch (m.t) {
       case "setName": this.me.name = cleanName(m.name); cookie.set("hd_name", this.me.name); this.publishPresence(); this.emit("status"); if (this.room) this.roomSoon(); break;
       case "setCar": this.car = m.car; this.publishPresence(); break;
+      case "setBuild": this.build = m.build; this.publishPresence(); if (this.room) this.roomSoon(); break;
       case "friendAdd": {
         const code = String(m.code || "").toUpperCase().trim();
         if (code === c) return this.emit("error", { msg: "That's your own code. Your friend needs to open the game on their own device or browser." });

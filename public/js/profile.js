@@ -3,7 +3,7 @@
 import { store } from "./net.js";
 import { CARS, specOf } from "./cars.js";
 import { normalizeTune, defaultTune, audioConfig, PARTS } from "./tuning.js";
-import { carPrice, partPrice, TUNING_PRICES, COSMETIC_PRICES, stylePrice } from "./economy.js";
+import { carPrice, partPrice, TUNING_PRICES, COSMETIC_PRICES, stylePrice, FITMENT_KEYS } from "./economy.js";
 
 export const MEDALS = [
   { at: 500, name: "Bronze", icon: "🥉", color: "#c47a3a" },
@@ -134,12 +134,13 @@ export function payPaint(carId) {
   return { ok: true, price: COSMETIC_PRICES.paint };
 }
 
-export const carStyle = (id) => ({ finish: "gloss", tint: "dark", stance: "stock", rim: null, caliper: null, glow: null, ...(P.styles?.[id] || {}) });
+export const carStyle = (id) => ({ finish: "gloss", tint: "dark", stance: "stock", rim: null, caliper: null, glow: null, drl: null, drop: null, offset: 0, camber: 0, wsize: 1, ...(P.styles?.[id] || {}) });
 // A style option is paid for once per car; after that it can be switched back to for free.
 // Whatever a car is already wearing counts as paid for.
 export function ownsStyle(id, key, val) {
   if (stylePrice(key, val) === 0) return true;
   if (carStyle(id)[key] === val) return true;
+  if (FITMENT_KEYS.includes(key)) return !!P.styleOwned?.[id]?.[key + ":*"]; // a fitment kit covers every setting
   return !!P.styleOwned?.[id]?.[key + ":" + val];
 }
 // What saving these changes would cost: only options that are new AND not already paid for.
@@ -154,7 +155,7 @@ export function saveStyle(id, draft) {
   const r = spend(cost);
   if (!r.ok) return r;
   const owned = ((P.styleOwned ||= {})[id] ||= {});
-  for (const [key, val] of Object.entries(draft)) if (stylePrice(key, val) > 0) owned[key + ":" + val] = true;
+  for (const [key, val] of Object.entries(draft)) if (stylePrice(key, val) > 0) owned[key + (FITMENT_KEYS.includes(key) ? ":*" : ":" + val)] = true;
   (P.styles ||= {})[id] = { ...carStyle(id), ...draft };
   save();
   return { ok: true, price: cost };

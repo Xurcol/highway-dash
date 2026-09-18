@@ -93,7 +93,7 @@ const notifyFriends = (u) => u.friends.forEach((f) => db.users[f] && pushSocial(
 
 function roomInfo(r) {
   return { t: "room", code: r.code, seed: r.seed, epoch: r.epoch, round: r.round, roundState: r.roundState, public: r.public, traffic: r.traffic,
-    players: [...r.members].map((id) => ({ id, name: db.users[id].name, car: online.get(id)?.car || "" })) };
+    players: [...r.members].map((id) => ({ id, name: db.users[id].name, car: online.get(id)?.car || "", build: online.get(id)?.build || null })) };
 }
 function leaveRoom(ws) {
   const r = rooms.get(ws.room);
@@ -183,6 +183,13 @@ wss.on("connection", (ws) => {
 
     switch (m.t) {
       case "setName": u.name = cleanName(m.name); save(); send(ws, { t: "name", name: u.name }); notifyFriends(u); break;
+      case "setBuild": {
+        const raw = JSON.stringify(m.build || null);
+        if (raw.length > 2000) return;
+        ws.build = JSON.parse(raw);
+        if (ws.room) rooms.get(ws.room).members.forEach((id) => toUser(id, roomInfo(rooms.get(ws.room))));
+        break;
+      }
       case "setCar": ws.car = cleanCar(m.car); if (ws.room) rooms.get(ws.room).members.forEach((id) => toUser(id, roomInfo(rooms.get(ws.room)))); break;
       case "friendAdd": {
         const other = byCode.get(String(m.code || "").toUpperCase().trim());

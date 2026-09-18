@@ -11,7 +11,7 @@ import { createNet, RemoteView, NET } from "./net.js";
 import { carStyle } from "./profile.js";
 import { P, save, carById, carColor, carSound, carTune, carAudio, earn, walletHooks, MEDALS, addXp, medalCount } from "./profile.js";
 import { runReward } from "./economy.js";
-import { tunedSpec } from "./tuning.js";
+import { tunedSpec, peakHp, PARTS } from "./tuning.js";
 import { UI } from "./ui.js";
 import { loadModels, makeCar } from "./models.js";
 
@@ -519,6 +519,7 @@ function syncRemote(id, peer) {
   }
   if (last.col !== undefined && last.col !== r.col) { r.col = last.col; r.car.setColor(last.col); }
   if (last.a) { r.cfgA = last.a; if (r.voice && r.aN !== peer.cfgN) { r.aN = peer.cfgN; r.voice.tune(last.a, last.md ? "comfort" : "sport"); } }
+  if (last.st && r.stN !== peer.cfgN) { r.stN = peer.cfgN; r.car.applyStyle?.(last.st); }
   if (last.th !== undefined && r.thN !== peer.cfgN) { r.thN = peer.cfgN; checkTrafficSync(last.tq, last.th); }
   return r;
 }
@@ -1028,6 +1029,30 @@ function applySettings() {
 }
 setInterval(() => { if (sky.flow) { P.settings.hour = sky.hour; save(); ui.syncTime?.(sky.hour); } }, 2000);
 
+// ---------------- show off: my build goes to the party, theirs can be viewed in the garage ----------------
+function myBuild() {
+  const id = P.equipped, t = carTune(id), car = carById(id);
+  const parts = Object.entries(PARTS).filter(([k]) => t[k] && t[k] !== "stock").map(([k, d]) => d.opts[t[k]].label);
+  return { car: id, col: carColor(id), st: carStyle(id), hp: peakHp(car, t), parts: parts.slice(0, 12) };
+}
+let lastBuild = "";
+setInterval(() => {
+  const b = myBuild(), key = JSON.stringify(b);
+  if (key !== lastBuild && net.me) { lastBuild = key; net.send({ t: "setBuild", build: b }); }
+}, 2000);
+let showOffKey = null;
+function showOffCar(b) {
+  if (!b || !CARS.some((c) => c.id === b.car)) return false;
+  if (showCar) { show.remove(showCar.group); showCar.dispose(); }
+  showCar = makeCar(b.car, b.col ?? carById(b.car).color);
+  if (b.st) showCar.applyStyle?.(b.st);
+  showCar.group.traverse((o) => (o.castShadow = true));
+  show.add(showCar.group);
+  showCarId = b.car; showOffKey = JSON.stringify(b);
+  return true;
+}
+function endShowOff() { if (!showOffKey) return; showOffKey = null; const id = showCarId; showCarId = null; setShowCar(ui.view || P.equipped); }
+
 // ---------------- garage engine preview ----------------
 let paintTimer = 0, revVoice = null;
 // rev only while the button is held: climbs to the limiter, lift-off burbles/flutter on release
@@ -1060,7 +1085,8 @@ function revPreview(sound, carId) { revHold(sound, carId, true); setTimeout(() =
 const ui = new UI({
   net, audio, sky,
   thumbs: {},
-  selectCar: setShowCar,
+  selectCar: (id) => { if (!showOffKey) setShowCar(id); },
+  showOff: showOffCar, endShowOff,
   // preview: shown on the garage car only, nothing saved or charged
   previewStyle: (id, style) => { if (showCarId === id) showCar.applyStyle?.(style); },
   styleCar: (id) => {

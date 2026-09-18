@@ -627,6 +627,13 @@ export const FINISHES = {
   chrome: { label: "Chrome wrap", metalness: 1, roughness: .06, clearcoat: 1, clearcoatRoughness: 0, sheen: 0 },
 };
 export const TINTS = { none: { label: "Clear", c: 0x3a4a58, o: .55 }, light: { label: "Light", c: 0x1a2430, o: .8 }, dark: { label: "Dark", c: 0x080b10, o: .92 }, limo: { label: "Limo", c: 0x020203, o: 1 } };
+// Fitment sliders: [min, max, step, default, unit-formatter]
+export const FITMENT = {
+  drop: { label: "Ride height", min: 0, max: .12, step: .005, def: 0, fmt: (v) => (v ? "-" + Math.round(v * 100) + " cm" : "Stock") },
+  offset: { label: "Wheel poke", min: 0, max: .1, step: .005, def: 0, fmt: (v) => (v ? "+" + Math.round(v * 100) + " cm" : "Stock") },
+  camber: { label: "Camber", min: 0, max: 10, step: .5, def: 0, fmt: (v) => (v ? "-" + v.toFixed(1) + "°" : "Stock") },
+  wsize: { label: "Wheel size", min: 1, max: 1.16, step: .01, def: 1, fmt: (v) => (v > 1.001 ? "+" + Math.round((v - 1) * 100) + "%" : "Stock") },
+};
 export const STANCES = { stock: { label: "Stock", drop: 0 }, lowered: { label: "Lowered", drop: .045 }, slammed: { label: "Slammed", drop: .09 } };
 
 export class DetailedCar {
@@ -665,7 +672,7 @@ export class DetailedCar {
       if (s < 0) w.rotation.y = Math.PI;
       const spinner = new THREE.Group(); spinner.add(w);
       const holder = new THREE.Group(); holder.position.set(s * wx, B.r, -x); holder.add(spinner);
-      this.group.add(holder); this.wheels.push({ w: spinner, front: x > 0 });
+      this.group.add(holder); this.wheels.push({ w: spinner, front: x > 0, holder, side: s, baseX: s * wx });
     }));
     this.spin = 0;
   }
@@ -685,7 +692,17 @@ export class DetailedCar {
     col.needsUpdate = true;
     const t = TINTS[st.tint] || TINTS.dark;
     this.glassMat.color.set(t.c); this.glassMat.opacity = t.o; this.glassMat.transparent = t.o < 1;
-    this.bodyGroup.position.y = -(STANCES[st.stance] || STANCES.stock).drop;
+    // fitment: ride height sinks the body over the wheels; poke, camber and size move the wheels
+    const drop = st.drop != null ? st.drop : (STANCES[st.stance] || STANCES.stock).drop;
+    this.bodyGroup.position.y = -drop;
+    const off = st.offset || 0, cam = (st.camber || 0) * Math.PI / 180, ws = st.wsize || 1;
+    for (const wh of this.wheels) {
+      wh.holder.position.x = wh.baseX + wh.side * off;
+      wh.holder.position.y = this.B.r * ws;
+      wh.holder.rotation.z = wh.side * cam;       // top of the wheel leans in: negative camber
+      wh.w.scale.setScalar(ws);
+    }
+    this.drl = st.drl != null ? new THREE.Color(st.drl) : null;
     this.glow.visible = st.glow != null;
     if (st.glow != null) { this.glow.material.color.set(st.glow); this.glow.material.opacity = .9; }
   }
@@ -694,7 +711,8 @@ export class DetailedCar {
     const on = [1.8, .9, .08], off = [.18, .1, .02];
     this.sigLMat.color.setRGB(...(left ? on : off));
     this.sigRMat.color.setRGB(...(right ? on : off));
-    this.headMat.color.setScalar(.9 + night * 1.6);
+    if (this.drl) this.headMat.color.copy(this.drl).multiplyScalar(1.5 + night * 1.2);
+    else this.headMat.color.setScalar(.9 + night * 1.6);
   }
   update(dist, steer) {
     this.spin -= dist / this.B.r;

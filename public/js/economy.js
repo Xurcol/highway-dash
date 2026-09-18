@@ -44,8 +44,15 @@ export const PART_PRICES = {
 export const TUNING_PRICES = { ecu: 1500, session: 250 };
 export const COSMETIC_PRICES = { paint: 500 };
 // Styling: the price of switching to a non-stock option in each category.
-export const STYLE_PRICES = { finish: { gloss: 0, metallic: 800, pearl: 1500, satin: 1200, matte: 1800, chrome: 6000 }, rim: 600, caliper: 400, tint: 350, stance: 1500, glow: 2500 };
-export const stylePrice = (key, val) => (val == null || val === "stock" || val === "gloss" || val === "none" ? 0 : typeof STYLE_PRICES[key] === "object" ? STYLE_PRICES[key][val] ?? 0 : STYLE_PRICES[key] ?? 0);
+export const STYLE_PRICES = { finish: { gloss: 0, metallic: 800, pearl: 1500, satin: 1200, matte: 1800, chrome: 6000 }, rim: 600, caliper: 400, tint: 350, stance: 1500, glow: 2500, drl: 700,
+  // fitment: bought once per car, then the slider is free to move
+  drop: 1500, offset: 1200, camber: 900, wsize: 2000 };
+export const FITMENT_KEYS = ["drop", "offset", "camber", "wsize"];
+const FITMENT_DEF = { drop: 0, offset: 0, camber: 0, wsize: 1 };
+export const stylePrice = (key, val) => {
+  if (FITMENT_KEYS.includes(key)) return Math.abs((val ?? FITMENT_DEF[key]) - FITMENT_DEF[key]) < 1e-6 ? 0 : STYLE_PRICES[key];
+  return val == null || val === "stock" || val === "gloss" || val === "none" ? 0 : typeof STYLE_PRICES[key] === "object" ? STYLE_PRICES[key][val] ?? 0 : STYLE_PRICES[key] ?? 0;
+};
 
 export const partPrice = (kind, option) => PART_PRICES[kind]?.[option] ?? 0;
 
