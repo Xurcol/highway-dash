@@ -25,6 +25,9 @@ export const ENGINES = {
   vr38:    { label: "Nissan VR38 3.8TT V6", disp: 3.8, cyl: 6, induction: "turbo", turbos: 2, stockBoost: 15, spool: 1900, peak: 5200, taper: 6500, maxRev: 7400, comp: 9.0, tqPeak: 3600, burbleRpm: 3200 },
   amg:     { label: "AMG M177 4.0TT V8", disp: 4.0, cyl: 8, induction: "turbo", turbos: 2, stockBoost: 19, spool: 1700, peak: 5000, taper: 6200, maxRev: 7300, comp: 10.5, tqPeak: 3500, burbleRpm: 2500 },
   i5:      { label: "Audi DAZA 2.5T I5", disp: 2.5, cyl: 5, induction: "turbo", turbos: 1, stockBoost: 20, spool: 1550, peak: 5400, taper: 6600, maxRev: 7500, comp: 10.0, tqPeak: 3800, burbleRpm: 3000 },
+  b46:     { label: "BMW B46 2.0T I4", disp: 2.0, cyl: 4, induction: "turbo", turbos: 1, stockBoost: 18, spool: 1400, peak: 4400, taper: 6000, maxRev: 7000, comp: 10.2, tqPeak: 3200, burbleRpm: 2800 },
+  ea888:   { label: "Audi EA888 2.0T I4", disp: 2.0, cyl: 4, induction: "turbo", turbos: 1, stockBoost: 19, spool: 1500, peak: 4500, taper: 6100, maxRev: 7000, comp: 9.6, tqPeak: 3200, burbleRpm: 2800 },
+  m264:    { label: "Mercedes M264 2.0T I4", disp: 2.0, cyl: 4, induction: "turbo", turbos: 1, stockBoost: 18, spool: 1500, peak: 4400, taper: 5900, maxRev: 6800, comp: 10.0, tqPeak: 3200, burbleRpm: 2800 },
   i4:      { label: "2.0T I4", disp: 2.0, cyl: 4, induction: "turbo", turbos: 1, stockBoost: 20, spool: 1650, peak: 5100, taper: 6300, maxRev: 7500, comp: 10.2, tqPeak: 3600, burbleRpm: 3000 },
   hellcat: { label: "Supercharged 6.2 HEMI V8", disp: 6.2, cyl: 8, induction: "super", stockBoost: 11.6, spool: 1000, peak: 6000, taper: 6200, maxRev: 6600, comp: 9.5, tqPeak: 4800, burbleRpm: 2600 },
   lt2:     { label: "Chevy LT2 6.2 V8", disp: 6.2, cyl: 8, induction: "na", maxRev: 6800, comp: 11.5, tqPeak: 5000, burbleRpm: 3400 },
@@ -78,6 +81,15 @@ export const PARTS = {
       stock: { label: "Stock", eff: .68 },
       upgraded: { label: "Front-mount", eff: .86 },
       race: { label: "Race FMIC + meth", eff: .96 },
+    },
+  },
+  fuel: {
+    label: "Fuel", opts: {
+      stock: { label: "91 octane", knock: 1, power: 1, eth: 0 },
+      p93: { label: "93 octane", knock: 1.06, power: 1.005, eth: 0 },
+      e30: { label: "E30 blend", knock: 1.13, power: 1.012, eth: .3 },
+      e50: { label: "E50 blend", knock: 1.2, power: 1.022, eth: .5 },
+      e85: { label: "E85", knock: 1.3, power: 1.035, eth: .85 },
     },
   },
   // ---- chassis: these don't touch the torque curve, they change how the car puts it down ----
@@ -145,7 +157,7 @@ export function defaultTune(car) {
     revLimit: s.redline,
     final: s.final,
     gearing: 1,
-    intake: "stock", exhaust: "stock", catalyst: "stock", turbo: "stock", intercooler: "stock",
+    intake: "stock", exhaust: "stock", catalyst: "stock", turbo: "stock", intercooler: "stock", fuel: "stock",
     tires: "stock", brakes: "stock", suspension: "stock", transmission: "stock", weight: "stock",
     burble: .75, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1,
   };
@@ -218,7 +230,7 @@ function knockRef(e) {
 }
 function knockAndTiming(e, tune, rpm, boost) {
   const iat = iatOf(e, tune, boost);
-  const rel = knockRaw(e, tune, boost, iat) / knockRef(e);
+  const rel = knockRaw(e, tune, boost, iat) / knockRef(e) / partOpt("fuel", tune.fuel || "stock").knock;
   const knock = .8 * (1 + (rel - 1) * (e.comp / 10.4));              // compression sets the sensitivity
   const pulled = Math.min(tune.timing + 6, Math.max(0, knock - 1) * 26); // degrees the ECU takes back
   return { iat, knock, pulled, timing: tune.timing - pulled };
@@ -238,7 +250,7 @@ function rawTorque(e, tune, rpm, cal) {
   const dens = 1 - clamp((iat - 25) / 900, 0, .16);                  // hot charge = less mass
   const pr = 1 + boost / ATM;
   const over = Math.max(0, rpm - tune.revLimit) / 400;               // torque dies past the limiter
-  return cal * e.disp * ve(e, rpm, tune.revLimit) * pr * dens * parts * (1 + .016 * timing) * afrFactor(e, tune.afr) * Math.exp(-over * over);
+  return cal * e.disp * ve(e, rpm, tune.revLimit) * pr * dens * parts * (1 + .016 * timing) * afrFactor(e, tune.afr) * partOpt("fuel", tune.fuel || "stock").power * Math.exp(-over * over);
 }
 
 // One constant per car, solved so that the STOCK tune peaks at exactly the car's spec torque.
@@ -288,8 +300,8 @@ export function performance(car, tune) {
   for (let i = 0; i < 4000 && v * 3.6 < (s.vmax || 400); i++) {
     const rpm = clamp(rpmAt(v, g), s.idle, tune.revLimit);
     if (rpm >= tune.revLimit - 20 && g < ratios.length - 1) { g++; t += s.shiftTime; continue; }
-    const F = torqueAt(car, tune, rpm) * wheel(g) * .9 - .5 * 1.2 * s.cda * v * v - .013 * s.mass * 9.81;
-    v = Math.max(0, v + (Math.min(F, s.mass * 9.81 * s.grip) / s.mass) * dt);
+    const F = torqueAt(car, tune, rpm) * wheel(g) * .97 - .5 * 1.2 * s.cda * v * v - .013 * s.mass * 9.81;
+    v = Math.max(0, v + (Math.min(F, s.mass * 9.81 * s.grip * 1.3) / s.mass) * dt);
     t += dt;
     if (t100 === null && v * 3.6 >= 100) t100 = t;
     if (F < 1 && v > 20) break;
@@ -368,7 +380,7 @@ export function summaryCache(car, t) {
 // Which wheels are driven. Anything not listed is rear-wheel drive.
 export const DRIVE_LAYOUT = {
   golfr: "awd", rs3: "awd", rs6: "awd", gtr: "awd", x3m: "awd", x5m: "awd", x6m: "awd", m240i: "awd", m340i: "awd",
-  q50: "rwd", q60: "rwd", e63: "awd", svj: "awd", pebble: "fwd", trailbox: "awd", autobahn6: "rwd",
+  q50: "rwd", q60: "rwd", e63: "awd", svj: "awd", a4: "awd", b330i: "rwd", c300: "rwd",
 };
 // Physics view of a tuned car, handed to the Drivetrain.
 export function tunedSpec(carId, tune) {
@@ -392,6 +404,7 @@ export function tunedSpec(carId, tune) {
     induction: e.induction,
     engineBrakeTune: t.engineBrake,
     drive: DRIVE_LAYOUT[car.id] || "rwd",
+    eth: partOpt("fuel", t.fuel).eth,
     antiLag: isBoosted(e) && e.induction !== "super",
   };
 }

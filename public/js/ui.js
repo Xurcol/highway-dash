@@ -610,7 +610,7 @@ export class UI {
   // what a part actually does, computed from the same model the physics uses
   partEffect(kind, key, car, t, baseHp) {
     const o = PARTS[kind].opts[key];
-    if (o.flow !== undefined || o.maxBoost !== undefined || o.eff !== undefined) {
+    if (o.flow !== undefined || o.maxBoost !== undefined || o.eff !== undefined || o.knock !== undefined) {
       const hp = peakHp(car, { ...t, [kind]: key });
       const d = hp - baseHp;
       return `${baseHp} → ${hp} hp (${d >= 0 ? "+" : ""}${d})`;

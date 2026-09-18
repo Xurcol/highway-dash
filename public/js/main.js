@@ -652,7 +652,10 @@ function updateDrive(dt, T) {
   G.brk += (brkIn - G.brk) * Math.min(1, dt * 12);
   const events = d.update(dt, G.thr, G.brk);
   for (const ev of events) {
-    if (ev === "upshift" || ev === "autoUp") { G.engine?.event(G.thr > .3 ? "upshift" : "limiter", evInfo()); if (ev === "upshift") audio.shiftClunk(true); }
+    if (ev === "upshift" || ev === "autoUp") {
+      G.engine?.event(G.thr > .3 ? "upshift" : "limiter", evInfo()); if (ev === "upshift") audio.shiftClunk(true);
+      if ((d.s.eth || 0) >= .3 && G.thr > .3) { G.flameT = Math.max(G.flameT || 0, .25 + d.s.eth * .45); G.engine?.event("pop", { v: .6 + d.s.eth }); }
+    }
     else if (ev === "downshift" || ev === "autoDown") { G.engine?.event("downshift", evInfo()); if (ev === "downshift") audio.shiftClunk(false); }
     else if (ev === "limiter" || ev === "lift") G.engine?.event(ev, evInfo());
     else if (ev === "deny") audio.deny();

@@ -21,7 +21,7 @@ export const HEART_PACKS = [
 export const xpForLevel = (lvl) => 200 + (lvl - 1) * 60;
 
 const DEFAULTS = {
-  name: "", colors: {}, tunes: {}, parts: {}, ecu: {}, painted: {}, coins: 1500, hearts: 3, owned: ["pebble"], equipped: "pebble", best: 0, level: 1, xp: 0, medals: 0, sv: 0,
+  name: "", colors: {}, tunes: {}, parts: {}, ecu: {}, painted: {}, coins: 500, hearts: 3, owned: ["b330i", "a4", "c300"], equipped: "b330i", best: 0, level: 1, xp: 0, medals: 0, sv: 0,
   settings: { hour: 18.6, flow: false, sky: "Aurora", weather: "Clear", traffic: "Heavy", volMaster: .8, volEngine: .9, volFx: .9, volWind: .35, driveMode: "sport", manual: false, shadows: true, res: 1, hideNames: false },
 };
 
@@ -45,8 +45,10 @@ function loadProfile() {
 
 export const P = loadProfile();
 P.settings = { ...DEFAULTS.settings, ...(P.settings || {}) };
-if (!Array.isArray(P.owned) || !P.owned.length) P.owned = ["pebble"];
-if (!CARS.some((c) => c.id === P.equipped)) P.equipped = "pebble";
+// removed cars drop out of the garage; the free starters are always owned
+if (!Array.isArray(P.owned)) P.owned = [];
+P.owned = [...new Set([...P.owned.filter((id) => CARS.some((c) => c.id === id)), "b330i", "a4", "c300"])];
+if (!CARS.some((c) => c.id === P.equipped)) P.equipped = "b330i";
 if (!P.name) P.name = "Driver" + Math.floor(1000 + Math.random() * 9000);
 delete P.sounds; // engine sounds are locked to the car now
 

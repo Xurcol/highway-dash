@@ -76,6 +76,13 @@ const spec = (o) => ({ idle: 750, grip: 1.02, shiftTime: .09, ...o });
 const bmw8 = (o) => spec({ ratios: ZF8, final: 3.15, redline: 7000, tire: .35, vmax: 250, ...o });
 
 export const CARS = [
+  // ---- starters (free) - real figures ----
+  { id: "b330i", name: "BMW 330i (G20)", rarity: "COMMON", price: 0, body: "b330i", color: 0x9aa4b0, handling: 70, sound: "b46",
+    spec: bmw8({ hp: 255, torque: 400, mass: 1570, final: 2.81, redline: 6500, idle: 700, cda: .6, grip: 1.0, tire: .33, vmax: 209 }) },
+  { id: "a4", name: "Audi A4 45 TFSI quattro", rarity: "COMMON", price: 0, body: "a4", color: 0x1c2a44, handling: 68, sound: "ea888",
+    spec: spec({ hp: 261, torque: 370, mass: 1640, ratios: DSG7, final: 4.27, redline: 6500, idle: 750, cda: .6, grip: 1.02, tire: .33, shiftTime: .08, vmax: 209 }) },
+  { id: "c300", name: "Mercedes-Benz C300", rarity: "COMMON", price: 0, body: "c300", color: 0xf1f1f1, handling: 67, sound: "m264",
+    spec: spec({ hp: 255, torque: 400, mass: 1655, ratios: [5.35, 3.24, 2.25, 1.64, 1.21, 1, .87, .72, .6], final: 2.65, redline: 6300, idle: 700, cda: .6, grip: .98, tire: .33, shiftTime: .1, vmax: 209 }) },
   // ---- real cars ----
   { id: "golfr", name: "Volkswagen Golf R", rarity: "RARE", price: 1200, body: "golfr", color: 0x2a4fb0, handling: 74, sound: "i4",
     spec: spec({ hp: 315, torque: 420, mass: 1510, ratios: DSG7, final: 4.47, redline: 6700, idle: 800, cda: .66, grip: 1.08, tire: .33, shiftTime: .07, vmax: 270 }) },
@@ -121,15 +128,6 @@ export const CARS = [
     spec: spec({ hp: 518, torque: 465, mass: 1450, ratios: [3.75, 2.38, 1.72, 1.34, 1.11, .96, .84], final: 4.12, redline: 9000, idle: 950, cda: .72, grip: 1.25, tire: .34, shiftTime: .05, vmax: 296 }) },
   { id: "svj", name: "Lamborghini Aventador SVJ", rarity: "MYTHIC", price: 20000, body: "svj", color: 0x72c02c, handling: 92, sound: "svj",
     spec: spec({ hp: 770, torque: 720, mass: 1750, ratios: [3.909, 2.438, 1.81, 1.458, 1.185, .967, .844], final: 3.73, redline: 8700, idle: 1000, cda: .66, grip: 1.2, tire: .35, shiftTime: .05, vmax: 350 }) },
-  // ---- originals ----
-  { id: "pebble", name: "Pebble", rarity: "COMMON", price: 0, body: "hatch", color: 0xe8c547, handling: 60 },
-  { id: "trailbox", name: "Trail Box", rarity: "RARE", price: 900, body: "suv", color: 0x5a6b3a, handling: 55 },
-  { id: "dunerunner", name: "Dune Runner", rarity: "EPIC", price: 1800, body: "pickup", color: 0xb5542c, handling: 58 },
-  { id: "autobahn6", name: "Autobahn Six", rarity: "EPIC", price: 2600, body: "sedan", color: 0x2c55b8, handling: 74 },
-  { id: "embergt", name: "Ember GT", rarity: "EPIC", price: 3200, body: "muscle", color: 0xc2241f, handling: 66 },
-  { id: "vipermint", name: "Viper Mint", rarity: "LEGENDARY", price: 5500, body: "coupe", color: 0x22b573, handling: 80 },
-  { id: "glacierbolt", name: "Glacier Bolt", rarity: "LEGENDARY", price: 8500, body: "super", color: 0x4cc3ff, handling: 86 },
-  { id: "phantom", name: "Night Phantom", rarity: "MYTHIC", price: 15000, body: "hyper", color: 0x1c1c28, handling: 94 },
 ];
 export const RARITY_COLORS = { COMMON: "#9aa3ad", RARE: "#3d8bff", EPIC: "#b44cff", LEGENDARY: "#f5a623", MYTHIC: "#ff3b5c" };
 export const specOf = (car) => car.spec || ENGINE_SPECS[car.body];

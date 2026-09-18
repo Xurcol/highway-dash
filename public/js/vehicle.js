@@ -93,14 +93,14 @@ export class Drivetrain {
     const tau = want > this.boost ? (s.induction === "super" ? .03 : .16 * lag) : (s.induction === "super" ? .03 : .10);
     this.boost += (want - this.boost) * Math.min(1, dt / tau);
 
-    const wheelMul = this.ratio() / s.tire * 0.9;
+    const wheelMul = this.ratio() / s.tire * 0.97;
     const tq = this.torque(this.rpm);
     let F = thr * tq * wheelMul * this.assist;
     if (this.shiftT > 0) F *= 0.2;
     // how much of the car's weight sits on the driven wheels (weight transfers rearward under power)
     const accelShare = Math.max(0, Math.min(.12, this.accel / G * .25));
     const onDriven = this.drive === "awd" ? 1 : this.drive === "fwd" ? .6 - accelShare : .56 + accelShare;
-    const limit = s.mass * G * s.grip * onDriven * (this.surface ?? 1) * 1.15;
+    const limit = s.mass * G * s.grip * onDriven * (this.surface ?? 1) * 1.45;
     const excess = F > 0 ? F / Math.max(1, limit) - 1 : -1;
     // traction control lets a little slip through (it's fast that way) and cuts progressively beyond
     // it; launch control holds the tyres right at the optimal slip for the first couple of seconds

@@ -6,7 +6,7 @@
 // Six tiers of progression. A starter car is free, a supercar is a season's worth of driving.
 export const CAR_PRICES = {
   // starter
-  pebble: 0,
+  b330i: 0, a4: 0, c300: 0,
   // street
   trailbox: 2500, golfr: 4000, dunerunner: 6000,
   // sports
@@ -28,6 +28,7 @@ export const carPrice = (car) => CAR_PRICES[car.id] ?? RARITY_PRICE[car.rarity] 
 // Everything else has to be bought once per car and is then yours to fit and unfit for nothing.
 export const PART_PRICES = {
   intake: { stock: 0, panel: 400, open: 1200 },
+  fuel: { stock: 0, p93: 600, e30: 2500, e50: 5000, e85: 9000 },
   exhaust: { stock: 0, catback: 2500, downpipe: 6000 },
   catalyst: { stock: 0, sports: 1800, deleted: 3500 },
   intercooler: { stock: 0, upgraded: 3500, race: 9000 },
@@ -48,16 +49,16 @@ export const partPrice = (kind, option) => PART_PRICES[kind]?.[option] ?? 0;
 // ---------------------------------------------------------------- payouts
 // Tuned so a run that scores a few thousand pays for a bolt-on, and a great run pays for a lot more.
 export const REWARDS = {
-  perScore: 0.8,        // coins per point of score
-  perCloseCall: 30,     // threading a gap
-  perKm: 40,            // distance covered
-  comboBonus: 15,       // per close-call streak step
-  newBest: 750,         // beating your personal best
-  medal: 2500,          // each new medal on the ladder
-  levelUp: 600,
-  partySurvivor: 900,   // still driving when somebody else ended the round
-  partyWin: 1500,       // highest score in a party round
-  minimum: 50,          // even a bad run pays something
+  perScore: 0.25,        // coins per point of score
+  perCloseCall: 10,     // threading a gap
+  perKm: 12,            // distance covered
+  comboBonus: 5,       // per close-call streak step
+  newBest: 250,         // beating your personal best
+  medal: 800,          // each new medal on the ladder
+  levelUp: 150,
+  partySurvivor: 250,   // still driving when somebody else ended the round
+  partyWin: 450,       // highest score in a party round
+  minimum: 15,          // even a bad run pays something
 };
 
 // One place that decides what a run was worth. `run` comes straight from the game state.
