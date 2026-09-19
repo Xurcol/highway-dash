@@ -741,7 +741,7 @@ const police = (() => {
     return { red, blue };
   }
   function spawn() {
-    const car = makeCar("charger", 0x0d0f14);
+    const car = makeCar("m340i", 0x0d0f14);
     car.applyStyle?.({ finish: "gloss", tint: "dark", rim: 0x16181c });
     // white doors, cop livery
     const l = lightBar(car);

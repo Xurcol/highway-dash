@@ -4,7 +4,6 @@
     "b330i",
     "m4",
     "c8",
-    "charger",
     "c63",
     "m340i",
     "q50",
@@ -40,6 +39,7 @@
     ]
   },
   "b330i": {
+    "alignWheels": true,
     "paint": [
       "CarPaint"
     ],
@@ -87,6 +87,7 @@
     ]
   },
   "c8": {
+    "front": "-z",
     "paint": [
       "Body_Color"
     ],
@@ -109,27 +110,6 @@
       "^material$",
       "Tire_",
       "Brake_Disc"
-    ],
-    "wheels": [
-      "no-wheel-nodes"
-    ]
-  },
-  "charger": {
-    "paint": [
-      "d2phong2SG1"
-    ],
-    "glass": [
-      "d2phong7SG1"
-    ],
-    "rim": [
-      "riphong18"
-    ],
-    "tail": [
-      "d2phong12SG1"
-    ],
-    "wheelMats": [
-      "riphong18",
-      "rl2phong19"
     ],
     "wheels": [
       "no-wheel-nodes"
@@ -382,7 +362,6 @@
     "b330i": "BMW 330i (user-supplied free model)",
     "m4": "2021 BMW M4 G82 by OUTPISTON (sketchfab.com/outpiston), CC-BY-NC-SA-4.0",
     "c8": "2019 Chevrolet Corvette C8 Stingray by Hari (sketchfab.com/Hari31), CC-BY-4.0",
-    "charger": "2015 Dodge Charger SRT Hellcat by Ddiaz Design (sketchfab.com/ddiaz-design), CC-BY-NC-SA-4.0",
     "c63": "2019 Mercedes-Benz C63 S AMG Coupe by Ddiaz Design, CC-BY-NC-SA-4.0",
     "m340i": "2020 BMW M340i xDrive by Ddiaz Design, CC-BY-NC-SA-4.0",
     "q50": "2021 Infiniti Q50 3.0t by Ddiaz Design, CC-BY-NC-SA-4.0",
@@ -394,5 +373,5 @@
     "svj": "Aventador SVJ Black Ghost by SDC PERFORMANCE (sketchfab.com/3Duae), CC-BY-NC-4.0",
     "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0"
   },
-  "rev": 2
+  "rev": 3
 }

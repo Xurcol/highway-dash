@@ -214,6 +214,19 @@ export class ModelCar {
       spin.attach(w);
       this.wheels.push({ w: spin, front: centre.z < 0, holder: steer, side: Math.sign(centre.x) || 1, baseX: centre.x, baseY: centre.y });
     }
+    // some files ship with the front wheels already turned: measure each wheel's real yaw and cancel it
+    if (tpl.cfg?.alignWheels) for (const wh of this.wheels) {
+      const pts = [];
+      wh.w.traverse((o) => { if (!o.isMesh) return; const p = o.geometry.attributes.position, step = Math.max(1, Math.floor(p.count / 300)); o.updateWorldMatrix(true, false); for (let i = 0; i < p.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld)); });
+      const cx = wh.holder.position.x, cz = wh.holder.position.z;
+      let best = 0, bw = 1e9;
+      for (let a = -45; a <= 45; a += .5) {
+        const c = Math.cos(a * Math.PI / 180), sn = Math.sin(a * Math.PI / 180); let lo = 1e9, hi = -1e9;
+        for (const q of pts) { const x = (q.x - cx) * c + (q.z - cz) * sn; if (x < lo) lo = x; if (x > hi) hi = x; }
+        if (hi - lo < bw) { bw = hi - lo; best = a; }
+      }
+      wh.base = best * Math.PI / 180; wh.holder.rotation.y = wh.base;
+    }
     this.rimBase = this.rims.map((m) => m.color.clone());
     this.calBase = this.calipers.map((m) => m.color.clone());
     // underglow pool, same as the built-in cars
@@ -255,9 +268,9 @@ export class ModelCar {
   }
   update(dist, steer) {
     this.spin -= dist / this.B.r;
-    for (const { w, front } of this.wheels) {
+    for (const { w, front, base } of this.wheels) {
       w.rotation.x = this.spin;
-      w.parent.rotation.y = front ? -steer * .35 : 0;
+      w.parent.rotation.y = (base || 0) + (front ? -steer * .35 : 0);
     }
   }
   dispose() {
