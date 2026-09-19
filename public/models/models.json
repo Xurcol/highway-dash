@@ -13,7 +13,8 @@
     "m2",
     "gt3rs",
     "svj",
-    "m3"
+    "m3",
+    "supra"
   ],
   "a4": {
     "paint": [
@@ -39,7 +40,6 @@
     ]
   },
   "b330i": {
-    "alignWheels": true,
     "paint": [
       "CarPaint"
     ],
@@ -47,11 +47,10 @@
       "MI_Glass$"
     ],
     "rim": [
-      "Material[.]002",
-      "CRBN_JANTE"
+      "ChangeA_Rim"
     ],
     "caliper": [
-      "plaquette"
+      "ChangeA_Brake"
     ],
     "tail": [
       "reD_glass"
@@ -60,14 +59,12 @@
       "MI_Light",
       "MI_Glass_Light"
     ],
+    "wheelMats": [
+      "ChangeA_Rim",
+      "MI_Tyre"
+    ],
     "wheels": [
       "no-wheel-nodes"
-    ],
-    "wheelMats": [
-      "^pneu",
-      "^Material[.]00[234]$",
-      "CRBN_JANTE",
-      "^Object_13"
     ]
   },
   "m4": {
@@ -151,7 +148,8 @@
       "Kuzov"
     ],
     "glass": [
-      "^d_glass$"
+      "^d_glass$",
+      "^Glass_Windows$"
     ],
     "tail": [
       "Glass_backlights",
@@ -365,11 +363,11 @@
   },
   "credits": {
     "a4": "Audi A4 B9 by Nieve5677 (sketchfab.com/niev), CC-BY-4.0",
-    "b330i": "BMW 330i (user-supplied free model)",
+    "b330i": "2019 BMW 330i M Sport by Ddiaz Design (sketchfab.com/ddiaz-design), CC-BY-NC-SA-4.0",
     "m4": "2021 BMW M4 G82 by OUTPISTON (sketchfab.com/outpiston), CC-BY-NC-SA-4.0",
     "c8": "2019 Chevrolet Corvette C8 Stingray by Hari (sketchfab.com/Hari31), CC-BY-4.0",
     "c63": "2019 Mercedes-Benz C63 S AMG Coupe by Ddiaz Design, CC-BY-NC-SA-4.0",
-    "m340i": "2020 BMW M340i xDrive by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "m340i": "2020 BMW M340i xDrive by 007 (sketchfab.com/tangwang920), CC-BY-4.0",
     "q50": "2021 Infiniti Q50 3.0t by Ddiaz Design, CC-BY-NC-SA-4.0",
     "rs3": "2023 Audi RS3 Sedan by Ddiaz Design, CC-BY-NC-SA-4.0",
     "x3m": "2024 BMW X3 M40i by Ddiaz Design, CC-BY-NC-SA-4.0",
@@ -377,7 +375,28 @@
     "m2": "BMW M2 G87 by kevin (sketchfab.com/sohyalebret), CC-BY-4.0",
     "gt3rs": "Porsche 911 Carrera 4S by Karol Miklas (sketchfab.com/karolmiklas), CC-BY-SA-4.0",
     "svj": "Aventador SVJ Black Ghost by SDC PERFORMANCE (sketchfab.com/3Duae), CC-BY-NC-4.0",
-    "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0"
+    "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0",
+    "supra": "Toyota Supra by Jiaxing (sketchfab.com/saitoyang), CC-BY-4.0"
   },
-  "rev": 4
+  "rev": 6,
+  "supra": {
+    "paint": [
+      "^carpaint$"
+    ],
+    "glass": [
+      "balck_tint_glass"
+    ],
+    "caliper": [
+      "^brake$"
+    ],
+    "tail": [
+      "^taillights$"
+    ],
+    "head": [
+      "^light$"
+    ],
+    "wheels": [
+      "^Plane[.]0(16|20|18|74)$"
+    ]
+  }
 }
