@@ -61,7 +61,13 @@
       "MI_Glass_Light"
     ],
     "wheels": [
-      "Object_13"
+      "no-wheel-nodes"
+    ],
+    "wheelMats": [
+      "^pneu",
+      "^Material[.]00[234]$",
+      "CRBN_JANTE",
+      "^Object_13"
     ]
   },
   "m4": {
@@ -373,5 +379,5 @@
     "svj": "Aventador SVJ Black Ghost by SDC PERFORMANCE (sketchfab.com/3Duae), CC-BY-NC-4.0",
     "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0"
   },
-  "rev": 3
+  "rev": 4
 }
