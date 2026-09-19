@@ -1153,6 +1153,7 @@ function frame(now) {
       if (!dragging && P.settings.spin !== false) showSpin += dt * .25;
       if (showCar) {
         showCar.group.rotation.y = showSpin;
+        showCar.setLights?.(0, false, false, 0);   // headlights and DRLs stay lit so the look can be previewed
         frameShowCam(carById(showCarId).body, rect.width / rect.height);
       }
       renderShowroom(rect);
