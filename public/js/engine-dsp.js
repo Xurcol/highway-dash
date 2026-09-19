@@ -56,6 +56,8 @@ export const ENGINE_PROFILES = {
 export const SOUND_KEYS = Object.keys(ENGINE_PROFILES);
 export const SOUND_LABELS = { s58real: "BMW S58 (real recording)", ...Object.fromEntries(Object.entries(ENGINE_PROFILES).map(([k, p]) => [k, p.label])) };
 // audio side of a tune; tuning.js builds the real one from the car's parts
+// which cars get a dual-clutch shift signature
+const SHIFT_STYLE = { b58: "bmw", s58: "bmw", s63: "bmw", b46: "bmw", i5: "audi", ea888: "audi", amg: "merc", m264: "merc" };
 export const DEFAULT_TUNE = { burble: .75, decay: 1.1, mix: .2, brap: true, turbo: .8, exhaust: .9, rasp: .7, release: "flutter", intake: .35, flutter: .7, lag: 1, t51r: false, redline: 7000, boostMax: 18, burbleRpm: 3000 };
 
 // ---------------------------------------------------------------- the burble model
@@ -96,7 +98,7 @@ export class EngineDSP {
     this.gear = 1; this.warmth = 1; this.overrun = false;
     this.crank = 0;
     this.cut = 0; this.crackle = 0; this.blip = 0;
-    this.pulses = []; this.pops = []; this.chirps = [];
+    this.pulses = []; this.pops = []; this.chirps = []; this.thumps = [];
     this.seed = (Math.random() * 1e9) | 0;
     this.header = new Delay(1024); this.main = new Delay(4096);
     this.dc = 0; this.dcIn = 0; this.rumble = 0;
@@ -110,7 +112,7 @@ export class EngineDSP {
   rand() { this.seed = (this.seed * 1664525 + 1013904223) >>> 0; return this.seed / 4294967296; }
   setProfile(name) {
     const p = ENGINE_PROFILES[name] || ENGINE_PROFILES.b58, sr = this.sr;
-    this.p = p;
+    this.p = p; this.pname = name;
     this.fireFrac = p.fire.map((d) => d / 720);
     this.runner = p.fire.map((_, i) => ((i * 7919) % 13) / 13 * .0009); // 0..0.9 ms runner length spread
     this.header.len = Math.max(4, Math.round(sr / (2 * p.header)));
@@ -164,11 +166,19 @@ export class EngineDSP {
   }
   onUpshift(m) {
     const t = this.tune, sport = this.mode === "sport";
-    this.cut = sport ? .07 : .03;
+    const dsg = SHIFT_STYLE[this.pname];
+    this.cut = dsg ? .035 : sport ? .07 : .03;      // dual-clutch cars swap gears almost instantly
     const I = this.intensity({ ...m, release: 9 });
+    if (dsg && sport && (m.load ?? this.load) > .25) this.dsgShift(dsg, clamp01(.35 + I));
     // a shift fart needs revs AND load: it does not happen on every single gearchange
     if (sport && t.brap && this.rand() < clamp01(.15 + 1.1 * I)) this.burst(Math.min(3, 1 + Math.round(I * 3)), I * 1.35, .035, .05);
     if (this.boostN > .25) this.release(.45);
+  }
+  // dual-clutch shift signatures: BMW = deep thud, Audi = punchy "thunt" with a crack, Mercedes = a quick brap
+  dsgShift(style, k) {
+    if (style === "bmw") this.thumps.push({ t: 0, f: 62, amp: .9 * k, dur: .06 });
+    else if (style === "audi") { this.thumps.push({ t: 0, f: 88, amp: 1 * k, dur: .045 }); this.addPop(1.1 * k, .01, .012, true, 1.2); this.addPop(.8 * k, .012, .06, true, .9); }
+    else if (style === "merc") this.burst(3 + Math.round(k * 2), 1.5 * k, .02, .025, true);
   }
   onDownshift(m) {
     const sport = this.mode === "sport";
@@ -187,12 +197,12 @@ export class EngineDSP {
     if (this.boostN > .15) this.release(1);
   }
   // a train of pops with varied pitch, level, length and spacing - never a machine gun
-  burst(count, amp, spread, gap) {
+  burst(count, amp, spread, gap, allSharp = false) {
     const t = this.tune, span = Math.max(.25, t.decay);
     let at = .02 + this.rand() * .03;
     for (let i = 0; i < count; i++) {
       const k = i / Math.max(1, count - 1);
-      const sharp = this.rand() < t.mix;
+      const sharp = allSharp || this.rand() < t.mix;
       this.addPop(amp * (.45 + this.rand() * .75) * (1 - k * .65), sharp ? .005 + this.rand() * .012 : .018 + this.rand() * .04, at, sharp, .75 + this.rand() * .7);
       at += (gap + this.rand() * spread) * (1 + k * .9) * Math.min(2, span);
       if (at > span * 1.1 + .1) break;
@@ -286,7 +296,7 @@ export class EngineDSP {
       exc += nz * env * p.rough * (sport ? 1 : .6) * (this.overrun ? 1.35 : 1);
 
       // afterfire: pressure pops go through the exhaust, sharp cracks bypass the muffler
-      let crack = 0;
+      let crack = 0, pk = 0;
       for (let k = this.pops.length - 1; k >= 0; k--) {
         const P = this.pops[k];
         P.t += dt;
@@ -295,7 +305,7 @@ export class EngineDSP {
         const e = Math.exp(-P.t / (P.dur * .25));
         const body = P.amp * 1.3 * (e - Math.exp(-P.t / .0008)) + nz * e * P.amp * .3;
         if (P.sharp) crack += run(P.f, nz * e * P.amp * 1.6);
-        else exc += run(P.f, body) * .55 + body * .5;
+        else { const v = run(P.f, body); exc += v * .55 + body * .5; pk += v * 2.4; }
       }
 
       // ---- exhaust system ----
@@ -316,7 +326,12 @@ export class EngineDSP {
       o += this.rumble * p.sub * 2.2;
       o += (y - run(this.raspLP, y)) * (.2 + .6 * load) * (sport ? .35 : .12) * (.3 + p.rough * 4) * (t.rasp ?? .7) * (this.overrun ? 1.3 : 1);
       o += run(this.inductF, exc) * load * rn * .35; // tonal induction growl
-      o += run(this.crackF, crack) * 1.5;
+      o += run(this.crackF, crack) * 3.2 + pk;   // pops and cracks sit above the exhaust note
+      for (let k = this.thumps.length - 1; k >= 0; k--) {
+        const Th = this.thumps[k]; Th.t += dt;
+        if (Th.t > Th.dur * 5) { this.thumps.splice(k, 1); continue; }
+        o += Math.sin(Th.t * Th.f * 6.2832) * Math.exp(-Th.t / Th.dur) * Th.amp * .9;
+      }
       // engine-specific harmonic scream that builds with revs (SVJ V12, GT3 flat-six)
       if (p.scream) {
         this.scrPh = (this.scrPh || 0) + fireHz * p.scream[0] * dt;

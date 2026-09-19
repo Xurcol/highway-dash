@@ -136,7 +136,7 @@ class SampleVoice {
     let at = .02 + Math.random() * .03;
     for (let i = 0; i < count; i++) {
       const k = i / Math.max(1, count - 1);
-      this.shot(this.bank.pops, Math.min(.6, amp * 1.6 * (.5 + Math.random() * .7) * (1 - k * .6)), at);
+      this.shot(this.bank.pops, Math.min(1, amp * 3 * (.5 + Math.random() * .7) * (1 - k * .6)), at);
       at += (gap + Math.random() * spread) * (1 + k * .8);
       if (at > Math.max(.3, this.tuneState.decay) * 1.15) break;
     }
