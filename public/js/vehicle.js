@@ -78,7 +78,7 @@ export class Drivetrain {
     if (this.launchT > 0) this.launchT -= dt;
 
     let thr = throttle;
-    if (s.vmax && this.v * 3.6 >= s.vmax) thr = 0;
+    // no artificial speed cap: top speed comes from power, drag and gearing
     if (rpm >= s.redline) {
       thr = 0;
       this.limiterT -= dt;

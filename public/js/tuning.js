@@ -299,7 +299,7 @@ export function performance(car, tune) {
   const rpmAt = (v, g) => (v / (2 * Math.PI * s.tire)) * 60 * ratios[g] * final;
   let v = 0, g = 0, t = 0, t100 = null;
   const dt = .02;
-  for (let i = 0; i < 4000 && v * 3.6 < (s.vmax || 400); i++) {
+  for (let i = 0; i < 4000 && v * 3.6 < 400; i++) {
     const rpm = clamp(rpmAt(v, g), s.idle, tune.revLimit);
     if (rpm >= tune.revLimit - 20 && g < ratios.length - 1) { g++; t += s.shiftTime; continue; }
     const F = torqueAt(car, tune, rpm) * wheel(g) * .97 - .5 * 1.2 * s.cda * v * v - .013 * s.mass * 9.81;
@@ -319,7 +319,7 @@ export function performance(car, tune) {
       if (torqueAt(car, tune, rpm) * wheel(g) * .9 - .5 * 1.2 * s.cda * u * u - .013 * s.mass * 9.81 >= 0) { best = Math.max(best, u); break; }
     }
   }
-  return { topKmh: Math.min(s.vmax || 999, best * 3.6), zeroTo100: t100 || 99 };
+  return { topKmh: best * 3.6, zeroTo100: t100 || 99 };
 }
 
 // Peak power the car leaves the factory with - the yardstick for "how far past stock is this?"
