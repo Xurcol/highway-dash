@@ -215,17 +215,30 @@ export class ModelCar {
       this.wheels.push({ w: spin, front: centre.z < 0, holder: steer, side: Math.sign(centre.x) || 1, baseX: centre.x, baseY: centre.y });
     }
     // some files ship with the front wheels already turned: measure each wheel's real yaw and cancel it
-    if (tpl.cfg?.alignWheels) for (const wh of this.wheels) {
-      const pts = [];
-      wh.w.traverse((o) => { if (!o.isMesh) return; const p = o.geometry.attributes.position, step = Math.max(1, Math.floor(p.count / 300)); o.updateWorldMatrix(true, false); for (let i = 0; i < p.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld)); });
-      const cx = wh.holder.position.x, cz = wh.holder.position.z;
-      let best = 0, bw = 1e9;
-      for (let a = -45; a <= 45; a += .5) {
-        const c = Math.cos(a * Math.PI / 180), sn = Math.sin(a * Math.PI / 180); let lo = 1e9, hi = -1e9;
-        for (const q of pts) { const x = (q.x - cx) * c + (q.z - cz) * sn; if (x < lo) lo = x; if (x > hi) hi = x; }
-        if (hi - lo < bw) { bw = hi - lo; best = a; }
+    if (tpl.cfg?.alignWheels) {
+      // tyre, rim and brake are separate nodes: group the ones sharing a wheel and turn them together about one pivot
+      const groups = [];
+      for (const wh of this.wheels) {
+        const g = groups.find((q) => Math.hypot(q.c.x - wh.holder.position.x, q.c.z - wh.holder.position.z) < .3);
+        if (g) g.list.push(wh); else groups.push({ c: wh.holder.position.clone(), list: [wh] });
       }
-      wh.base = best * Math.PI / 180; wh.holder.rotation.y = wh.base;
+      for (const g of groups) {
+        const pts = [];
+        for (const wh of g.list) wh.w.traverse((o) => { if (!o.isMesh) return; const p = o.geometry.attributes.position, step = Math.max(1, Math.floor(p.count / 300)); o.updateWorldMatrix(true, false); for (let i = 0; i < p.count; i += step) pts.push(new THREE.Vector3().fromBufferAttribute(p, i).applyMatrix4(o.matrixWorld)); });
+        const P = g.c;
+        let best = 0, bw = 1e9;
+        for (let a = -45; a <= 45; a += .5) {
+          const c = Math.cos(a * Math.PI / 180), sn = Math.sin(a * Math.PI / 180); let lo = 1e9, hi = -1e9;
+          for (const q of pts) { const x = (q.x - P.x) * c + (q.z - P.z) * sn; if (x < lo) lo = x; if (x > hi) hi = x; }
+          if (hi - lo < bw) { bw = hi - lo; best = a; }
+        }
+        const r = best * Math.PI / 180, c = Math.cos(r), sn = Math.sin(r);
+        for (const wh of g.list) {
+          const dx = wh.holder.position.x - P.x, dz = wh.holder.position.z - P.z;
+          wh.holder.position.x = P.x + dx * c + dz * sn; wh.holder.position.z = P.z - dx * sn + dz * c;
+          wh.baseX = wh.holder.position.x; wh.base = r; wh.holder.rotation.y = r;
+        }
+      }
     }
     this.rimBase = this.rims.map((m) => m.color.clone());
     this.calBase = this.calipers.map((m) => m.color.clone());
