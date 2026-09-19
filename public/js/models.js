@@ -46,11 +46,11 @@ export async function downloadModels(ids, onProgress) {
   const c = await openCache();
   if (!c) return;
   let done = 0, total = 0, files = 0;
-  const heads = await Promise.all(ids.map(async (id) => { try { const r = await fetch(modelUrl(id), { method: "HEAD" }); return +r.headers.get("content-length") || 8e6; } catch { return 8e6; } }));
+  const heads = await Promise.all(ids.map(async (id) => { try { const r = await fetch(modelUrl(id), { method: "HEAD", cache: "no-cache" }); return +r.headers.get("content-length") || 8e6; } catch { return 8e6; } }));
   total = heads.reduce((a, b) => a + b, 0);
   for (const id of ids) {
     try {
-      const res = await fetch(modelUrl(id));
+      const res = await fetch(modelUrl(id), { cache: "no-cache" });
       if (!res.ok || !res.body) continue;
       const reader = res.body.getReader(), parts = [];
       for (;;) { const { done: end, value } = await reader.read(); if (end) break; parts.push(value); done += value.length; onProgress(done, total, files, ids.length); }
@@ -63,7 +63,7 @@ export async function downloadModels(ids, onProgress) {
 async function modelBytes(id) {
   const c = await openCache(), url = modelUrl(id);
   let res = c && (await c.match(url));
-  if (!res) { res = await fetch(url); if (c && res.ok) c.put(url, res.clone()).catch(() => {}); }
+  if (!res) { res = await fetch(url, { cache: "no-cache" }); if (c && res.ok) c.put(url, res.clone()).catch(() => {}); }
   return res.arrayBuffer();
 }
 export function ensureModel(id) {

@@ -880,7 +880,7 @@ const playerLight = { pos: new THREE.Vector3(), dir: new THREE.Vector3(), color:
 
 function updateDrive(dt, T) {
   const d = G.dt, def = G.def, B = BODIES[def.body];
-  const thrIn = held("KeyW", "ArrowUp") ? 1 : 0, brkIn = held("KeyS", "ArrowDown", "Space") ? 1 : 0;
+  const thrIn = held("KeyW", "ArrowUp") ? 1 : 0, brkIn = held("KeyS", "ArrowDown") ? 1 : 0;   // Space is look-back now
   const prevThr = G.thr;
   G.thr += (thrIn - G.thr) * Math.min(1, dt * (thrIn > G.thr ? 14 : 12));
   // everything the burble model needs: how hard it was pulling, how fast the pedal came up, boost
@@ -1048,8 +1048,11 @@ function updateCamera(dt) {
     }
     if (G.shake > 0) { G.shake -= dt * 1.4; camera.position.x += (Math.random() - .5) * G.shake * .5; camera.position.y += (Math.random() - .5) * G.shake * .5; }
     if (state === "drive" && kmh > 200) { const s = (kmh - 200) / 6000; camera.position.x += (Math.random() - .5) * s; camera.position.y += (Math.random() - .5) * s; }
+    // hold Space: look out of the back window
+    const lookBack = state === "drive" && held("Space");
+    if (lookBack) { camera.position.set(G.x, B.top * .8 + .3, G.z + B.L * .05); look.set(G.x - G.vx * .2, B.top * .75, G.z + 30); }
     camera.lookAt(look);
-    camera.fov = hood ? 70 + Math.min(18, kmh * .05) : 58 + Math.min(20, kmh * .065);
+    camera.fov = lookBack ? 70 : hood ? 70 + Math.min(18, kmh * .05) : 58 + Math.min(20, kmh * .065);
   }
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
