@@ -550,6 +550,9 @@ function sendChat() {
   ui.chatInput.value = ""; ui.chatInput.hidden = true; ui.chatInput.blur();
 }
 
+// a point on the car (lx sideways, lz along it; +z is the rear) in world space, for any heading
+const carPt = (x, z, yaw, lx, lz) => { const c = Math.cos(yaw), s = Math.sin(yaw); return [x + lx * c + lz * s, z - lx * s + lz * c]; };
+
 // ---------------- remote players ----------------
 const remotes = new Map();
 const PLAYER_COLORS = ["#3dd6ff", "#ff5ad1", "#e8f04a", "#7dff5a", "#5b8cff", "#b27dff", "#ff4a55", "#4dffc3"];
@@ -655,8 +658,10 @@ function updateRemotes(T, dt) {
     list.push({ r, dist, s, id });
     if (sky.lampsOn && !s.cr) {
       for (const k of [-1, 1]) {
-        glows.add(s.x + k * (B.W / 2 - .35), B.tl[1], s.z + B.L / 2, 1, s.brk ? .15 : .05, .05, s.brk ? 1.4 : .8);
-        glows.add(s.x + k * (B.W / 2 - .35), B.hl[1], s.z - B.L / 2, 1, .95, .85, 1.5);
+        const tp = carPt(s.x, s.z, s.ry || 0, k * (B.W / 2 - .35), B.L / 2), hp = carPt(s.x, s.z, s.ry || 0, k * (B.W / 2 - .35), -B.L / 2);
+        glows.add(tp[0], B.tl[1], tp[1], 1, s.brk ? .15 : .05, .05, s.brk ? 1.4 : .8);
+        glows.add(hp[0], B.hl[1], hp[1], 1, .95, .85, 1.5);
+        if ((k < 0 && s.sl) || (k > 0 && s.sr)) { glows.add(tp[0], B.tl[1], tp[1], 1, .55, .05, 1.1); glows.add(hp[0], B.hl[1], hp[1], 1, .55, .05, 1.1); }
       }
     }
   }
@@ -1184,10 +1189,10 @@ function frame(now) {
         lights.push(playerLight);
       }
       for (const k of [-1, 1]) {
-        const sx = G.x + cos * k * (B.W / 2 - .35), rz = G.z + B.L / 2 * cos, fz = G.z - B.L / 2 * cos;
-        if (night || braking) glows.add(sx - sin * B.L / 2, B.tl[1], rz, 1, braking ? .12 : .04, .04, braking ? 1.6 : .7);
-        if (night) glows.add(sx + sin * B.L / 2, B.hl[1], fz, 1, .96, .85, 1.6);
-        if (G.sigOn && ((k < 0 && G.sigL) || (k > 0 && G.sigR))) { glows.add(sx - sin * B.L / 2, B.tl[1], rz + .02, 1, .55, .05, 1.1); glows.add(sx + sin * B.L / 2, B.hl[1], fz, 1, .55, .05, 1.1); }
+        const tp = carPt(G.x, G.z, G.yaw, k * (B.W / 2 - .35), B.L / 2), hp = carPt(G.x, G.z, G.yaw, k * (B.W / 2 - .35), -B.L / 2);
+        if (night || braking) glows.add(tp[0], B.tl[1], tp[1], 1, braking ? .12 : .04, .04, braking ? 1.6 : .7);
+        if (night) glows.add(hp[0], B.hl[1], hp[1], 1, .96, .85, 1.6);
+        if (G.sigOn && ((k < 0 && G.sigL) || (k > 0 && G.sigR))) { glows.add(tp[0], B.tl[1], tp[1] + .02, 1, .55, .05, 1.1); glows.add(hp[0], B.hl[1], hp[1], 1, .55, .05, 1.1); }
       }
     }
   }
