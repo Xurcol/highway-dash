@@ -378,7 +378,7 @@
     "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0",
     "supra": "Toyota Supra by Jiaxing (sketchfab.com/saitoyang), CC-BY-4.0"
   },
-  "rev": 7,
+  "rev": 8,
   "supra": {
     "paint": [
       "^carpaint$"
@@ -396,7 +396,7 @@
       "^light$"
     ],
     "wheels": [
-      "^Plane[.]0(16|20|18|74)$"
+      "^Plane0(16|20|18|74)$"
     ]
   }
 }
