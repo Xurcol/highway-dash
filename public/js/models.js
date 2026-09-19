@@ -202,18 +202,29 @@ export class ModelCar {
     const wheelNodes = [];
     this.bodyGroup.traverse((o) => { if (o.userData.wheel) wheelNodes.push(o); });
     this.bodyGroup.updateMatrixWorld(true);
+    // one spin/steer pivot per physical wheel: rims, tyres and brakes that are separate nodes (or dozens of spoke
+    // pieces) are grouped by where they sit so they turn together
+    const parts = [];
     for (const w of wheelNodes) {
       const box = new THREE.Box3().setFromObject(w);
       if (box.isEmpty()) continue;
       // a "wheel" that spans the car is really all four wheels merged together - it can't spin on its own
       const sz = box.getSize(new THREE.Vector3());
       if (sz.x > this.B.W * .45 || sz.z > 1.1 || sz.y > 1.1) continue;
-      const centre = box.getCenter(new THREE.Vector3());
+      parts.push({ w, box, c: box.getCenter(new THREE.Vector3()) });
+    }
+    const clusters = [];
+    for (const p of parts) {
+      const g = clusters.find((q) => Math.hypot(q.c.x - p.c.x, q.c.z - p.c.z) < .4 && Math.abs(q.c.y - p.c.y) < .4);
+      if (g) { g.list.push(p); g.box.union(p.box); g.c = g.box.getCenter(new THREE.Vector3()); } else clusters.push({ list: [p], box: p.box.clone(), c: p.c.clone() });
+    }
+    for (const g of clusters) {
+      const centre = g.c;
       const steer = new THREE.Group(), spin = new THREE.Group();
       this.group.add(steer); steer.add(spin);
       steer.position.copy(centre);
       steer.updateMatrixWorld(true);
-      spin.attach(w);
+      for (const p of g.list) spin.attach(p.w);
       this.wheels.push({ w: spin, front: centre.z < 0, holder: steer, side: Math.sign(centre.x) || 1, baseX: centre.x, baseY: centre.y });
     }
     // some files ship with the front wheels already turned: measure each wheel's real yaw and cancel it
