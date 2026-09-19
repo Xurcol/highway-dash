@@ -247,8 +247,9 @@ export class UI {
     if (this.onlineSelected) ms.innerHTML = this.net.room ? `<span class="ms-label">PARTY MODE</span><b>${this.ctx.PARTY_MODES[this.net.room.mode || "crash"]}</b>` : "";
     else {
       const cur = this.ctx.SOLO_MODES[P.settings.soloMode] ? P.settings.soloMode : "classic";
-      ms.innerHTML = `<span class="ms-label">MODE</span>` + Object.entries(this.ctx.SOLO_MODES).map(([k, v]) => `<button data-m="${k}" class="${k === cur ? "on" : ""}">${v}</button>`).join("");
-      ms.querySelectorAll("button").forEach((b) => b.onclick = () => { P.settings.soloMode = b.dataset.m; save(); this.ctx.audio.ui(); this.renderHome(); });
+      ms.innerHTML = `<span class="ms-label">MODE</span>` + Object.entries(this.ctx.SOLO_MODES).map(([k, v]) => `<button data-m="${k}" class="${k === cur ? "on" : ""}">${v}</button>`).join("") + `<button data-bots="1">BOTS: ${P.settings.bots | 0}</button>`;
+      ms.querySelectorAll("button").forEach((b) => b.onclick = () => { if (b.dataset.bots) { P.settings.bots = ((P.settings.bots | 0) + 1) % 6; save(); this.ctx.audio.ui(); return this.renderHome(); } P.settings.soloMode = b.dataset.m; save(); this.ctx.audio.ui(); this.renderHome(); });
+      
     }
     $("spinBtn").classList.toggle("on", P.settings.spin !== false);
   }

@@ -354,6 +354,7 @@ function enterReady(asMode) {
   G.runStartBest = P.best;
   state = "ready"; paused = false;
   police.reset(mode === "solo" && soloMode() === "police");
+  bots.reset();
   ui.show("ready");
   ensureAudio().then(() => { G.engine.setProfile(carSound(G.def.id)); applyTune(); });
 }
@@ -643,8 +644,9 @@ function updateRemotes(T, dt) {
     r.car.update(Math.max(0, prevZ - s.z), 0);
     r.car.setLights(s.brk, s.sl, s.sr, sky.night);
     const dist = listener.distanceTo(g.position);
-    const ts = 2.6 + dist * .018;
-    r.tag.visible = !hideNames;
+    const ts = Math.min(4.2, 2.2 + dist * .006);
+    r.tag.visible = !hideNames && dist < 260;
+    r.tag.material.opacity = Math.max(0, Math.min(1, (260 - dist) / 140));
     r.tag.scale.set(ts, ts / 4, 1);
     const B = BODIES[carById(cfg.car || r.carId).body];
     r.arrow.position.y = B.top + 1.15 + Math.sin(performance.now() / 250) * .15;
@@ -682,9 +684,9 @@ function updateRemotes(T, dt) {
     const behind = p.z > 1;
     let sx = (p.x * .5 + .5) * innerWidth, sy = (-p.y * .5 + .5) * innerHeight;
     const onScreen = !behind && sx > 30 && sx < innerWidth - 30 && sy > 90 && sy < innerHeight - 30;
-    if (onScreen && dist < 160) continue;
+    if (onScreen) continue;
     if (behind) { sx = innerWidth - sx; sy = innerHeight - 40; }
-    sx = Math.max(70, Math.min(innerWidth - 70, sx)); sy = Math.max(110, Math.min(innerHeight - 40, sy));
+    sx = Math.max(70, Math.min(innerWidth - 70, sx)); sy = behind ? innerHeight - 40 : 100;
     const dz = Math.round(G.z - s.z);
     markers.push({ id, name: r.name, color: r.color, x: sx, y: sy, text: `${behind ? "▼" : "▲"} ${hideNames ? "" : r.name + " "}${dz >= 0 ? "+" : ""}${dz}m` });
   }
@@ -778,8 +780,7 @@ const police = (() => {
         c.z -= c.v * dt;
         // cops that hit traffic are out of the chase
         if (c.age > 1.5) for (const t of traffic.query(T, c.z - 6, c.z + 6, [1])) if (Math.abs(t.x - c.x) < 1.9 && Math.abs(t.z - c.z) < 4.2 && !traffic.bumped.has(t.key)) {
-          traffic.bump(t, c.v, Math.sign(t.x - c.x) || 1); c.down = true; c.v *= .3; audio.crash(.5);
-          P2.bounty += 1500; G.score += 400; ui.toast("💥 Cop down! +1,500 bounty");
+          traffic.bump(t, c.v, Math.sign(t.x - c.x) || 1); c.v *= .75; c.age = 0; audio.crash(.3);
         }
         c.car.group.position.set(c.x, 0, c.z);
         c.car.group.rotation.set(0, -Math.atan2(c.vx, Math.max(c.v, 6)) * .9, 0);
@@ -806,6 +807,49 @@ const police = (() => {
           clear(); P2.heat++; P2.bounty = 0; P2.escapeT = 0; P2.next = 10;
         }
       } else P2.escapeT = 0;
+    },
+  };
+})();
+// ---------------- offline bots ----------------
+// AI drivers for solo play: they weave through the same traffic, and never crash out.
+const BOT_NAMES = ["Nova", "Blaze", "Kestrel", "Vex", "Rogue", "Sable"];
+const bots = (() => {
+  const list = [];
+  const count = () => (mode === "solo" ? Math.max(0, Math.min(5, P.settings.bots | 0)) : 0);
+  function spawn(i) {
+    const def = CARS[(Math.random() * CARS.length) | 0];
+    const car = makeCar(def.id, def.color);
+    const B = BODIES[def.body], color = PLAYER_COLORS[i % PLAYER_COLORS.length];
+    const tag = nameTag(BOT_NAMES[i % BOT_NAMES.length], color);
+    tag.position.set(0, B.top + 2.1, 0);
+    car.group.add(tag);
+    scene.add(car.group);
+    const T = getT(), z = G.z + (Math.random() < .5 ? -1 : 1) * (60 + Math.random() * 160);
+    const lane = [0, 1, 2, 3, 4].sort(() => Math.random() - .5).find((l) => traffic.laneClear(T, laneX(l), z, 40, 30)) ?? 2;
+    list.push({ car, tag, x: laneX(lane), z, v: 35 + Math.random() * 30, vx: 0, top: 45 + Math.random() * 30, tx: laneX(lane) });
+  }
+  function clear() { for (const b of list) { scene.remove(b.car.group); b.car.dispose(); } list.length = 0; }
+  return {
+    reset() { clear(); },
+    update(dt, T) {
+      const n = state === "drive" ? count() : 0;
+      if (!n) { if (list.length) clear(); return; }
+      while (list.length < n) spawn(list.length);
+      for (const b of list) {
+        const ahead = traffic.query(T, b.z - 40, b.z - 2, [1]).filter((t) => Math.abs(t.x - b.x) < 2.6);
+        b.v += (Math.min(b.top, ahead.length ? 22 : b.top) - b.v) * Math.min(1, dt * 1.2);
+        if (ahead.length) for (const lx of [b.x - 4, b.x + 4]) if (Math.abs(lx) < 9 && traffic.laneClear(T, lx, b.z, 40, 8)) { b.tx = lx; break; }
+        b.vx += (Math.max(-6, Math.min(6, (b.tx - b.x) * 2)) - b.vx) * Math.min(1, dt * 4);
+        b.x += b.vx * dt; b.z -= b.v * dt;
+        b.car.group.position.set(b.x, 0, b.z);
+        b.car.group.rotation.set(0, -Math.atan2(b.vx, Math.max(b.v, 6)) * .9, 0);
+        b.car.update(b.v * dt, 0);
+        const dist = Math.abs(b.z - G.z);
+        b.tag.scale.setScalar(Math.min(4.2, 2.2 + dist * .006)); b.tag.scale.y /= 4;
+        b.tag.material.opacity = Math.max(0, Math.min(1, (260 - dist) / 140));
+        // fell too far behind or ran too far ahead: put it back near the action
+        if (b.z - G.z > 320 || G.z - b.z > 420) { b.z = G.z - 220 - Math.random() * 100; b.x = laneX((Math.random() * 5) | 0); b.tx = b.x; }
+      }
     },
   };
 })();
@@ -1117,6 +1161,7 @@ function frame(now) {
   }
   if (state === "drive" && !paused) updateDrive(simDt, T);
   if (!paused && (state === "drive" || state === "crashed")) police.update(simDt, T);
+  if (!paused) bots.update(simDt, T);
   if (state === "drive" && mode === "solo" && soloMode() === "timeattack" && T >= TIME_ATTACK) endRunNow("time");
   if (state === "drive" && partyMode() === "timed" && partyRound && T >= (net.room.dur || 120)) {
     if (!G.sentWin && net.room.players?.[0]?.id === (net.me?.id ?? net.me?.code)) { G.sentWin = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score), win: true, timed: true }); }
