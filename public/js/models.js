@@ -269,5 +269,8 @@ export class ModelCar {
 export function makeCar(carId, color) {
   if (MODELS[carId]) return new ModelCar(carId, color);
   const def = CARS.find((c) => c.id === carId) || CARS[0];
-  return new DetailedCar(def.body, color);
+  const old = new DetailedCar(def.body, color);
+  // cars that have a real model never show the old built-in shape: hidden until the model swaps in
+  if (hasModel(carId)) old.group.traverse((o) => { if (o.isMesh) o.visible = false; });
+  return old;
 }
