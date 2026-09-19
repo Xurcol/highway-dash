@@ -66,8 +66,17 @@ const smoke = (() => {
 const audio = new AudioManager();
 const net = await createNet();
 
+// adaptive resolution: renders a little softer when the frame rate dips and sharpens again when there is headroom
+let resScale = 1, emaDt = .016, resTick = 0;
+function adaptRes(dt) {
+  emaDt += (dt - emaDt) * .05;
+  if (++resTick < 90) return;
+  resTick = 0;
+  if (emaDt > .024 && resScale > .6) { resScale = Math.max(.6, resScale - .1); resize(); }
+  else if (emaDt < .0175 && resScale < 1) { resScale = Math.min(1, resScale + .05); resize(); }
+}
 function resize() {
-  renderer.setPixelRatio(Math.min(2.5, Math.min(2, devicePixelRatio) * P.settings.res));
+  renderer.setPixelRatio(Math.min(2.5, Math.min(2, devicePixelRatio) * P.settings.res) * resScale);
   renderer.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
   camera.updateProjectionMatrix();
@@ -1126,6 +1135,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
+  if (state === "drive" && !paused && !document.hidden) adaptRes(dt);
 
   if (!thumbsReady && canvas.width >= 480 && canvas.height >= 260) {
     thumbsReady = true;

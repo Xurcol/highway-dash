@@ -170,6 +170,8 @@ function prepare(scene, car, cfg) {
   });
   const root = new THREE.Group();
   root.add(inner);
+  // sharper textures at glancing angles (paint decals, tyre sidewalls, badges)
+  root.traverse((o) => { if (!o.isMesh) return; for (const mt of Array.isArray(o.material) ? o.material : [o.material]) for (const k of ["map", "normalMap", "roughnessMap", "metalnessMap", "emissiveMap"]) if (mt[k]) mt[k].anisotropy = 8; });
   return { root, cfg };
 }
 
