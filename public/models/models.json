@@ -310,22 +310,30 @@
   },
   "gt3rs": {
     "paint": [
-      "^paint$",
-      "^coat$"
+      "^TwiXeR_992_carPaint[.][0-9]+$"
     ],
     "glass": [
-      "^window$",
-      "^glass$"
+      "^TwiXeR_992_glass[.]004$"
     ],
     "rim": [
-      "^silver$"
+      "^TwiXeR_992_(wheels_chrome_1|GT3RS_black)$"
+    ],
+    "caliper": [
+      "^amdb11_caliper[.][0-9]+$"
     ],
     "head": [
-      "^lights$"
+      "^TwiXeR_992_led_lights[.][0-9]+$",
+      "^TwiXeR_992_headlight_high[.][0-9]+$",
+      "^TwiXeR_992_headlight_1[.]001_0$"
+    ],
+    "tail": [
+      "^TwiXeR_992_taillight_running[.][0-9]+$",
+      "^TwiXeR_992_brakelight_1[.][0-9]+$"
     ],
     "wheelMats": [
-      "^rubber$",
-      "^silver$"
+      "^TwiXeR_992_(wheels_chrome_1|GT3RS_black)$",
+      "^amdb11_(brake|caliper)[.][0-9]+$",
+      "^Scene_-_Root[.]002$"
     ],
     "wheels": [
       "no-wheel-nodes"
@@ -390,7 +398,7 @@
     "x3m": "2024 BMW X3 M40i by Ddiaz Design, CC-BY-NC-SA-4.0",
     "golfr": "2025 Volkswagen Golf R by Ddiaz Design, CC-BY-NC-SA-4.0",
     "m2": "BMW M2 G87 by kevin (sketchfab.com/sohyalebret), CC-BY-4.0",
-    "gt3rs": "Porsche 911 Carrera 4S by Karol Miklas (sketchfab.com/karolmiklas), CC-BY-SA-4.0",
+    "gt3rs": "Free-to-use download (porsche_gt3_rs.glb) — author not recorded",
     "svj": "Aventador SVJ Black Ghost by SDC PERFORMANCE (sketchfab.com/3Duae), CC-BY-NC-4.0",
     "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0",
     "supra": "Toyota Supra by Jiaxing (sketchfab.com/saitoyang), CC-BY-4.0",
@@ -404,7 +412,7 @@
     "charger": "Free-to-use download (2015_dodge_charger_srt_hellcat.glb) — author not recorded",
     "carrera": "Free-to-use download (free_porsche_911_carrera_4s.glb) — author not recorded"
   },
-  "rev": 18,
+  "rev": 21,
   "supra": {
     "paint": [
       "^carpaint$"

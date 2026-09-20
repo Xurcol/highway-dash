@@ -49,6 +49,13 @@ function loadBank(ctx, name) {
     const decode = async (e) => ({ ...e, buf: await ctx.decodeAudioData(await (await fetch(`/sounds/${name}/${e.file}`)).arrayBuffer()) });
     const out = {};
     for (const g of ["on", "off", "pops", "flutter", "shift"]) out[g] = await Promise.all((m[g] || []).map(decode));
+    // A bank whose own one-shots are unusable borrows them from a related engine rather than
+    // shipping guesses: the S58 set's pops and shifts were picked out of an unnamed bank and did
+    // not behave like one-shots, so it takes the named B58 bank's instead.
+    if (m.oneShotsFrom && m.oneShotsFrom !== name) {
+      const other = await loadBank(ctx, m.oneShotsFrom);
+      if (other) for (const g of ["pops", "flutter", "shift"]) if (!out[g].length) out[g] = other[g] || [];
+    }
     return out;
   })().catch(() => null));
   return banks.get(name);
