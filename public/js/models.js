@@ -105,6 +105,51 @@ function upgrade(m, cache) {
   cache.set(m, n);
   return n;
 }
+// Fuse meshes that share one material into a single mesh, baking each one's transform into the
+// space of `space` (an ancestor). Some downloaded models are thousands of tiny nodes (a rim alone can be
+// hundreds of pieces); every node is a separate draw call, which is what made those cars lag.
+const MERGE_ATTRS = ["position", "normal", "uv"];
+function fuseMeshes(meshes, space) {
+  space.updateWorldMatrix(true, true);
+  const inv = new THREE.Matrix4().copy(space.matrixWorld).invert(), m = new THREE.Matrix4(), nm = new THREE.Matrix3();
+  let verts = 0;
+  const geos = meshes.map((o) => { const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry; verts += g.attributes.position.count; return g; });
+  const pos = new Float32Array(verts * 3), nor = new Float32Array(verts * 3), uv = new Float32Array(verts * 2);
+  const v = new THREE.Vector3();
+  let w = 0;
+  meshes.forEach((o, i) => {
+    const g = geos[i], p = g.attributes.position, n = g.attributes.normal, t = g.attributes.uv;
+    o.updateWorldMatrix(true, false);
+    m.multiplyMatrices(inv, o.matrixWorld); nm.getNormalMatrix(m);
+    for (let k = 0; k < p.count; k++, w++) {
+      v.fromBufferAttribute(p, k).applyMatrix4(m); pos[w * 3] = v.x; pos[w * 3 + 1] = v.y; pos[w * 3 + 2] = v.z;
+      if (n) { v.fromBufferAttribute(n, k).applyMatrix3(nm).normalize(); nor[w * 3] = v.x; nor[w * 3 + 1] = v.y; nor[w * 3 + 2] = v.z; }
+      if (t) { uv[w * 2] = t.getX(k); uv[w * 2 + 1] = t.getY(k); }
+    }
+  });
+  const out = new THREE.BufferGeometry();
+  out.setAttribute("position", new THREE.BufferAttribute(pos, 3));
+  out.setAttribute("normal", new THREE.BufferAttribute(nor, 3));
+  out.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  const mesh = new THREE.Mesh(out, meshes[0].material);
+  mesh.castShadow = meshes[0].castShadow; mesh.receiveShadow = meshes[0].receiveShadow;
+  return mesh;
+}
+// group meshes by material and fuse each group of 2+ into one mesh under `space`
+function fuseByMaterial(list, space, flags = {}) {
+  const groups = new Map();
+  for (const o of list) { if (!groups.has(o.material)) groups.set(o.material, []); groups.get(o.material).push(o); }
+  const out = [];
+  for (const g of groups.values()) {
+    if (g.length < 2) { out.push(g[0]); continue; }
+    const f = fuseMeshes(g, space);
+    Object.assign(f.userData, flags);
+    for (const o of g) { o.parent?.remove(o); o.geometry.dispose(); }
+    space.add(f);
+    out.push(f);
+  }
+  return out;
+}
 // Cut one mesh into pieces by where each triangle sits (world-space centroid -> bucket index).
 // Returns [{ mesh, bucket }]; a mesh whose triangles all land in one bucket is returned untouched.
 function splitMesh(o, classify) {
@@ -220,6 +265,26 @@ function prepare(scene, car, cfg) {
     if (!lens.has(g)) { const l = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, transparent: true, opacity: .22, envMapIntensity: 2 }); l.name = g.name + "_lens"; l.userData.role = "lens"; patchLit(l); lens.set(g, l); }
     for (const p of splitMesh(o, (v) => (Math.abs(v.z) > carL / 2 - .8 && v.y < carH * .72 ? 1 : 0))) if (p.bucket === 1) p.mesh.material = lens.get(g);
   }
+  // ---- draw-call diet ----
+  inner.updateMatrixWorld(true);
+  const inWheel = (o) => { for (let p = o; p; p = p.parent) if (p.userData.wheel) return true; return false; };
+  const simple = (o) => o.isMesh && !Array.isArray(o.material) && o.geometry.attributes.position && !o.isSkinnedMesh && o.visible;
+  // 1. wheel parts: gather each physical wheel's pieces and fuse them per material
+  const wheelMeshes = [];
+  inner.traverse((o) => { if (simple(o) && o.userData.wheel) wheelMeshes.push(o); });
+  if (wheelMeshes.length > 12) {
+    const clusters = [];
+    for (const o of wheelMeshes) {
+      const c = new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3());
+      const g = clusters.find((q) => Math.hypot(q.c.x - c.x, q.c.z - c.z) < .4 && Math.abs(q.c.y - c.y) < .4);
+      if (g) g.list.push(o); else clusters.push({ c, list: [o] });
+    }
+    for (const g of clusters) fuseByMaterial(g.list, inner, { wheel: true });
+  }
+  // 2. everything else that never moves: one mesh per material
+  const still = [];
+  inner.traverse((o) => { if (simple(o) && !inWheel(o)) still.push(o); });
+  if (still.length > 40) fuseByMaterial(still, inner);
   const root = new THREE.Group();
   root.add(inner);
   // sharper textures at glancing angles (paint decals, tyre sidewalls, badges)
