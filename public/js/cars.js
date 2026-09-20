@@ -126,6 +126,8 @@ export const CARS = [
     spec: spec({ hp: 518, torque: 465, mass: 1450, ratios: [3.75, 2.38, 1.72, 1.34, 1.11, .96, .84], final: 4.12, redline: 9000, idle: 950, cda: .72, grip: 1.25, tire: .34, shiftTime: .05, vmax: 296 }) },
   { id: "svj", name: "Lamborghini Aventador SVJ", rarity: "MYTHIC", price: 20000, body: "svj", color: 0x72c02c, handling: 92, sound: "svj",
     spec: spec({ hp: 770, torque: 720, mass: 1750, ratios: [3.909, 2.438, 1.81, 1.458, 1.185, .967, .844], final: 3.73, redline: 8700, idle: 1000, cda: .66, grip: 1.2, tire: .35, shiftTime: .05, vmax: 350 }) },
+  { id: "chiron", name: "Bugatti Chiron", rarity: "MYTHIC", price: 40000, body: "svj", color: 0x1c3f94, handling: 88, sound: "w16",
+    spec: spec({ hp: 1479, torque: 1600, mass: 1995, ratios: [3.909, 2.438, 1.81, 1.458, 1.185, .967, .844], final: 3.2, redline: 7100, idle: 800, cda: .74, grip: 1.2, tire: .38, shiftTime: .06 }) },
   { id: "laferrari", name: "Ferrari LaFerrari", rarity: "MYTHIC", price: 30000, body: "svj", color: 0xc8102e, handling: 93, sound: "v12",
     spec: spec({ hp: 949, torque: 900, mass: 1255, ratios: [3.909, 2.438, 1.81, 1.458, 1.185, .967, .844], final: 3.9, redline: 9250, idle: 900, cda: .62, grip: 1.25, tire: .35, shiftTime: .05 }) },
 ];

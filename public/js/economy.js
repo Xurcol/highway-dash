@@ -13,7 +13,7 @@ export const CAR_PRICES = {
   autobahn6: 9000, q50: 10000, m240i: 12000, q60: 13000, embergt: 13500, m340i: 15000, supra: 18000, rs3: 20000,
   // performance
   m2: 30000, c63: 34000, x3m: 36000, charger: 38000, challenger: 38000, vipermint: 40000,
-  m3: 46000, laferrari: 120000, m5: 64000, m4: 48000, rs6: 52000, e63: 55000, glacierbolt: 60000,
+  m3: 46000, chiron: 200000, laferrari: 120000, m5: 64000, m4: 48000, rs6: 52000, e63: 55000, glacierbolt: 60000,
   // super
   gt3rs: 84000, x5m: 72000, x6m: 76000, gtr: 88000, c8: 95000,
   // premium / rare
@@ -38,6 +38,10 @@ export const PART_PRICES = {
   suspension: { stock: 0, sport: 2000, race: 5500 },
   transmission: { stock: 0, sport: 4000, race: 11000 },
   weight: { stock: 0, stage1: 3000, stage2: 8500 },
+  remap: { stock: 0, stage1: 2500, stage2: 6500, stage3: 14000 },
+  internals: { stock: 0, forged: 8000, built: 20000 },
+  diff: { stock: 0, lsd: 3500, plated: 9000 },
+  aero: { stock: 0, splitter: 2800, wing: 7000, race: 16000 },
 };
 // ECU access has to be bought before the engine map can be touched at all; after that every
 // committed map change is a dyno session.

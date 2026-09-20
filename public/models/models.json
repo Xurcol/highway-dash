@@ -16,7 +16,8 @@
     "m3",
     "supra",
     "m5",
-    "laferrari"
+    "laferrari",
+    "chiron"
   ],
   "a4": {
     "paint": [
@@ -383,9 +384,10 @@
     "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0",
     "supra": "Toyota Supra by Jiaxing (sketchfab.com/saitoyang), CC-BY-4.0",
     "m5": "2022 BMW M5 CS by Ddiaz Design (sketchfab.com/ddiaz-design), CC-BY-NC-SA-4.0",
-    "laferrari": "Ferrari LaFerrari (Element 6) by Echoo (sketchfab.com/echoo.), CC-BY-NC-ND-4.0"
+    "laferrari": "Ferrari LaFerrari (Element 6) by Echoo (sketchfab.com/echoo.), CC-BY-NC-ND-4.0",
+    "chiron": "2022 Bugatti Chiron Profilee by 007 (sketchfab.com/tangwang920), CC-BY-4.0"
   },
-  "rev": 11,
+  "rev": 12,
   "supra": {
     "paint": [
       "^carpaint$"
@@ -456,6 +458,32 @@
       "Tire_Shader",
       "esr_cs1",
       "^disc[.]"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "chiron": {
+    "paint": [
+      "Paint_Material1"
+    ],
+    "glass": [
+      "Window_Material1"
+    ],
+    "rim": [
+      "3DWheel3A"
+    ],
+    "caliper": [
+      "CallipersCalliperA_Zone"
+    ],
+    "tail": [
+      "^RED_GLASS$"
+    ],
+    "head": [
+      "LightB_Material1"
+    ],
+    "wheelMats": [
+      "3DWheel3A"
     ],
     "wheels": [
       "no-wheel-nodes"

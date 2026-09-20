@@ -663,6 +663,30 @@ export class UI {
     setTune(this.view, { [kind]: option });     // fitting something you own is free
     this.afterTune();
   }
+  // the best (last) option of every part this car can take: what it would cost and what changes
+  bestPlan() {
+    const car = carById(this.view), e = engineOf(car), boosted = isBoosted(e), cur = carTune(this.view), plan = [];
+    let total = 0;
+    for (const [kind, def] of Object.entries(PARTS)) {
+      if (def.boostedOnly && (!boosted || e.induction === "super")) continue;
+      const keys = Object.keys(def.opts), best = keys[keys.length - 1];
+      if (cur[kind] === best) continue;
+      const price = ownsPart(car.id, kind, best) ? 0 : partPrice(kind, best);
+      plan.push({ kind, best, price }); total += price;
+    }
+    return { plan, total };
+  }
+  applyBest() {
+    const { plan, total } = this.bestPlan();
+    if (!plan.length) return;
+    if (P.coins < total) return this.notEnough(total - P.coins);
+    for (const p of plan) if (!ownsPart(this.view, p.kind, p.best)) { const r = buyPart(this.view, p.kind, p.best); if (!r.ok) return this.notEnough(r.short); }
+    this.tunePrev = summary(carById(this.view), carTune(this.view));
+    setTune(this.view, Object.fromEntries(plan.map((p) => [p.kind, p.best])));
+    this.ctx.audio.coin();
+    this.toast(total ? `Best parts fitted — ${fmtCoins(total)} coins` : "Best parts fitted");
+    this.afterTune();
+  }
   buyEcuUI() {
     const r = buyEcu(this.view);
     if (!r.ok) return this.notEnough(r.short);
@@ -677,6 +701,11 @@ export class UI {
     const sum = summary(car, t), stock = summary(car, defaultTune(car));
     $("tuneCar").textContent = car.name;
     $("tuneCoins").textContent = fmtCoins(P.coins);
+    // only offered when you can actually afford every upgrade it would buy
+    const bp = this.bestPlan(), ab = $("applyBest");
+    ab.hidden = !bp.plan.length || P.coins < bp.total;
+    ab.textContent = bp.total ? `APPLY BEST · 🪙 ${fmtCoins(bp.total)}` : "APPLY BEST";
+    ab.onclick = () => this.applyBest();
     $("tuneEngine").innerHTML = `<b>${esc(e.label)}</b><small>${e.disp.toFixed(1)}L · ${e.cyl} cyl · ${boosted ? (e.induction === "super" ? "supercharged" : e.turbos > 1 ? "twin-turbo" : "turbo") : "naturally aspirated"} · audio locked to this engine</small>`;
     document.querySelectorAll("#tune .tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === this.tuneTab));
     $("tabMap").hidden = this.tuneTab !== "map";
@@ -793,7 +822,8 @@ export class UI {
   // what a part actually does, computed from the same model the physics uses
   partEffect(kind, key, car, t, baseHp) {
     const o = PARTS[kind].opts[key];
-    if (o.flow !== undefined || o.maxBoost !== undefined || o.eff !== undefined || o.knock !== undefined) {
+    if (o.drag !== undefined) return o.drag === 1 && o.handling === 1 ? "Standard aero" : `+${Math.round((o.handling - 1) * 100)}% turn-in · +${Math.round((o.drag - 1) * 100)}% drag`;
+    if (o.flow !== undefined || o.maxBoost !== undefined || o.eff !== undefined || o.knock !== undefined || o.power !== undefined) {
       const hp = peakHp(car, { ...t, [kind]: key });
       const d = hp - baseHp;
       return `${baseHp} → ${hp} hp (${d >= 0 ? "+" : ""}${d})`;
@@ -993,6 +1023,13 @@ export class UI {
     };
     $("adminClearTunes").onclick = () => { P.tunes = {}; save(); this.ctx.applyTune(); this.afterAdmin("Tunes cleared"); };
     $("adminGod").onclick = (e) => { const on = this.ctx.toggleGod(); e.target.textContent = `GOD MODE: ${on ? "ON" : "OFF"}`; };
+    $("resetAll").onclick = () => {
+      if (!confirm("Reset ALL your data?\n\nLevel, coins, cars, tunes, styles, best scores and settings will be erased. This cannot be undone.")) return;
+      if (!confirm("Last chance - really erase everything and start over?")) return;
+      for (const k of Object.keys(localStorage)) if (k.startsWith("hd_")) localStorage.removeItem(k);
+      document.cookie = "hd_save=; max-age=0; path=/";
+      location.reload();
+    };
     $("adminWipe").onclick = () => {
       if (!confirm("Wipe the whole profile? Cars, coins, tunes and settings all go back to new.")) return;
       localStorage.removeItem("hd_profile");

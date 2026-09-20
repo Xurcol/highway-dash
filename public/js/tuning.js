@@ -20,6 +20,7 @@ const ATM = 14.696; // psi
 export const ENGINES = {
   b58:     { label: "BMW B58 3.0T I6", disp: 3.0, cyl: 6, induction: "turbo", turbos: 1, stockBoost: 17, spool: 1450, peak: 4800, taper: 6200, maxRev: 7400, comp: 11.0, tqPeak: 3500, burbleRpm: 2800, character: "b58" },
   s58:     { label: "BMW S58 3.0TT I6", disp: 3.0, cyl: 6, induction: "turbo", turbos: 2, stockBoost: 24, spool: 1600, peak: 5200, taper: 6600, maxRev: 7800, comp: 9.3, tqPeak: 4000, burbleRpm: 3000, character: "b58" },
+  w16:     { label: "Bugatti 8.0 Quad-Turbo W16", disp: 8.0, cyl: 16, induction: "turbo", turbos: 4, stockBoost: 18, spool: 1800, peak: 3400, taper: 6000, maxRev: 7100, comp: 9.0, tqPeak: 2600, burbleRpm: 2800 },
   s63:     { label: "BMW S63 4.4TT V8", disp: 4.4, cyl: 8, induction: "turbo", turbos: 2, stockBoost: 21, spool: 1650, peak: 4800, taper: 6000, maxRev: 7300, comp: 10.0, tqPeak: 3600, burbleRpm: 2600 },
   vr30:    { label: "Nissan VR30 3.0TT V6", disp: 3.0, cyl: 6, induction: "turbo", turbos: 2, stockBoost: 15, spool: 1600, peak: 5000, taper: 6200, maxRev: 7300, comp: 10.3, tqPeak: 3600, burbleRpm: 3000 },
   vr38:    { label: "Nissan VR38 3.8TT V6", disp: 3.8, cyl: 6, induction: "turbo", turbos: 2, stockBoost: 15, spool: 1900, peak: 5200, taper: 6500, maxRev: 7400, comp: 9.0, tqPeak: 3600, burbleRpm: 3200 },
@@ -92,6 +93,21 @@ export const PARTS = {
       e85: { label: "E85", knock: 1.3, power: 1.035, eth: .85 },
     },
   },
+  remap: {
+    label: "ECU remap", opts: {
+      stock: { label: "Factory map", power: 1 },
+      stage1: { label: "Stage 1 map", power: 1.035 },
+      stage2: { label: "Stage 2 map", power: 1.07 },
+      stage3: { label: "Stage 3 race map", power: 1.11 },
+    },
+  },
+  internals: {
+    label: "Engine internals", opts: {
+      stock: { label: "Stock internals", knock: 1 },
+      forged: { label: "Forged pistons + rods", knock: 1.07 },
+      built: { label: "Fully built engine", knock: 1.15 },
+    },
+  },
   // ---- chassis: these don't touch the torque curve, they change how the car puts it down ----
   tires: {
     label: "Tires", chassis: true, opts: {
@@ -105,6 +121,21 @@ export const PARTS = {
       stock: { label: "Stock brakes", brake: 1 },
       sport: { label: "Big brake kit", brake: 1.18 },
       race: { label: "Carbon ceramics", brake: 1.35 },
+    },
+  },
+  diff: {
+    label: "Differential", chassis: true, opts: {
+      stock: { label: "Open diff", grip: 1 },
+      lsd: { label: "Limited-slip diff", grip: 1.03 },
+      plated: { label: "Plate-type LSD", grip: 1.06 },
+    },
+  },
+  aero: {
+    label: "Aero", chassis: true, opts: {
+      stock: { label: "Stock body", handling: 1, drag: 1 },
+      splitter: { label: "Splitter + lip", handling: 1.04, drag: 1.02 },
+      wing: { label: "GT wing + splitter", handling: 1.09, drag: 1.07 },
+      race: { label: "Full aero kit", handling: 1.15, drag: 1.12 },
     },
   },
   suspension: {
@@ -160,7 +191,7 @@ export function defaultTune(car) {
     final: s.final,
     gearing: 1,
     intake: "stock", exhaust: "stock", catalyst: "stock", turbo: "stock", intercooler: "stock", fuel: "stock",
-    tires: "stock", brakes: "stock", suspension: "stock", transmission: "stock", weight: "stock",
+    tires: "stock", brakes: "stock", suspension: "stock", transmission: "stock", weight: "stock", remap: "stock", internals: "stock", diff: "stock", aero: "stock",
     burble: .75, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1, tc: 2, launchRpm: .55,
   };
 }
@@ -232,7 +263,7 @@ function knockRef(e) {
 }
 function knockAndTiming(e, tune, rpm, boost) {
   const iat = iatOf(e, tune, boost);
-  const rel = knockRaw(e, tune, boost, iat) / knockRef(e) / partOpt("fuel", tune.fuel || "stock").knock;
+  const rel = knockRaw(e, tune, boost, iat) / knockRef(e) / partOpt("fuel", tune.fuel || "stock").knock / partOpt("internals", tune.internals || "stock").knock;
   const knock = .8 * (1 + (rel - 1) * (e.comp / 10.4));              // compression sets the sensitivity
   const pulled = Math.min(tune.timing + 6, Math.max(0, knock - 1) * 26); // degrees the ECU takes back
   return { iat, knock, pulled, timing: tune.timing - pulled };
@@ -252,7 +283,7 @@ function rawTorque(e, tune, rpm, cal) {
   const dens = 1 - clamp((iat - 25) / 900, 0, .16);                  // hot charge = less mass
   const pr = 1 + boost / ATM;
   const over = Math.max(0, rpm - tune.revLimit) / 400;               // torque dies past the limiter
-  return cal * e.disp * ve(e, rpm, tune.revLimit) * pr * dens * parts * (1 + .016 * timing) * afrFactor(e, tune.afr) * partOpt("fuel", tune.fuel || "stock").power * Math.exp(-over * over);
+  return cal * e.disp * ve(e, rpm, tune.revLimit) * pr * dens * parts * (1 + .016 * timing) * afrFactor(e, tune.afr) * partOpt("fuel", tune.fuel || "stock").power * partOpt("remap", tune.remap || "stock").power * Math.exp(-over * over);
 }
 
 // One constant per car, solved so that the STOCK tune peaks at exactly the car's spec torque.
@@ -382,7 +413,7 @@ export function summaryCache(car, t) {
 // Which wheels are driven. Anything not listed is rear-wheel drive.
 export const DRIVE_LAYOUT = {
   golfr: "awd", rs3: "awd", rs6: "awd", gtr: "awd", x3m: "awd", x5m: "awd", x6m: "awd", m240i: "awd", m340i: "awd",
-  q50: "rwd", q60: "rwd", e63: "awd", svj: "awd", a4: "awd", b330i: "rwd", c300: "rwd",
+  q50: "rwd", q60: "rwd", e63: "awd", svj: "awd", m5: "awd", chiron: "awd", laferrari: "rwd", supra: "rwd", a4: "awd", b330i: "rwd", c300: "rwd",
 };
 // Physics view of a tuned car, handed to the Drivetrain.
 export function tunedSpec(carId, tune) {
@@ -393,11 +424,12 @@ export function tunedSpec(carId, tune) {
     ratios: s.ratios.map((r) => r * t.gearing),
     final: t.final,
     redline: t.revLimit,
-    grip: s.grip * partOpt("tires", t.tires).grip,
+    grip: s.grip * partOpt("tires", t.tires).grip * partOpt("diff", t.diff).grip,
+    cda: s.cda * partOpt("aero", t.aero).drag,
     mass: s.mass * partOpt("weight", t.weight).mass,
     shiftTime: s.shiftTime * partOpt("transmission", t.transmission).shift,
     brakeMul: partOpt("brakes", t.brakes).brake,
-    handlingMul: partOpt("suspension", t.suspension).handling,
+    handlingMul: partOpt("suspension", t.suspension).handling * partOpt("aero", t.aero).handling,
     torqueAt: (rpm) => torqueAt(car, t, rpm),
     boostAt: (rpm) => boostCurve(e, t, rpm),
     peakTorque: summaryCache(car, t).nm,
