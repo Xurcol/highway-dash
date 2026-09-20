@@ -37,9 +37,9 @@ class EngineVoice {
 }
 
 // ---------- recorded engine (sample banks, e.g. public/sounds/s58) ----------
-const BANK_FOR = { s58real: "s58", f458real: "f458" };
+const BANK_FOR = { s58real: "s58", f458real: "f458", b58real: "b58" };
 // the synthesized engine that plays until a bank has loaded, and forever when it is not shipped
-const BANK_SYNTH = { s58real: "s58", f458real: "lt2" };
+const BANK_SYNTH = { s58real: "s58", f458real: "lt2", b58real: "b58" };
 const banks = new Map();
 function loadBank(ctx, name) {
   if (!banks.has(name)) banks.set(name, (async () => {

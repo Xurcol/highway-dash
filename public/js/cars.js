@@ -63,7 +63,7 @@ const ZF8 = [5.25, 3.36, 2.17, 1.72, 1.32, 1.0, .82, .64];
 const DSG7 = [3.56, 2.53, 1.68, 1.02, .79, .64, .52];
 const HP8 = [4.71, 3.14, 2.1, 1.67, 1.29, 1.0, .84, .67];
 export const ENGINE_SPECS = {
-  sedan:  { ratios: [5.0, 3.2, 2.14, 1.72, 1.31, 1.0, .82, .64], final: 3.15, redline: 7000, idle: 750, torque: 500, mass: 1650, cda: .6, grip: 1.02, tire: .34, shiftTime: .09, sound: "b58" },
+  sedan:  { ratios: [5.0, 3.2, 2.14, 1.72, 1.31, 1.0, .82, .64], final: 3.15, redline: 7000, idle: 750, torque: 500, mass: 1650, cda: .6, grip: 1.02, tire: .34, shiftTime: .09, sound: "b58real" },
   hatch:  { ratios: [3.4, 2.1, 1.5, 1.18, .95, .8], final: 3.9, redline: 7200, idle: 850, torque: 330, mass: 1250, cda: .68, grip: .95, tire: .31, shiftTime: .14, sound: "i4" },
   suv:    { ratios: [3.8, 2.3, 1.6, 1.25, 1.0, .82, .68], final: 3.6, redline: 6800, idle: 800, torque: 520, mass: 1900, cda: .95, grip: .9, tire: .36, shiftTime: .16, sound: "v6" },
   pickup: { ratios: [3.2, 2.1, 1.5, 1.15, .9, .72], final: 3.73, redline: 6600, idle: 720, torque: 620, mass: 2050, cda: 1.0, grip: .92, tire: .37, shiftTime: .16, sound: "v8x" },
@@ -88,13 +88,13 @@ export const CARS = [
     spec: spec({ hp: 315, torque: 420, mass: 1510, ratios: DSG7, final: 4.47, redline: 6700, idle: 800, cda: .66, grip: 1.08, tire: .33, shiftTime: .07, vmax: 270 }) },
   { id: "q50", name: "Q50 Red Sport", rarity: "EPIC", price: 2000, body: "q50", color: 0xa3161c, handling: 70, sound: "vr30",
     spec: spec({ hp: 400, torque: 475, mass: 1780, ratios: [4.783, 3.103, 1.984, 1.371, 1, .871, .776], final: 3.13, redline: 7000, idle: 700, cda: .66, grip: .98, tire: .34, shiftTime: .14, vmax: 250 }) },
-  { id: "m240i", name: "BMW M240i xDrive", rarity: "EPIC", price: 2200, body: "m240i", color: 0x3d6fc4, handling: 77, sound: "b58",
+  { id: "m240i", name: "BMW M240i xDrive", rarity: "EPIC", price: 2200, body: "m240i", color: 0x3d6fc4, handling: 77, sound: "b58real",
     spec: bmw8({ hp: 382, torque: 500, mass: 1690, cda: .62, grip: 1.08, tire: .34 }) },
   { id: "q60", name: "Infiniti Q60 Red Sport", rarity: "EPIC", price: 2400, body: "q60", color: 0xe9e9eb, handling: 72, sound: "vr30",
     spec: spec({ hp: 400, torque: 475, mass: 1750, ratios: [4.783, 3.103, 1.984, 1.371, 1, .871, .776], final: 3.13, redline: 7000, idle: 700, cda: .64, grip: .98, tire: .34, shiftTime: .14, vmax: 250 }) },
-  { id: "m340i", name: "BMW M340i xDrive", rarity: "EPIC", price: 2600, body: "m340i", color: 0x1f5aa6, handling: 75, sound: "b58",
+  { id: "m340i", name: "BMW M340i xDrive", rarity: "EPIC", price: 2600, body: "m340i", color: 0x1f5aa6, handling: 75, sound: "b58real",
     spec: bmw8({ hp: 382, torque: 500, mass: 1745, cda: .62, grip: 1.08, tire: .34 }) },
-  { id: "supra", name: "Toyota GR Supra 3.0", rarity: "EPIC", price: 3200, body: "supra", color: 0xc8102e, handling: 81, sound: "b58",
+  { id: "supra", name: "Toyota GR Supra 3.0", rarity: "EPIC", price: 3200, body: "supra", color: 0xc8102e, handling: 81, sound: "b58real",
     spec: bmw8({ hp: 382, torque: 500, mass: 1540, cda: .6, grip: 1.02, tire: .34 }) },
   { id: "rs3", name: "Audi RS3 Sportback", rarity: "EPIC", price: 3500, body: "rs3", color: 0x3f7f3a, handling: 79, sound: "i5",
     spec: spec({ hp: 401, torque: 500, mass: 1575, ratios: DSG7, final: 4.1, redline: 7200, idle: 850, cda: .64, grip: 1.1, tire: .33, shiftTime: .06, vmax: 290 }) },

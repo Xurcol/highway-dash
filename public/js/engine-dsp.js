@@ -55,7 +55,7 @@ export const ENGINE_PROFILES = {
   v12:     { label: "V12", cyl: 12, fire: even(12), amps: [1, .96, .98, .95, 1, .97, .99, .95, 1, .96, .98, .95], var: .03, header: 700, pipe: 185, fb: .48, muffler: 3300, body: [180, .9, .7], bark: [700, 1.5, .9], top: 1.7, intake: [340, .95], rough: .08, sub: .1, drive: 1.6, crackle: .5, gain: .92 },
 };
 export const SOUND_KEYS = Object.keys(ENGINE_PROFILES);
-export const SOUND_LABELS = { s58real: "BMW S58 (real recording)", f458real: "Ferrari 458 V8 (real recording)", ...Object.fromEntries(Object.entries(ENGINE_PROFILES).map(([k, p]) => [k, p.label])) };
+export const SOUND_LABELS = { s58real: "BMW S58 (real recording)", f458real: "Ferrari 458 V8 (real recording)", b58real: "BMW B58 (real recording)", ...Object.fromEntries(Object.entries(ENGINE_PROFILES).map(([k, p]) => [k, p.label])) };
 // audio side of a tune; tuning.js builds the real one from the car's parts
 // which cars get a dual-clutch shift signature
 const SHIFT_STYLE = { b58: "bmw", s58: "bmw", s63: "bmw", b46: "bmw", i5: "audi", ea888: "audi", amg: "merc", m264: "merc" };

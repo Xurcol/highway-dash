@@ -41,7 +41,7 @@ export const ENGINES = {
   v12:     { label: "6.5 V12", disp: 6.5, cyl: 12, induction: "na", maxRev: 9400, comp: 12.0, tqPeak: 6500, burbleRpm: 4200 },
 };
 // recorded-sample sounds map onto the engine they were recorded from
-export const ENGINE_ALIAS = { s58real: "s58", f458real: "lt2" };
+export const ENGINE_ALIAS = { s58real: "s58", f458real: "lt2", b58real: "b58" };
 export const engineKey = (sound) => ENGINE_ALIAS[sound] || sound;
 export const engineOf = (car) => ENGINES[engineKey(car.sound || specOf(car).sound || "i4")] || ENGINES.i4;
 export const isBoosted = (e) => e.induction !== "na";
