@@ -76,9 +76,12 @@ function adaptRes(dt) {
   else if (emaDt < .0175 && resScale < 1) { resScale = Math.min(1, resScale + .05); resize(); }
 }
 function resize() {
+  // A tab that is still laying out reports innerWidth 0. Sizing the drawing buffer to that leaves a
+  // 0x0 canvas, and anything that later reads pixels out of it (the garage thumbnails) throws.
+  const w = Math.max(1, innerWidth), h = Math.max(1, innerHeight);
   renderer.setPixelRatio(Math.min(2.5, Math.min(2, devicePixelRatio) * P.settings.res) * resScale);
-  renderer.setSize(innerWidth, innerHeight, false);
-  camera.aspect = innerWidth / innerHeight;
+  renderer.setSize(w, h, false);
+  camera.aspect = w / h;
   camera.updateProjectionMatrix();
 }
 addEventListener("resize", resize);
@@ -164,6 +167,7 @@ function renderShowroom(rect) {
 }
 function makeThumbs(ids = CARS.map((c) => c.id)) {
   const out = {}, w = 240, h = 130, pr = renderer.getPixelRatio();
+  if (canvas.width < w * pr || canvas.height < h * pr) return out;   // window not sized yet
   const c2 = document.createElement("canvas"); c2.width = w * 2; c2.height = h * 2;
   const g = c2.getContext("2d");
   showDeco.visible = false;
@@ -203,27 +207,72 @@ const thumbCache = {
   put(id, url) { const r = this.read(); r[id] = { sig: this.sig(id), url }; try { localStorage.setItem("hd_thumbs2", JSON.stringify(r)); } catch { } },
 };
 // First visit: download every car once (with a progress screen), then draw each one's garage picture.
-async function firstRunLoader() {
+// ---------------- startup screen ----------------
+// One screen for the whole boot, not just first-timers: it is already on screen in the markup, so the
+// menu is never visible half-built, and it reports whichever stage is actually running.
+const LOADER_TIPS = [
+  "Hold SPACE to glance out of the back window.",
+  "Q and E work the gear lever — R, N and D, even in automatic.",
+  "Press M to switch between automatic and manual shifting.",
+  "Threading a gap at speed pays a close-call bonus. Chain them for a combo.",
+  "Hold the brake and the throttle together at a standstill to arm launch control.",
+  "C cycles the cameras: chase, far, hood and bumper.",
+  "Every car in the garage has its own engine, gearbox and tuning options.",
+];
+const loader = (() => {
+  const el = document.getElementById("loader");
+  const bar = document.getElementById("loaderBar"), barBox = bar.parentElement;
+  const title = document.getElementById("loaderTitle"), sub = document.getElementById("loaderSub");
+  const tip = document.getElementById("loaderTip");
+  let tipTimer = 0;
+  const showTip = () => { tip.textContent = LOADER_TIPS[(Math.random() * LOADER_TIPS.length) | 0]; };
+  showTip();
+  tipTimer = setInterval(showTip, 4200);
+  document.getElementById("loaderVer").textContent = (document.documentElement.dataset.ver || "dev") + " build";
+  return {
+    // progress 0..1, or null when there is nothing real to measure (the bar sweeps instead of lying)
+    stage(text, detail = "", progress = null) {
+      title.textContent = text;
+      sub.textContent = detail;
+      barBox.classList.toggle("idle", progress === null);
+      if (progress !== null) bar.style.width = (Math.max(0, Math.min(1, progress)) * 100).toFixed(1) + "%";
+    },
+    // Lets the browser paint between stages so the status text actually changes on screen. It races
+    // a timer against the frame callback on purpose: a background tab suspends requestAnimationFrame
+    // entirely, and waiting on it alone would leave the game stuck on the loading screen forever.
+    breathe: () => new Promise((r) => {
+      let done = false;
+      const go = () => { if (!done) { done = true; r(); } };
+      requestAnimationFrame(() => setTimeout(go, 0));
+      setTimeout(go, 60);
+    }),
+    async finish() {
+      this.stage("Ready", "", 1);
+      await new Promise((r) => setTimeout(r, 220));
+      clearInterval(tipTimer);
+      el.classList.add("out");
+      setTimeout(() => { el.hidden = true; }, 520);
+    },
+  };
+})();
+// Downloads every car once and pre-renders its garage picture. Both stages report real progress.
+async function loadCarAssets() {
   const missing = await missingModels();
   const needThumbs = CARS.filter((c) => hasModel(c.id) && !thumbCache.get(c.id)).map((c) => c.id);
-  if (!missing.length && !needThumbs.length) return;
-  const el = document.getElementById("loader"), bar = document.getElementById("loaderBar"), title = document.getElementById("loaderTitle"), sub = document.getElementById("loaderSub");
-  el.hidden = false;
   if (missing.length) {
-    title.textContent = "Downloading cars";
+    loader.stage("Downloading cars", "Starting…", 0);
     await downloadModels(missing, (b, t, f, n) => {
-      bar.style.width = Math.min(100, (b / Math.max(1, t)) * 100).toFixed(1) + "%";
-      sub.textContent = `${(b / 1e6).toFixed(0)} / ${(t / 1e6).toFixed(0)} MB · car ${Math.min(n, f + 1)} of ${n}`;
+      loader.stage("Downloading cars", `${(b / 1e6).toFixed(0)} / ${(t / 1e6).toFixed(0)} MB · car ${Math.min(n, f + 1)} of ${n}`, b / Math.max(1, t));
     });
   }
-  title.textContent = "Preparing garage";
+  if (!needThumbs.length) return;
   for (let i = 0; i < needThumbs.length; i++) {
-    bar.style.width = ((i / needThumbs.length) * 100).toFixed(1) + "%";
-    sub.textContent = `${carById(needThumbs[i]).name} (${i + 1} of ${needThumbs.length})`;
-    await new Promise((r) => setTimeout(r, 0)); // let the screen update
-    if (await ensureModel(needThumbs[i])) makeThumbs([needThumbs[i]]);
+    loader.stage("Preparing garage", `${carById(needThumbs[i]).name} (${i + 1} of ${needThumbs.length})`, i / needThumbs.length);
+    await loader.breathe();
+    // one bad picture is not worth failing the whole startup over - the frame loop redraws it later
+    try { if (await ensureModel(needThumbs[i])) makeThumbs([needThumbs[i]]); }
+    catch (e) { console.warn("thumbnail failed", needThumbs[i], e); }
   }
-  el.hidden = true;
 }
 
 // ---------------- input ----------------
@@ -256,16 +305,19 @@ let state = "home";       // home | ready | drive | crashed | over
 let paused = false;
 let mode = "solo";        // solo | online
 let soloT = 0;
-// Game modes. Solo: classic (one life), police (outrun the cops), timeattack (2 minutes, crashes cost score).
+// Game modes. Solo: classic (one life), freedrive (no run to lose - just drive), police (outrun the
+// cops), timeattack (2 minutes, crashes cost score).
 // Party: crash (first crash ends the round), target (first to a score), timed (highest score when time's up).
-const SOLO_MODES = { classic: "Classic", police: "Police Chase", timeattack: "Time Attack" };
+const SOLO_MODES = { classic: "Classic", freedrive: "Free Drive", police: "Police Chase", timeattack: "Time Attack" };
 const PARTY_MODES = { crash: "Last One Standing", target: "First To Score", timed: "Timed Battle" };
 const TIME_ATTACK = 120;
 const soloMode = () => (SOLO_MODES[P.settings.soloMode] ? P.settings.soloMode : "classic");
 const partyMode = () => (mode === "online" && net.room ? net.room.mode || "crash" : null);
 // crashes respawn you (with a score penalty) instead of ending the run in these modes
-const respawnMode = () => (mode === "online" ? partyMode() !== "crash" : soloMode() === "timeattack");
-let camMode = 0;
+const respawnMode = () => (mode === "online" ? partyMode() !== "crash" : soloMode() === "timeattack" || soloMode() === "freedrive");
+// chase / far / hood / bumper - the drive camera, cycled with C and remembered between sessions
+const CAMS = ["CHASE CAM", "FAR CHASE", "HOOD CAM", "BUMPER CAM"];
+let camMode = Math.min(CAMS.length - 1, Math.max(0, P.settings.cam | 0));
 const G = {
   def: carById(P.equipped), car: null, dt: null, engine: null,
   x: 0, z: 0, vx: 0, yaw: 0, steer: 0, thr: 0, brk: 0,
@@ -395,7 +447,7 @@ function crash(hitCar) {
   audio.crash(Math.min(1, v / 50));
   G.crashT = 0; G.shake = 1;
   G.engine?.params(G.dt.s.idle, 0, 0);
-  if (respawnMode()) { G.score *= .9; G.combo = 0; ui.toast("Crashed — respawning (-10% score)"); if (mode === "online") net.send({ t: "event", kind: "crash", v: Math.floor(G.score) }); return; }
+  if (respawnMode()) { if (soloMode() !== "freedrive") { G.score *= .9; ui.toast("Crashed — respawning (-10% score)", [], "warn"); } else ui.toast("Respawning", [], "info"); G.combo = 0; if (mode === "online") net.send({ t: "event", kind: "crash", v: Math.floor(G.score) }); return; }
   if (mode === "online" && partyRound) { const res = awardRun(); ui.toast(`+${res.coins.toLocaleString()} coins`); G.awarded = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score) }); }
   else net.send({ t: "event", kind: "crash", v: Math.floor(G.score) });
 }
@@ -529,7 +581,7 @@ function onKey(code) {
   switch (code) {
     case "KeyR": if (mode === "online" && partyRound) ui.toast("Party rounds restart automatically"); else if (state !== "crashed") enterReady(mode), startDriving(); break;
     case "KeyP": case "Escape": togglePause(); break;
-    case "KeyC": camMode = (camMode + 1) % 3; break;
+    case "KeyC": camMode = (camMode + 1) % CAMS.length; ui.toast(CAMS[camMode], [], "info"); P.settings.cam = camMode; save(); break;
     case "KeyT": { const names = Object.keys(TIME_PRESETS); const i = (names.findIndex((n) => Math.abs(TIME_PRESETS[n] - sky.hour) < .3) + 1) % names.length; P.settings.hour = sky.hour = TIME_PRESETS[names[i]]; save(); ui.toast(`🕒 ${names[i]}`); break; }
     case "KeyB": { const names = Object.keys(WEATHERS); const i = (names.indexOf(sky.weatherName) + 1) % names.length; sky.setWeather(names[i]); P.settings.weather = names[i]; save(); ui.toast(`🌦 ${names[i]}`); break; }
     case "KeyV": { const i = (SKY_STYLES.indexOf(sky.style) + 1) % SKY_STYLES.length; sky.setStyle(SKY_STYLES[i]); P.settings.sky = SKY_STYLES[i]; save(); ui.toast(`✨ ${SKY_STYLES[i]} sky`); break; }
@@ -538,9 +590,11 @@ function onKey(code) {
   if (state !== "drive" || paused) return;
   const d = G.dt;
   switch (code) {
-    case "KeyM": d.manual = !d.manual; ui.toast(d.manual ? "⚙️ MANUAL — Q / E to shift" : "🅰 AUTOMATIC"); break;
-    case "KeyE": if (d.manual) d.shiftUp(); else ui.toast("Press M for manual mode"); break;
-    case "KeyQ": if (d.manual) d.shiftDown(); else ui.toast("Press M for manual mode"); break;
+    case "KeyM": d.manual = !d.manual; if (!d.manual && d.gear < 1) d.selectGear(1); ui.toast(d.manual ? "MANUAL — Q / E to shift" : "AUTOMATIC", [], "info"); break;
+    // Sequential lever: R - N - 1 - 2 ... In automatic the driver still picks R, N and D by hand
+    // (exactly like the lever in a real auto); the box only chooses between the forward gears.
+    case "KeyE": if (d.manual || d.gear <= 0) d.shiftUp(); else ui.toast("Press M for manual shifting"); break;
+    case "KeyQ": if (d.manual || d.gear <= 1) d.shiftDown(); else ui.toast("Press M for manual shifting"); break;
     case "KeyZ": G.sigL = G.sigL ? 0 : 6; G.sigR = 0; G.sigT = 0; G.sigOn = false; break;
     case "KeyX": G.sigR = G.sigR ? 0 : 6; G.sigL = 0; G.sigT = 0; G.sigOn = false; break;
     case "KeyH": audio.horn(true); break;
@@ -690,7 +744,8 @@ function updateRemotes(T, dt) {
       r.voice.setPan((s.x - G.x) / 20, Math.max(0, 1 - dist / 140) ** 2 * .7);
     } else r.voice?.params({ rpm: 900, throttle: 0, gain: 0, load: 0 });
   });
-  ui.renderPartyHud(list.map(({ r, s }) => ({ name: r.name, dz: G.z - s.z, score: s.sc || 0, crashed: s.cr, color: r.color })));
+  // renderPartyHud only redraws a few times a second; building its array every frame was pure garbage
+  if (ui.partyHudDue()) ui.renderPartyHud(list.map(({ r, s }) => ({ name: r.name, dz: G.z - s.z, score: s.sc || 0, crashed: s.cr, color: r.color })));
   // screen-edge markers for players that are off-screen or far away
   const markers = [];
   if (state !== "home") for (const { r, dist, id, s } of list) {
@@ -871,7 +926,8 @@ function updateModeHud(T) {
   const el = document.getElementById("modeHud");
   let txt = "";
   if (state === "drive" || state === "crashed") {
-    if (mode === "solo" && soloMode() === "timeattack") txt = `TIME ${Math.max(0, Math.ceil(TIME_ATTACK - T))}s`;
+    if (mode === "solo" && soloMode() === "freedrive") txt = `FREE DRIVE · ${(G.dist / 1609.34).toFixed(1)} MI`;
+    else if (mode === "solo" && soloMode() === "timeattack") txt = `TIME ${Math.max(0, Math.ceil(TIME_ATTACK - T))}s`;
     else if (mode === "solo" && soloMode() === "police") {
       const p = police.state;
       txt = p.cops.length ? `HEAT ${p.heat} · BOUNTY ${Math.floor(p.bounty).toLocaleString()} · BUSTED ${"▮".repeat(Math.round(p.meter * 5))}${"▯".repeat(5 - Math.round(p.meter * 5))}${p.escapeT > 0 ? " · ESCAPING " + Math.ceil(5 - p.escapeT) : ""}` : `HEAT ${p.heat} · cops in ${Math.max(0, Math.ceil(p.next))}s`;
@@ -893,7 +949,7 @@ function updateDrive(dt, T) {
   const prevThr = G.thr;
   G.thr += (thrIn - G.thr) * Math.min(1, dt * (thrIn > G.thr ? 14 : 12));
   // everything the burble model needs: how hard it was pulling, how fast the pedal came up, boost
-  const evInfo = () => ({ rpm: d.rpm, load: G.liftLoad ?? d.load, boost: d.s.boostMax ? d.boost / d.s.boostMax : 0, gear: d.gear, release: G.release || 0 });
+  const evInfo = () => ({ rpm: d.rpm, load: G.liftLoad ?? d.load, boost: d.s.boostMax ? d.boost / d.s.boostMax : 0, gear: Math.max(1, d.gear), release: G.release || 0 });
   if (thrIn) { G.release = 0; G.liftLoad = d.load; }
   else { G.liftLoad = Math.max(d.load, (G.liftLoad || 0) * Math.exp(-dt * .7)); G.release = (G.release || 0) * Math.exp(-dt * 1.2); }
   if (G.prevThrIn && !thrIn) { G.release = 10; G.engine?.event("lift", evInfo()); if (d.rpm > d.s.redline * .55) G.flameT = .6 + (d.s.antiLag ? .8 : 0); } // snap lift: flutter + overrun burble
@@ -932,7 +988,7 @@ function updateDrive(dt, T) {
     if (G.scraping) for (let i = 0; i < 3; i++) glows.add(G.x + Math.sign(G.x) * B.W / 2, .3 + Math.random() * .4, G.z + (Math.random() - .5) * 2, 1, .6 + Math.random() * .3, .2, .4 + Math.random() * .5);
   }
   G.z -= v * dt;
-  G.dist += v * dt;
+  G.dist += Math.max(0, v) * dt;   // reversing does not rack up distance
   G.yaw += (-Math.atan2(G.vx, Math.max(v, 6)) * .9 - G.yaw) * Math.min(1, dt * 10);
   // tyre smoke, squeal and exhaust flames
   const smokeAmt = spin > .15 ? spin : 0; // wheelspin only (launches)
@@ -1041,11 +1097,13 @@ function updateCamera(dt) {
     camera.fov = 45;
   } else {
     const far = camMode === 1;
-    const hood = camMode === 2;
+    const hood = camMode === 2 || camMode === 3;
     if (hood) {
-      target.set(G.x, B.top * .8 + .25, G.z - B.L * .1);
+      // bumper sits low and at the nose; hood sits on the scuttle just behind it
+      const bumper = camMode === 3;
+      target.set(G.x, bumper ? .55 : B.top * .8 + .25, G.z - (bumper ? B.L * .48 : B.L * .1));
       camera.position.copy(target);
-      look.set(G.x + G.vx * .2, B.top * .75, G.z - 30);
+      look.set(G.x + G.vx * .2, bumper ? .5 : B.top * .75, G.z - 30);
     } else {
       const tall = camera.aspect < 1.1 ? 1.5 : 0;
       const back = (far ? 12 : 8) + tall + B.L * .35 + kmh * .01;
@@ -1061,7 +1119,7 @@ function updateCamera(dt) {
     const lookBack = state === "drive" && held("Space");
     if (lookBack) { camera.position.set(G.x, B.top * .8 + .3, G.z + B.L * .05); look.set(G.x - G.vx * .2, B.top * .75, G.z + 30); }
     camera.lookAt(look);
-    camera.fov = lookBack ? 70 : hood ? 70 + Math.min(18, kmh * .05) : 58 + Math.min(20, kmh * .065);
+    camera.fov = lookBack ? 70 : hood ? (camMode === 3 ? 76 : 70) + Math.min(18, kmh * .05) : 58 + Math.min(20, kmh * .065);
   }
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
@@ -1080,7 +1138,7 @@ function updateEngineSound(dt) {
     G.prevReadyThr = thr;
     G.engine.params({ rpm: G.readyRpm, throttle: thr, gain: .85, load: thr * .9, boostNorm: thr * Math.min(1, G.readyRpm / 4000), gear: 1, redline: d.s.redline, warmth: d.warmth });
   } else if (state === "drive" && !paused) {
-    G.engine.params(d.audioState(d.shiftT > 0 && G.thr > .3 ? .1 : G.thr, camMode === 1 ? .7 : camMode === 2 ? .95 : .85));
+    G.engine.params(d.audioState(d.shiftT > 0 && G.thr > .3 ? .1 : G.thr, camMode === 1 ? .7 : camMode === 2 ? .95 : camMode === 3 ? 1 : .85));
   } else if (state !== "home") {
     G.engine.params({ rpm: d.s.idle * .6, throttle: 0, gain: 0, load: 0, boostNorm: 0 });
   }
@@ -1109,14 +1167,36 @@ function drawTach(rpm, redline, manual) {
 }
 let hudCache = {};
 function setText(el, v) { if (hudCache[el.id] !== v) { hudCache[el.id] = v; el.textContent = v; } }
+const gearLabel = (g) => (g < 0 ? "R" : g === 0 ? "N" : String(g));
+// R N 1 2 3 ... The cells are built once per car (the count only changes when the gearbox does) and
+// after that only the highlighted class is touched, so this costs nothing per frame.
+function gearStrip(d) {
+  const box = ui.el.gearStrip, n = d.s.ratios.length;
+  if (box.childElementCount !== n + 2) {
+    box.textContent = "";
+    for (let g = -1; g <= n; g++) {
+      const cell = document.createElement("i");
+      cell.textContent = gearLabel(g);
+      if (g < 0) cell.className = "rev"; else if (g === 0) cell.className = "neu";
+      box.appendChild(cell);
+    }
+    box.dataset.on = "";
+  }
+  const key = String(d.gear);
+  if (box.dataset.on === key) return;
+  box.dataset.on = key;
+  const idx = d.gear + 1;
+  for (let i = 0; i < box.children.length; i++) box.children[i].classList.toggle("on", i === idx);
+}
 function updateHud() {
   if (state !== "drive" && state !== "crashed" && state !== "ended") return;
   const d = G.dt, kmh = d.v * 3.6;
   setText(ui.el.score, Math.floor(G.score).toLocaleString());
   setText(ui.el.best, "BEST " + Math.max(P.best, Math.floor(G.score)).toLocaleString());
-  setText(ui.el.speed, `${Math.round(kmh * MPH)} MPH`);
-  setText(ui.el.dist, `${(G.dist / 1609.34).toFixed(1)}Mi`);
-  setText(ui.el.gear, d.shiftT > 0 ? "-" : String(d.gear));
+  setText(ui.el.speed, String(Math.round(Math.abs(kmh) * MPH)));
+  setText(ui.el.dist, `${(G.dist / 1609.34).toFixed(1)} Mi`);
+  setText(ui.el.gear, d.shiftT > 0 ? "-" : gearLabel(d.gear));
+  gearStrip(d);
   setText(ui.el.gearMode, d.manual ? "MANUAL" : "AUTO");
   ui.el.gearMode.classList.toggle("man", d.manual);
   ui.el.sigL.classList.toggle("on", !!G.sigL && G.sigOn);
@@ -1381,16 +1461,23 @@ net.addEventListener("event", (e) => {
 });
 
 applySettings();
-await loadModels();
-await firstRunLoader();
-await ensureModel(P.equipped);
+loader.stage("Building the world", "Roads, scenery and lighting");
+await loader.breathe();
 sky.update(0.016, camera, new THREE.Vector3(), 0);
 world.update(new THREE.Vector3(), sky, glows, lights, 1);
+loader.stage("Loading cars", "Reading the garage list");
+await loadModels();
+try { await loadCarAssets(); } catch (e) { console.warn("car assets", e); }
+loader.stage("Almost there", "Fitting your car");
+await ensureModel(P.equipped);
 setShowCar(P.equipped);
+// the pictures the loader just drew are already cached, so the garage is complete when it appears
+ui.thumbs = { ...ui.thumbs, ...thumbCache.all() };
 ui.show("home");
 ui.renderHome();
 net.connect(P.name, P.equipped);
 requestAnimationFrame(frame);
+await loader.finish();
 
 window.__ui = ui;
 window.__game = {

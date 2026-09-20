@@ -36,23 +36,33 @@ export function pushState(peer, m) {
 // Remote car state at round time T. Between updates: cubic Hermite on position using the reported
 // velocities (no corners at each packet). Past the newest update: dead-reckon forward so the car is
 // drawn where it is now, not where it was ~150 ms ago.
-export function sampleState(peer, T) {
+const LERP_FIELDS = ["ry", "v", "vx", "rpm", "thr", "roll", "pitch", "y"];
+// `out` is a caller-owned object that gets reused every frame. Sampling used to spread a fresh
+// ~24-field object (twice, counting RemoteView) per peer per frame; at 60 fps with a full party that
+// was thousands of short-lived objects a second, and the GC pauses they caused were the visible
+// "random online stutter". Every field a packet carries is always present, so overwriting in place
+// can never leave a stale value behind.
+export function sampleState(peer, T, out = {}) {
   const b = peer.buf;
   if (!b.length) return null;
-  if (T <= b[0].T) return { ...b[0] };
+  out.stale = 0;
+  if (T <= b[0].T) return Object.assign(out, b[0]);
   let i = b.length - 1;
   while (i > 0 && b[i].T > T) i--;
   const a = b[i], c = b[i + 1];
   if (c) {
     const span = Math.max(1e-3, c.T - a.T), k = (T - a.T) / span, k2 = k * k, k3 = k2 * k;
-    const h = (p0, p1, v0, v1) => (2 * k3 - 3 * k2 + 1) * p0 + (k3 - 2 * k2 + k) * span * v0 + (-2 * k3 + 3 * k2) * p1 + (k3 - k2) * span * v1;
-    const out = { ...c };
-    out.z = a.cr || c.cr ? a.z + (c.z - a.z) * k : h(a.z, c.z, -a.v, -c.v);
-    out.x = a.cr || c.cr ? a.x + (c.x - a.x) * k : h(a.x, c.x, a.vx || 0, c.vx || 0);
-    for (const f of ["ry", "v", "vx", "rpm", "thr", "roll", "pitch", "y"]) if (typeof a[f] === "number" && typeof c[f] === "number") out[f] = a[f] + (c[f] - a[f]) * k;
+    // cubic Hermite basis, evaluated once instead of rebuilt as a closure per call
+    const h0 = 2 * k3 - 3 * k2 + 1, h1 = (k3 - 2 * k2 + k) * span, h2 = -2 * k3 + 3 * k2, h3 = (k3 - k2) * span;
+    Object.assign(out, c);
+    const hard = a.cr || c.cr;   // a crashed car is tumbling, not driving: don't fit a velocity curve
+    out.z = hard ? a.z + (c.z - a.z) * k : h0 * a.z + h1 * -a.v + h2 * c.z + h3 * -c.v;
+    out.x = hard ? a.x + (c.x - a.x) * k : h0 * a.x + h1 * (a.vx || 0) + h2 * c.x + h3 * (c.vx || 0);
+    for (const f of LERP_FIELDS) if (typeof a[f] === "number" && typeof c[f] === "number") out[f] = a[f] + (c[f] - a[f]) * k;
     return out;
   }
-  const dt = Math.min(NET.extrapolate, T - a.T), out = { ...a };
+  const dt = Math.min(NET.extrapolate, T - a.T);
+  Object.assign(out, a);
   if (!a.cr) {
     out.z = a.z - a.v * dt;
     out.x = a.x + (a.vx || 0) * dt * Math.max(0, 1 - dt * 1.5);
@@ -71,7 +81,7 @@ export function sampleState(peer, T) {
 // velocity, and when a late packet then contradicts the guess, the difference is absorbed smoothly
 // (err decays away) instead of teleporting the car.
 export class RemoteView {
-  constructor() { this.delay = .15; this.ex = 0; this.ez = 0; this.disp = null; this.yaw = 0; this.roll = 0; this.pitch = 0; }
+  constructor() { this.delay = .15; this.ex = 0; this.ez = 0; this.disp = null; this.yaw = 0; this.roll = 0; this.pitch = 0; this.out = {}; }
   update(peer, T, dt) {
     const b = peer.buf;
     if (!b.length) return null;
@@ -82,7 +92,7 @@ export class RemoteView {
     const want = Math.min(NET.maxDelay, Math.max(NET.minDelay, peer.behind + (peer.gap || 1 / NET.sendRate) * .75 + (peer.jit || 0) * 2));
     // move the render clock gently: grow fast (avoid starving), shrink slowly (avoid time warps)
     this.delay += (want - this.delay) * Math.min(1, dt * (want > this.delay ? 6 : .7));
-    const s = sampleState(peer, T - this.delay);
+    const s = sampleState(peer, T - this.delay, this.out);
     if (!s) return null;
     if (!this.disp) { this.disp = { x: s.x, z: s.z }; this.ex = this.ez = 0; this.yaw = s.ry || 0; }
     // Only a DISCONTINUITY is corrected. While the interpolated target moves the way its own
@@ -102,7 +112,10 @@ export class RemoteView {
     this.yaw += ((s.ry || 0) - this.yaw) * yawK;
     this.pitch += ((s.pitch || 0) - this.pitch) * yawK;
     this.roll += ((s.roll || 0) - this.roll) * yawK;
-    return { ...s, x: s.x + this.ex, z: s.z + this.ez, ry: this.yaw, pitch: this.pitch, roll: this.roll, delay: this.delay };
+    // s IS this.out, so the corrected values are written straight back into the reused object
+    s.x += this.ex; s.z += this.ez;
+    s.ry = this.yaw; s.pitch = this.pitch; s.roll = this.roll; s.delay = this.delay;
+    return s;
   }
 }
 

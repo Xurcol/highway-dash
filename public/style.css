@@ -113,7 +113,7 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .mode:hover{color:var(--ink);border-color:var(--line-2)}
 .mode.on{border-color:var(--accent);color:var(--ink);background:var(--surface-3)}
 #preview{flex:1;position:relative;border:1px solid var(--line);border-radius:var(--r3);min-height:220px;overflow:hidden}
-.stats{position:absolute;top:var(--s4);right:var(--s4);display:flex;flex-direction:column;gap:var(--s2);width:min(280px,45%)}
+.stats{position:absolute;top:var(--s4);right:var(--s4);display:flex;flex-direction:column;gap:var(--s2);width:min(260px,40%)}
 .stats>div{display:flex;align-items:center;gap:var(--s2);font-size:var(--t-sm);color:var(--ink-2)}
 .stats b{width:28px;text-align:right;color:var(--ink);font-variant-numeric:tabular-nums}
 .sbar{flex:1;height:8px;background:rgba(0,0,0,.5);border-radius:var(--r-pill);overflow:hidden}
@@ -178,16 +178,33 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .speedup{position:absolute;top:104px;left:50%;transform:translateX(-50%);font-size:var(--t-xl);font-weight:700;
   color:var(--accent);opacity:0;transition:opacity .3s;text-shadow:0 2px 10px rgba(0,0,0,.9)}
 .speedup.on{opacity:1;animation:pulse 1.2s infinite}
-.speedo{position:absolute;bottom:var(--s4);left:50%;transform:translateX(-50%);display:flex;align-items:center;gap:var(--s5);text-align:center}
-#speed{font-size:var(--t-2xl);font-weight:700;line-height:1;text-shadow:0 2px 14px rgba(0,0,0,.9)}
-#dist{font-size:var(--t-md);font-weight:600;color:var(--ink-2);text-shadow:0 1px 8px #000}
+/* ---------- instrument cluster (speed + gears + tacho) ---------- */
+.cluster{position:absolute;right:var(--s4);bottom:var(--s4);display:grid;
+  grid-template-columns:auto auto;grid-template-areas:"read tach" "strip strip";
+  align-items:end;gap:var(--s2) var(--s4);
+  opacity:0;transform:translateY(12px);transition:opacity .35s var(--ease),transform .35s var(--ease)}
+#hud:not([hidden]) .cluster{opacity:1;transform:none}
+.cl-read{grid-area:read;text-align:right;line-height:1}
+.cl-speed{display:flex;align-items:baseline;justify-content:flex-end;gap:6px}
+#speed{font-size:var(--t-3xl);font-weight:700;line-height:.92;text-shadow:0 2px 18px rgba(0,0,0,.9)}
+#speedUnit{font-size:var(--t-sm);font-weight:700;letter-spacing:2px;color:var(--ink-2);text-shadow:0 1px 8px #000}
+.cl-sub{display:flex;align-items:center;justify-content:flex-end;gap:var(--s2);margin-top:var(--s1)}
+#dist{font-size:var(--t-sm);font-weight:600;color:var(--ink-2);text-shadow:0 1px 8px #000}
+/* R N 1 2 3 ... with the engaged gear lit */
+.gearstrip{grid-area:strip;display:flex;justify-content:flex-end;gap:4px}
+.gearstrip i{font-style:normal;min-width:20px;padding:2px 0;text-align:center;border-radius:var(--r1);
+  font-size:var(--t-xs);font-weight:700;letter-spacing:.5px;color:var(--ink-3);
+  background:rgba(10,14,24,.6);border:1px solid transparent;transition:color .12s,background .12s,border-color .12s}
+.gearstrip i.on{color:var(--accent-ink);background:var(--accent);border-color:var(--accent)}
+.gearstrip i.rev.on{background:var(--warn);border-color:var(--warn)}
+.gearstrip i.neu.on{background:var(--ink-2);border-color:var(--ink-2)}
 .sig{font-size:var(--t-xl);color:#2a3446;transition:color .08s}
 .sig.on{color:var(--good)}
 .combo{position:absolute;top:150px;left:50%;font-size:var(--t-xl);font-weight:700;color:var(--accent);
   white-space:nowrap;opacity:0;transform:translate(-50%,0) scale(.8);
   transition:opacity .25s,transform .25s var(--ease);text-shadow:0 2px 10px rgba(0,0,0,.9)}
 .combo.on{opacity:1;transform:translate(-50%,0) scale(1)}
-.tach{position:absolute;right:var(--s4);bottom:var(--s4);width:164px;height:164px}
+.tach{grid-area:tach;position:relative;width:164px;height:164px}
 .tach canvas{width:100%;height:100%}
 .gear{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:10px}
 .gear b{font-size:var(--t-2xl);line-height:1}
@@ -432,10 +449,17 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 /* ---------- toasts ---------- */
 .toasts{position:fixed;top:var(--s5);left:50%;transform:translateX(-50%);display:flex;flex-direction:column;
   gap:var(--s2);align-items:center;z-index:50;pointer-events:none}
-.toast{background:rgba(12,17,28,.94);border:1px solid var(--line-2);border-radius:var(--r2);
-  padding:10px var(--s4);font-size:var(--t-sm);animation:toastIn .28s var(--ease) both;
-  pointer-events:auto;display:flex;gap:var(--s3);align-items:center;box-shadow:var(--shadow-sm)}
-.toast .btn{padding:5px var(--s3);font-size:var(--t-xs)}
+.toast{--tone:var(--info);background:rgba(12,17,28,.94);border:1px solid var(--line-2);border-radius:var(--r2);
+  border-left:3px solid var(--tone);padding:10px var(--s4);font-size:var(--t-sm);
+  animation:toastIn .28s var(--ease) both;pointer-events:auto;display:flex;gap:var(--s2);
+  align-items:center;box-shadow:var(--shadow-sm);max-width:min(460px,90vw)}
+.toast .btn{padding:5px var(--s3);font-size:var(--t-xs);margin-left:var(--s2)}
+.toast.t-success{--tone:var(--good)}
+.toast.t-warn{--tone:var(--warn)}
+.toast.t-error{--tone:var(--bad)}
+.t-dot{width:7px;height:7px;border-radius:50%;background:var(--tone);flex:0 0 auto}
+.t-count{color:var(--ink-3);font-size:var(--t-xs);font-weight:700}
+.t-count:empty{display:none}
 @keyframes toastIn{from{opacity:0;transform:translateY(-10px)}}
 
 @media (max-width:1300px){.over-grid{grid-template-columns:1fr 1fr}.over-hearts{order:3}.tune-grid{grid-template-columns:1fr 1fr}}
@@ -480,7 +504,10 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 .panel{box-shadow:0 1px 0 rgba(255,255,255,.03) inset,var(--shadow)}
 .card.sel,.shop-row.on,.media-row.on,.brow.me{border-color:var(--accent)}
 /* ---------- garage mode picker + turntable toggle ---------- */
-.mode-select{position:absolute;left:var(--s4);top:var(--s4);display:flex;align-items:center;gap:6px;z-index:2;flex-wrap:wrap}
+.mode-select{position:absolute;left:var(--s4);top:var(--s4);z-index:2;display:flex;flex-direction:column;gap:var(--s2);
+  width:min(300px,48%);padding:var(--s3);border-radius:var(--r2);
+  background:rgba(10,13,20,.82);border:1px solid var(--line);backdrop-filter:blur(8px);box-shadow:var(--shadow-sm)}
+.mode-select:empty{display:none}
 .ms-label{font-size:var(--t-xs);color:var(--ink-3);letter-spacing:1.4px;margin-right:4px}
 .mode-select b{font-family:"Barlow Condensed";font-size:var(--t-lg);color:var(--accent)}
 .mode-select button{background:rgba(10,12,16,.8);border:1px solid var(--line-2);color:var(--ink-2);border-radius:var(--r2);padding:7px 12px;font-family:"Barlow Condensed";font-size:var(--t-md);font-weight:700;letter-spacing:.6px;backdrop-filter:blur(6px)}
@@ -507,10 +534,50 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 .st-l{width:72px;font-size:var(--t-xs);font-weight:700;letter-spacing:1.2px;color:var(--ink-2)}
 
 /* ---------- first-run loader ---------- */
-.loader{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;background:var(--bg)}
-.loader-box{width:min(460px,90vw);text-align:center;display:flex;flex-direction:column;gap:var(--s3)}
-.loader .brand{font-size:44px}
+.loader{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(120% 80% at 50% 0%,#141a26 0%,var(--bg) 62%);overflow:hidden;
+  opacity:1;transition:opacity .5s var(--ease)}
+.loader[hidden]{display:none}
+.loader.out{opacity:0;pointer-events:none}
+/* three lane stripes sliding past: the whole animated backdrop, no images and no JS */
+.loader-bg{position:absolute;inset:0;perspective:320px;opacity:.5}
+.loader-bg i{position:absolute;left:50%;bottom:-40%;width:14px;height:220%;
+  background:linear-gradient(to top,transparent,var(--accent) 22%,transparent 78%);
+  transform-origin:50% 100%;animation:laneRun 2.6s linear infinite}
+.loader-bg i:nth-child(1){transform:translateX(-50%) rotateX(72deg) translateX(-150px)}
+.loader-bg i:nth-child(2){transform:translateX(-50%) rotateX(72deg);animation-delay:-.85s;opacity:.7}
+.loader-bg i:nth-child(3){transform:translateX(-50%) rotateX(72deg) translateX(150px);animation-delay:-1.7s}
+@keyframes laneRun{from{background-position:0 0}to{background-position:0 420px}}
+.loader-box{position:relative;width:min(460px,90vw);text-align:center;display:flex;flex-direction:column;gap:var(--s3);
+  animation:loaderIn .6s var(--ease) both}
+@keyframes loaderIn{from{opacity:0;transform:translateY(14px)}}
+.loader .brand{font-size:clamp(34px,6vw,50px)}
 .loader-title{font-family:"Barlow Condensed",sans-serif;font-weight:700;font-size:var(--t-xl);letter-spacing:1.5px;margin-top:var(--s4)}
 .loader-bar{height:10px;background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-pill);overflow:hidden}
-.loader-bar i{display:block;height:100%;width:0;background:var(--accent);transition:width .2s linear}
-.loader-sub{font-size:var(--t-sm);color:var(--ink-2);font-variant-numeric:tabular-nums}
+.loader-bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--accent-dim),var(--accent));
+  border-radius:var(--r-pill);transition:width .25s var(--ease)}
+/* no measurable progress yet: sweep instead of faking a number */
+.loader-bar.idle i{width:35%!important;animation:barSweep 1.3s var(--ease) infinite;transition:none}
+@keyframes barSweep{from{transform:translateX(-120%)}to{transform:translateX(320%)}}
+.loader-sub{font-size:var(--t-sm);color:var(--ink-2);font-variant-numeric:tabular-nums;min-height:1.2em}
+.loader-tip{font-size:var(--t-sm);color:var(--ink-3);min-height:2.6em;margin:var(--s3) 0 0;line-height:1.5}
+.loader-foot{position:absolute;bottom:var(--s4);left:0;right:0;text-align:center;font-size:var(--t-xs);color:var(--ink-3);letter-spacing:1px}
+
+/* ---------- pause menu ---------- */
+.pause-panel{min-width:min(340px,90vw);gap:var(--s2);animation:pauseIn .22s var(--ease) both}
+@keyframes pauseIn{from{opacity:0;transform:translateY(10px) scale(.98)}}
+.pause-head{text-align:center;margin-bottom:var(--s2)}
+.pause-head h2{margin:0}
+.pause-head p{margin:var(--s1) 0 0}
+/* ---------- controls ---------- */
+.ctrl-cols{display:grid;grid-template-columns:1fr 1fr;gap:var(--s5)}
+.ctrl-cols h3:first-child{margin-top:0}
+@media (max-width:760px){.ctrl-cols{grid-template-columns:1fr;gap:var(--s3)}}
+
+/* ---------- solo mode picker ---------- */
+.ms-row{display:flex;flex-direction:column;gap:5px;width:100%}
+.ms-row .ms-label{margin:0}
+.ms-opts{display:flex;flex-wrap:wrap;gap:5px}
+.ms-note{margin:0;padding-top:var(--s2);border-top:1px solid var(--line);
+  font-size:var(--t-xs);color:var(--ink-3);line-height:1.45}
+.mode-select button{padding:5px 10px;font-size:var(--t-sm)}

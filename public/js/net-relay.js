@@ -48,6 +48,7 @@ export class RelayNet extends EventTarget {
     this.clockOffset = 0; this.clockSamples = []; // everyone in a party follows the host's clock
     this.links = [];
     this.seen = new Map(); // message id -> time, for de-duplicating the same message arriving via several relays
+    this.fastSeen = new Map(); // sender -> ring of recent payload hashes, for the 20 Hz state stream
   }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   now() { return Date.now() + this.clockOffset; }
@@ -121,8 +122,25 @@ export class RelayNet extends EventTarget {
   }
   publishPresence() { if (this.connected) this.pub(`presence/${this.me.code}`, this.presence(false), true); }
 
+  // Every message is published to all three relays, so each one arrives three times. Ordinary
+  // messages carry an _m id and are de-duplicated after parsing, which is fine at their rate. The
+  // 20 Hz state stream is a different story: a full party meant ~420 JSON.parse calls a second, two
+  // thirds of them thrown straight away. Duplicates are byte-identical, so hashing the raw string
+  // rejects them before any parsing happens.
+  fastDupe(from, raw) {
+    let h = 2166136261;
+    for (let i = 0; i < raw.length; i++) { h ^= raw.charCodeAt(i); h = Math.imul(h, 16777619); }
+    let ring = this.fastSeen.get(from);
+    if (!ring) this.fastSeen.set(from, (ring = { a: new Int32Array(8), i: 0 }));
+    if (ring.a.includes(h)) return true;
+    ring.a[ring.i = (ring.i + 1) & 7] = h;
+    return false;
+  }
   onMessage(topic, raw) {
     const parts = topic.split("/");
+    if (parts[0] === "room" && parts[2] === "s" && raw) {
+      if (parts[3] === this.me.code || this.fastDupe(parts[3], raw)) return;
+    }
     let m = null;
     if (raw) { try { m = JSON.parse(raw); } catch { return; } }
     if (m && m._m) { // same message via another relay (or a retained re-delivery)
@@ -216,7 +234,7 @@ export class RelayNet extends EventTarget {
     const code = this.room.code;
     this.unsubRoom(code);
     for (const id of this.peers.keys()) this.emit("peerLeft", id);
-    this.peers.clear();
+    this.peers.clear(); this.fastSeen.clear();
     this.room = null; this.roomInfo = null;
     this.publishPresence();
     if (!silent) this.emit("room", { fresh: true });
@@ -238,7 +256,7 @@ export class RelayNet extends EventTarget {
         .filter(([code, p]) => (p.room === this.room.code && live(p)) || code === this.me.code)
         .sort((a, b) => (a[1].joinT || 0) - (b[1].joinT || 0))
         .map(([id, p]) => ({ id, name: id === this.me.code ? this.me.name : p.name, car: id === this.me.code ? this.car : p.car, build: id === this.me.code ? this.build : p.build || null }));
-      for (const id of this.peers.keys()) if (!players.some((p) => p.id === id)) { this.emit("peerLeft", id); this.peers.delete(id); }
+      for (const id of this.peers.keys()) if (!players.some((p) => p.id === id)) { this.emit("peerLeft", id); this.peers.delete(id); this.fastSeen.delete(id); }
       for (const p of players) { const peer = this.peers.get(p.id); if (peer) { peer.name = p.name; peer.car = p.car || peer.car; } }
       const now = this.now();
       const roundState = !info.round ? "lobby" : now < info.epoch ? "countdown" : "running";

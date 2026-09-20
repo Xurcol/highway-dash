@@ -28,6 +28,8 @@ for (const f of fs.readdirSync(path.join(out, "js"))) {
 for (const f of ["index.html", "viewer.html"]) bust(path.join(out, f), (src) => src
   .replace(/(src="js\/[\w-]+\.js)(")/g, `$1?v=${v}$2`)
   .replace(/(href="style\.css)(")/g, `$1?v=${v}$2`));
+// the loading screen reads this, so a player can say which build they are on
+bust(path.join(out, "index.html"), (src) => src.replace('<html lang="en">', `<html lang="en" data-ver="${v}">`));
 // Only car models with a recorded licence/credit go on the public site; the rest stay local.
 {
   const mf = path.join(out, "models", "models.json");

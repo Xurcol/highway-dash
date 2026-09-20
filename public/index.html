@@ -15,14 +15,18 @@
 <canvas id="c"></canvas>
 
 <!-- ============ FIRST-RUN LOADER ============ -->
-<section id="loader" class="loader" hidden>
+<!-- Visible in the markup from the first paint, so the menu is never shown half-built. main.js
+     fades it out once the world, the models and the garage are all actually ready. -->
+<section id="loader" class="loader">
+  <div class="loader-bg" aria-hidden="true"><i></i><i></i><i></i></div>
   <div class="loader-box">
     <div class="brand">HIGHWAY <span>DASH</span></div>
-    <div class="loader-title" id="loaderTitle">Downloading cars</div>
+    <div class="loader-title" id="loaderTitle">Starting engine</div>
     <div class="loader-bar"><i id="loaderBar"></i></div>
-    <div class="loader-sub" id="loaderSub">Starting…</div>
-    <p class="muted small">One-time download. After this every car loads instantly.</p>
+    <div class="loader-sub" id="loaderSub">Warming up…</div>
+    <p class="loader-tip" id="loaderTip"></p>
   </div>
+  <div class="loader-foot"><span id="loaderVer">dev build</span></div>
 </section>
 
 <!-- ============ HOME / GARAGE ============ -->
@@ -91,7 +95,7 @@
   <div class="ready-title" id="readyTitle">HIGHWAY DASH</div>
   <div class="ready-sub" id="readySub">Five lanes. Thread the needle.</div>
   <div class="ready-click" id="readyClick">CLICK TO START</div>
-  <div class="ready-keys">W/S gas &amp; brake · A/D steer · hold S+W at a stop for launch control · M manual · Q/E shift · Z/X signals · H horn · C camera</div>
+  <div class="ready-keys">W/S gas &amp; brake · A/D steer · Q/E gears (R N 1 2…) · M auto/manual · hold SPACE to look back · C camera · H horn</div>
 </section>
 
 <!-- ============ HUD ============ -->
@@ -107,13 +111,16 @@
   </div>
   <div class="score"><div id="score">0</div><div id="best">BEST 0</div></div>
   <div id="speedUp" class="speedup">SPEED UP!</div>
-  <div class="speedo">
-    <span id="sigL" class="sig">◀</span>
-    <div><div id="speed">0 MPH</div><div id="dist">0.0Mi</div></div>
-    <span id="sigR" class="sig">▶</span>
-  </div>
   <div id="combo" class="combo">CLOSE CALL! x1</div>
-  <div class="tach"><canvas id="tach" width="260" height="260"></canvas><div class="gear"><b id="gear">1</b><span id="gearMode">AUTO</span></div></div>
+  <!-- one instrument cluster: speed, gear strip and tacho, kept out of the middle of the screen -->
+  <div class="cluster" id="cluster">
+    <div class="cl-read">
+      <div class="cl-speed"><b id="speed">0</b><span id="speedUnit">MPH</span></div>
+      <div class="cl-sub"><span id="sigL" class="sig">◀</span><span id="dist">0.0 Mi</span><span id="sigR" class="sig">▶</span></div>
+    </div>
+    <div class="tach"><canvas id="tach" width="260" height="260"></canvas><div class="gear"><b id="gear">1</b><span id="gearMode">AUTO</span></div></div>
+    <div class="gearstrip" id="gearStrip" aria-hidden="true"></div>
+  </div>
   <div id="partyList" class="partylist"></div>
   <div id="peerMarkers" class="peer-markers"></div>
   <div id="chatLog" class="chatlog"></div>
@@ -134,13 +141,46 @@
 
 <!-- ============ PAUSE ============ -->
 <section id="pause" class="screen dim" hidden>
-  <div class="panel center-panel">
-    <h2>PAUSED</h2>
+  <div class="panel center-panel pause-panel">
+    <div class="pause-head"><h2>PAUSED</h2><p class="muted small" id="pauseSub"></p></div>
     <button class="btn green wide" id="resumeBtn">RESUME</button>
-    <button class="btn blue wide" data-open="settings">SETTINGS</button>
-    <button class="btn red wide" id="pauseHome">HOME</button>
+    <button class="btn ghost wide" data-open="settings">SETTINGS</button>
+    <button class="btn ghost wide" data-open="controls">CONTROLS</button>
+    <button class="btn red wide" id="pauseHome">RETURN TO MENU</button>
   </div>
 </section>
+<!-- ============ CONTROLS ============ -->
+<section id="controls" class="modal" hidden>
+  <div class="panel modal-box">
+    <button class="close" data-close>✕</button>
+    <h2>CONTROLS</h2>
+    <div class="ctrl-cols">
+      <div>
+        <h3>DRIVING</h3>
+        <div class="keys">
+          <span>W / ↑</span>Throttle<span>S / ↓</span>Brake<span>A D / ← →</span>Steer
+          <span>S + W</span>Launch control (at a stop)<span>H</span>Horn
+        </div>
+        <h3>GEARBOX</h3>
+        <div class="keys">
+          <span>M</span>Automatic / manual<span>E</span>Shift up (N → 1 → 2…)<span>Q</span>Shift down (1 → N → R)
+        </div>
+      </div>
+      <div>
+        <h3>VIEW</h3>
+        <div class="keys">
+          <span>C</span>Camera: chase, far, hood, bumper<span>Space</span>Look back (hold)<span>T</span>Next time of day
+        </div>
+        <h3>GAME</h3>
+        <div class="keys">
+          <span>P</span>Pause<span>R</span>Restart<span>Z / X</span>Left / right signal
+          <span>L</span>Leaderboard<span>Enter</span>Chat (online)
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
 
 <!-- ============ GAME OVER ============ -->
 <section id="over" class="screen dim" hidden>
@@ -276,11 +316,7 @@
         <button class="btn danger" id="resetAll">RESET ALL DATA</button>
         <p class="muted small">Erases your level, coins, cars, tunes and settings on this device.</p>
         <h3>CONTROLS</h3>
-        <div class="keys">
-          <span>W / ↑</span>Throttle<span>S / ↓</span>Brake<span>A D / ← →</span>Steer<span>M</span>Manual / auto
-          <span>Q / E</span>Shift down / up<span>Z / X</span>Left / right signal<span>H</span>Horn<span>C</span>Camera
-          <span>Space</span>Look back (hold)<span>S + W</span>Launch control (at a stop)<span>T</span>Next time of day<span>Enter</span>Chat (online)<span>P / R</span>Pause / restart<span>L</span>Leaderboard
-        </div>
+        <button class="btn ghost wide" data-open="controls">VIEW ALL CONTROLS</button>
       </div>
     </div>
   </div>

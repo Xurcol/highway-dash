@@ -16,6 +16,14 @@ const MPH = 0.621371; // the game shows mph only
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 const fmtK = (n) => (n >= 1000 ? (n / 1000).toFixed(n % 1000 ? 1 : 0).replace(/\.0$/, "") + "K" : String(n));
 
+// one line of plain English per solo mode, shown under the picker
+const SOLO_BLURB = {
+  classic: "One life. One crash ends the run.",
+  freedrive: "No timer and no run to lose — crash and you just respawn.",
+  police: "Outrun the cops. Escape to raise the heat and the bounty.",
+  timeattack: "Two minutes. Crashes cost you 10% of your score.",
+};
+const TOAST_KINDS = ["info", "success", "warn", "error"];
 export class UI {
   constructor(ctx) {
     this.ctx = ctx;
@@ -28,7 +36,7 @@ export class UI {
     this.onlineSelected = false;
     this.el = {
       score: $("score"), best: $("best"), speed: $("speed"), dist: $("dist"), gear: $("gear"), gearMode: $("gearMode"),
-      sigL: $("sigL"), sigR: $("sigR"), speedUp: $("speedUp"), ghost: $("ghostNote"), combo: $("combo"), catchUp: $("catchUp"),
+      sigL: $("sigL"), sigR: $("sigR"), gearStrip: $("gearStrip"), speedUp: $("speedUp"), ghost: $("ghostNote"), combo: $("combo"), catchUp: $("catchUp"),
     };
     this.chatInput = $("chatInput");
     this.wireCommon();
@@ -80,19 +88,35 @@ export class UI {
   }
   toggleModal(id) { if (!$(id).hidden) this.closeModals(); else this.openModal(id); }
   closeModals() { document.querySelectorAll(".modal").forEach((m) => (m.hidden = true)); }
-  toast(msg, actions = []) {
+  // Notifications. kind is info (default) | success | warn | error and only changes the accent and
+  // icon, so every call site stays a one-liner. Repeats of the same message inside a second are
+  // folded into a counter instead of stacking, and the column is capped so nothing can flood it.
+  toast(msg, actions = [], kind = "info") {
+    const box = $("toasts"), now = performance.now();
+    const last = box.lastElementChild;
+    if (!actions.length && last && last.dataset.msg === msg && now - +last.dataset.t < 1000) {
+      const n = (+last.dataset.n || 1) + 1;
+      last.dataset.n = n; last.dataset.t = now;
+      last.querySelector(".t-count").textContent = "x" + n;
+      clearTimeout(+last.dataset.timer);
+      last.dataset.timer = setTimeout(() => last.remove(), 3200);
+      return;
+    }
     const t = document.createElement("div");
-    t.className = "toast";
-    t.innerHTML = `<span>${esc(msg)}</span>`;
+    t.className = "toast t-" + (TOAST_KINDS.includes(kind) ? kind : "info");
+    t.dataset.msg = msg; t.dataset.t = now; t.dataset.n = 1;
+    t.innerHTML = `<i class="t-dot"></i><span>${esc(msg)}</span><b class="t-count"></b>`;
     for (const a of actions) {
       const b = document.createElement("button");
       b.className = "btn " + (a.cls || "green"); b.textContent = a.label;
       b.onclick = () => { a.run(); t.remove(); };
       t.appendChild(b);
     }
-    $("toasts").appendChild(t);
-    setTimeout(() => t.remove(), actions.length ? 12000 : 3200);
+    box.appendChild(t);
+    while (box.childElementCount > 4) box.firstElementChild.remove();
+    t.dataset.timer = setTimeout(() => t.remove(), actions.length ? 12000 : 3200);
   }
+  notify(msg, kind) { this.toast(msg, [], kind); }
   closeCall(combo) {
     const c = this.el.combo;
     c.textContent = `CLOSE CALL! x${combo}`;
@@ -105,18 +129,28 @@ export class UI {
     log.appendChild(d);
     while (log.children.length > 8) log.firstChild.remove();
   }
+  // Marker elements are cached by id. This runs every frame, so the old attribute-selector lookup
+  // (one DOM query per peer per frame) and the colour write have both been taken out of the loop.
   renderPeerMarkers(list) {
     const box = $("peerMarkers");
-    const seen = new Set();
+    const cache = (this.markerEls ||= new Map());
+    const seen = this.markerSeen ||= new Set();
+    seen.clear();
     for (const m of list) {
       seen.add(m.id);
-      let el = box.querySelector(`[data-id="${m.id}"]`);
-      if (!el) { el = document.createElement("div"); el.className = "peer-marker"; el.dataset.id = m.id; box.appendChild(el); }
-      el.style.borderColor = m.color; el.style.transform = `translate(${m.x}px, ${m.y}px) translate(-50%, -50%)`;
+      let el = cache.get(m.id);
+      if (!el || !el.isConnected) {
+        el = document.createElement("div"); el.className = "peer-marker"; el.dataset.id = m.id;
+        box.appendChild(el); cache.set(m.id, el); el._col = null;
+      }
+      if (el._col !== m.color) { el._col = m.color; el.style.borderColor = m.color; }
+      el.style.transform = `translate(${m.x}px, ${m.y}px) translate(-50%, -50%)`;
       if (el.textContent !== m.text) el.textContent = m.text;
     }
-    for (const el of [...box.children]) if (!seen.has(el.dataset.id)) el.remove();
+    for (const [id, el] of cache) if (!seen.has(id)) { el.remove(); cache.delete(id); }
   }
+  // main.js asks first so it can skip building the list on frames that would be thrown away
+  partyHudDue() { return performance.now() - (this.partyHudT || 0) >= 250; }
   renderPartyHud(list) {
     const now = performance.now();
     if (now - (this.partyHudT || 0) < 250) return;
@@ -260,8 +294,30 @@ export class UI {
     if (this.onlineSelected) ms.innerHTML = this.net.room ? `<span class="ms-label">PARTY MODE</span><b>${this.ctx.PARTY_MODES[this.net.room.mode || "crash"]}</b>` : "";
     else {
       const cur = this.ctx.SOLO_MODES[P.settings.soloMode] ? P.settings.soloMode : "classic";
-      ms.innerHTML = `<span class="ms-label">MODE</span>` + Object.entries(this.ctx.SOLO_MODES).map(([k, v]) => `<button data-m="${k}" class="${k === cur ? "on" : ""}">${v}</button>`).join("") + `<button data-bots="1">BOTS: ${P.settings.bots | 0}</button>`;
-      ms.querySelectorAll("button").forEach((b) => b.onclick = () => { if (b.dataset.bots) { P.settings.bots = ((P.settings.bots | 0) + 1) % 6; save(); this.ctx.audio.ui(); return this.renderHome(); } P.settings.soloMode = b.dataset.m; save(); this.ctx.audio.ui(); this.renderHome(); });
+      const rows = [
+        `<div class="ms-row"><span class="ms-label">MODE</span><div class="ms-opts">` +
+          Object.entries(this.ctx.SOLO_MODES).map(([k, v]) => `<button data-m="${k}" class="${k === cur ? "on" : ""}">${v}</button>`).join("") +
+        `</div></div>`,
+        `<div class="ms-row"><span class="ms-label">BOTS</span><div class="ms-opts"><button data-bots="1">${(P.settings.bots | 0) || "OFF"}</button></div></div>`,
+      ];
+      // Free Drive is the open-ended mode, so the two things worth changing before you set off get
+      // their own row here rather than being buried in Settings.
+      if (cur === "freedrive") rows.push(
+        `<div class="ms-row"><span class="ms-label">TRAFFIC</span><div class="ms-opts">` +
+          Object.keys(TRAFFIC_LEVELS).map((k) => `<button data-traffic="${k}" class="${P.settings.traffic === k ? "on" : ""}">${k}</button>`).join("") +
+        `</div></div>`,
+        `<div class="ms-row"><span class="ms-label">TIME</span><div class="ms-opts">` +
+          Object.entries(TIME_PRESETS).map(([label, h]) => `<button data-hour="${h}" class="${Math.abs(P.settings.hour - h) < .05 ? "on" : ""}">${label}</button>`).join("") +
+        `</div></div>`);
+      ms.innerHTML = rows.join("") + `<p class="ms-note">${SOLO_BLURB[cur] || ""}</p>`;
+      ms.querySelectorAll("button").forEach((b) => b.onclick = () => {
+        const d = b.dataset;
+        if (d.bots) P.settings.bots = ((P.settings.bots | 0) + 1) % 6;
+        else if (d.traffic) P.settings.traffic = d.traffic;
+        else if (d.hour !== undefined) { P.settings.hour = +d.hour; this.ctx.applySettings?.(); }
+        else P.settings.soloMode = d.m;
+        save(); this.ctx.audio.ui(); this.renderHome();
+      });
       
     }
     $("spinBtn").classList.toggle("on", P.settings.spin !== false);

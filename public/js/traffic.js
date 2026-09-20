@@ -3,11 +3,10 @@
 // into the neighbouring lane; the swerve only happens when that lane is provably clear.
 import * as THREE from "three";
 import { makeTrafficCar, BODIES } from "./cars.js";
-import { hash, laneX, oppLaneX, LANES } from "./world.js";
+import { hash, laneX, LANES } from "./world.js";
 
 export const TRAFFIC_LEVELS = { Chill: .24, Normal: .38, Heavy: .5, Insane: .64 };
 const SAME_V = [118, 106, 96, 86, 74].map((k) => k / 3.6);
-const OPP_V = [84, 95, 106, 115, 124].map((k) => k / 3.6);
 const S = 34;
 const PALETTE = [0xf2f2f2, 0x1d1f24, 0x9aa1aa, 0xc62828, 0x1e5bd8, 0xf2c230, 0x2e7d4f, 0x6d3fb0, 0xe0701c, 0x7a1f2b, 0x5b6f86, 0xd8cbb0];
 const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "van", "suv", "coupe", "muscle", "sedan", "suv", "hatch", "m340i", "q50", "x5m", "charger", "golfr", "c63", "rs6", "x3m"];
@@ -44,6 +43,8 @@ export class Traffic {
   }
   density(j) { return this.base + (this.ramp ? Math.min(.22, Math.max(0, -j * S) / 26000) : .08); }
 
+  // dir is always 1: the road is one carriageway now. It is kept in the key and the signature so the
+  // deterministic hash (and therefore every party member) keeps agreeing on which slots spawn.
   raw(dir, lane, j) {
     const k = dir * 1000 + lane, seed = this.seed;
     if (hash(seed, k, j) > this.density(j)) return null;
@@ -51,12 +52,12 @@ export class Traffic {
     let body;
     if (lane >= 3 && h(4) < .22) body = h(5) < .3 ? "bus" : "truck";
     else body = SMALL[(h(6) * SMALL.length) | 0];
-    const v = (dir > 0 ? SAME_V : OPP_V)[lane];
+    const v = SAME_V[lane];
     const z0 = j * S + (h(1) - .5) * (body === "bus" || body === "truck" ? 3 : 10);
     const ph = h(2) * 6.283;
     return { key: `${dir}:${lane}:${j}`, h, body, dir, lane, j, v, z0, ph, L: BODIES[body].L, W: BODIES[body].W, color: PALETTE[(h(7) * PALETTE.length) | 0] };
   }
-  zAt(c, t) { return (c.dir > 0 ? c.z0 - c.v * t : c.z0 + c.v * t) + Math.sin(t * .12 + c.ph) * 1.5; }
+  zAt(c, t) { return c.z0 - c.v * t + Math.sin(t * .12 + c.ph) * 1.5; }
 
   // can car c occupy target lane during [t0, t1] without meeting anyone there?
   swerveSafe(c, target, t0, t1) {
@@ -90,11 +91,11 @@ export class Traffic {
   }
   resolve(c, T) {
     c.z = this.zAt(c, T);
-    const baseX = c.dir > 0 ? laneX(c.lane) : oppLaneX(c.lane);
+    const baseX = laneX(c.lane);
     c.x = baseX + Math.sin(T * .27 + c.ph * 1.7) * .2;
     c.sig = 0;
     const target = SWERVE_TARGET[c.lane];
-    if (c.dir > 0 && target !== undefined && c.h(8) < .45 && c.body !== "bus") {
+    if (target !== undefined && c.h(8) < .45 && c.body !== "bus") {
       const P = 15 + c.h(9) * 14, phase = T + c.h(10) * P, tl = ((phase % P) + P) % P;
       if (tl < WIN) {
         const T0 = T - tl;
@@ -110,11 +111,11 @@ export class Traffic {
     }
     return c;
   }
-  query(T, zAhead, zBehind, dirs = [1, -1]) {
+  query(T, zAhead, zBehind, dirs = [1]) {
     const out = [];
     for (const dir of dirs) for (let lane = 0; lane < LANES; lane++) {
-      const v = (dir > 0 ? SAME_V : OPP_V)[lane];
-      const shift = dir > 0 ? v * T : -v * T;
+      const v = SAME_V[lane];
+      const shift = v * T;
       const j0 = Math.ceil((zAhead + shift - 12) / S), j1 = Math.floor((zBehind + shift + 12) / S);
       for (let j = j0; j <= j1; j++) {
         const c = this.raw(dir, lane, j);
@@ -167,13 +168,21 @@ export class Traffic {
   // time T. Two clients in a party exchange this; if it ever differs they are not running the same
   // traffic and the receiver re-seeds from the room. The swerve offset is deliberately left out -
   // it depends on where the drivers are, which is the one thing that legitimately differs.
+  // Memoised: T is quantised to half a second by the sender, so everyone in the party asks for the
+  // same handful of values. Without this, one full scan ran per incoming config packet per peer.
   worldHash(T) {
+    if (this.whT === T && this.whSeed === this.seed && this.whBase === this.base) return this.whVal;
+    const h = this.computeWorldHash(T);
+    this.whT = T; this.whSeed = this.seed; this.whBase = this.base; this.whVal = h;
+    return h;
+  }
+  computeWorldHash(T) {
     let h = Math.round(this.base * 1000) ^ (this.seed | 0) ^ (this.ramp ? 1 : 0);
-    for (let j = -20; j < 20; j++) for (const dir of [1, -1]) for (let lane = 0; lane < LANES; lane++) {
+    for (let j = -20; j < 20; j++) { const dir = 1; for (let lane = 0; lane < LANES; lane++) {
       const c = this.raw(dir, lane, j);
       if (!c) continue;
       h = (h * 31 + Math.round(this.zAt(c, T) * 4) + c.color + c.lane * 7 + c.dir * 3 + c.body.charCodeAt(0) * 13 + Math.round(c.v * 10)) | 0;
-    }
+    } }
     return h;
   }
   update(dt, T, focusZ, night, glows, lights, camPos, hidden = null) {
@@ -186,7 +195,7 @@ export class Traffic {
       seen.add(c.key);
       let m = this.active.get(c.key);
       if (!m) { m = this.acquire(c.body, c.color); this.active.set(c.key, m); }
-      let rot = c.dir > 0 ? 0 : Math.PI;
+      let rot = 0;
       const b = this.bumped.get(c.key);
       if (b) {
         b.t += dt; b.vx *= Math.exp(-dt * 2); b.vz *= Math.exp(-dt * 1.5); b.vr *= Math.exp(-dt * 2);
@@ -206,15 +215,11 @@ export class Traffic {
         glows.add(c.x + side * hw, B.hl[1], c.z - c.L / 2 - .05, 1, .55, .05, 1.0);
       }
       if (night) {
-        if (c.dir > 0) {
-          for (const s of [-1, 1]) glows.add(c.x + s * hw, B.tl[1], c.z + c.L / 2 + .05, 1, .08, .05, .9);
-          if (lightN < 8 && c.z < camPos.z && c.z > camPos.z - 160) {
-            const L = this.lightPool[lightN++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -.12, -1).normalize(), color: new THREE.Color(1, .95, .85), intensity: 4, range: 45, cosOuter: Math.cos(.5), cosInner: Math.cos(.22) };
-            L.pos.set(c.x, B.hl[1] + .1, c.z - c.L / 2 - .3);
-            lights.push(L);
-          }
-        } else {
-          for (const s of [-1, 1]) glows.add(c.x + s * hw, B.hl[1], c.z + c.L / 2 + .05, 1, .95, .8, 1.6);
+        for (const s of [-1, 1]) glows.add(c.x + s * hw, B.tl[1], c.z + c.L / 2 + .05, 1, .08, .05, .9);
+        if (lightN < 8 && c.z < camPos.z && c.z > camPos.z - 160) {
+          const L = this.lightPool[lightN++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -.12, -1).normalize(), color: new THREE.Color(1, .95, .85), intensity: 4, range: 45, cosOuter: Math.cos(.5), cosInner: Math.cos(.22) };
+          L.pos.set(c.x, B.hl[1] + .1, c.z - c.L / 2 - .3);
+          lights.push(L);
         }
       }
     }
