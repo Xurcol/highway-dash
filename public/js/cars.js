@@ -106,6 +106,8 @@ export const CARS = [
     spec: bmw8({ hp: 503, torque: 600, mass: 1970, redline: 7200, idle: 800, cda: .95, grip: 1.05, tire: .38, vmax: 285 }) },
   { id: "m3", name: "BMW M3 Competition (G80)", rarity: "LEGENDARY", price: 6800, body: "m3", color: 0x5a8a2b, handling: 84, sound: "s58real",
     spec: bmw8({ hp: 503, torque: 650, mass: 1730, redline: 7200, idle: 800, cda: .66, grip: 1.08, shiftTime: .08, vmax: 290 }) },
+  { id: "m5", name: "BMW M5 CS (F90)", rarity: "MYTHIC", price: 11500, body: "e63", color: 0x2a2d31, handling: 82, sound: "s63",
+    spec: bmw8({ hp: 627, torque: 750, mass: 1825, final: 3.46, redline: 7200, idle: 800, cda: .68, grip: 1.1, tire: .38, shiftTime: .08 }) },
   { id: "m4", name: "BMW M4 Competition (G82)", rarity: "LEGENDARY", price: 7000, body: "m4", color: 0xf2c200, handling: 85, sound: "s58real",
     spec: bmw8({ hp: 503, torque: 650, mass: 1725, redline: 7200, idle: 800, cda: .64, grip: 1.08, shiftTime: .08, vmax: 290 }) },
   { id: "rs6", name: "Audi RS6 Avant", rarity: "LEGENDARY", price: 7800, body: "rs6", color: 0x8c8f93, handling: 76, sound: "amg",

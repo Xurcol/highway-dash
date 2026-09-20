@@ -14,7 +14,8 @@
     "gt3rs",
     "svj",
     "m3",
-    "supra"
+    "supra",
+    "m5"
   ],
   "a4": {
     "paint": [
@@ -379,9 +380,10 @@
     "gt3rs": "Porsche 911 Carrera 4S by Karol Miklas (sketchfab.com/karolmiklas), CC-BY-SA-4.0",
     "svj": "Aventador SVJ Black Ghost by SDC PERFORMANCE (sketchfab.com/3Duae), CC-BY-NC-4.0",
     "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0",
-    "supra": "Toyota Supra by Jiaxing (sketchfab.com/saitoyang), CC-BY-4.0"
+    "supra": "Toyota Supra by Jiaxing (sketchfab.com/saitoyang), CC-BY-4.0",
+    "m5": "2022 BMW M5 CS by Ddiaz Design (sketchfab.com/ddiaz-design), CC-BY-NC-SA-4.0"
   },
-  "rev": 9,
+  "rev": 10,
   "supra": {
     "paint": [
       "^carpaint$"
@@ -400,6 +402,32 @@
     ],
     "wheels": [
       "^Plane0(16|20|18|74)$"
+    ]
+  },
+  "m5": {
+    "paint": [
+      "Paint_Material"
+    ],
+    "glass": [
+      "Window_Material"
+    ],
+    "rim": [
+      "3DWheel1A"
+    ],
+    "caliper": [
+      "CallipersCalliperA_Zone"
+    ],
+    "tail": [
+      "^RED_GLASS$"
+    ],
+    "head": [
+      "LightA_Material"
+    ],
+    "wheelMats": [
+      "3DWheel1A"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
     ]
   }
 }

@@ -13,7 +13,7 @@ export const CAR_PRICES = {
   autobahn6: 9000, q50: 10000, m240i: 12000, q60: 13000, embergt: 13500, m340i: 15000, supra: 18000, rs3: 20000,
   // performance
   m2: 30000, c63: 34000, x3m: 36000, charger: 38000, challenger: 38000, vipermint: 40000,
-  m3: 46000, m4: 48000, rs6: 52000, e63: 55000, glacierbolt: 60000,
+  m3: 46000, m5: 64000, m4: 48000, rs6: 52000, e63: 55000, glacierbolt: 60000,
   // super
   gt3rs: 84000, x5m: 72000, x6m: 76000, gtr: 88000, c8: 95000,
   // premium / rare

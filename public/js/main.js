@@ -1384,8 +1384,6 @@ applySettings();
 await loadModels();
 await firstRunLoader();
 await ensureModel(P.equipped);
-// 3D model credits (CC-BY requires them to be shown)
-fetch("/models/models.json", { cache: "no-cache" }).then((r) => r.json()).then((mj) => { const el = document.getElementById("credits"); if (el) el.textContent = Object.values(mj.credits || {}).join(" · ") || "—"; }).catch(() => {});
 sky.update(0.016, camera, new THREE.Vector3(), 0);
 world.update(new THREE.Vector3(), sky, glows, lights, 1);
 setShowCar(P.equipped);
