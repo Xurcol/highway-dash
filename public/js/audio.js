@@ -37,7 +37,9 @@ class EngineVoice {
 }
 
 // ---------- recorded engine (sample banks, e.g. public/sounds/s58) ----------
-const BANK_FOR = { s58real: "s58" };
+const BANK_FOR = { s58real: "s58", f458real: "f458" };
+// the synthesized engine that plays until a bank has loaded, and forever when it is not shipped
+const BANK_SYNTH = { s58real: "s58", f458real: "lt2" };
 const banks = new Map();
 function loadBank(ctx, name) {
   if (!banks.has(name)) banks.set(name, (async () => {
@@ -179,7 +181,7 @@ class SmartEngine {
     if (name === this.name) return;
     this.name = name;
     const bankName = BANK_FOR[name];
-    const synthName = bankName ? "s58" : name;
+    const synthName = bankName ? BANK_SYNTH[name] || "b58" : name;
     if (this.voice instanceof EngineVoice) this.voice.setProfile(synthName); else this.use(new EngineVoice(this.am, synthName));
     if (bankName) loadBank(this.am.ctx, bankName).then((bank) => { if (bank && this.name === name) this.use(new SampleVoice(this.am, bank)); });
   }
