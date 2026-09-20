@@ -5,7 +5,7 @@ import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAIN
 import { FINISHES, TINTS, STANCES, FITMENT } from "./cars.js";
 import { stylePrice, STYLE_PRICES } from "./economy.js";
 import { SOUND_LABELS } from "./engine-dsp.js";
-import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, summary, defaultTune, maxBoostFor, peakHp, stageMap } from "./tuning.js";
+import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, isForced, summary, defaultTune, maxBoostFor, peakHp, stageMap } from "./tuning.js";
 import { partPrice, TUNING_PRICES, COSMETIC_PRICES, fmtCoins, CAR_PRICES } from "./economy.js";
 import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
@@ -836,7 +836,9 @@ export class UI {
     ];
     this.EXHAUST_CONTROLS = [
       { key: "burble", label: "Decel fuel cut", fmt: (v) => Math.round(v * 100) + "%" },
-      { key: "decay", label: "Burble length", fmt: (v) => v.toFixed(1) + "s" },
+      { key: "burbleVol", label: "Burble loudness", fmt: (v) => Math.round(v * 100) + "%" },
+      { key: "aggr", label: "Aggressiveness", fmt: (v) => (v < .5 ? "Docile" : v < .9 ? "Mild" : v < 1.2 ? "Stock" : v < 1.6 ? "Angry" : "Unhinged") },
+      { key: "decay", label: "Burble length", fmt: (v) => (v <= .12 ? "single bang" : v.toFixed(1) + "s") },
       { key: "mix", label: "Pop style", fmt: (v) => (v < .35 ? "burble" : v > .65 ? "crackle" : "mixed") },
       { key: "engineBrake", label: "Engine braking", fmt: (v) => Math.round(v * 100) + "%" },
     ];
@@ -895,11 +897,13 @@ export class UI {
   }
   // the best (last) option of every part this car can take: what it would cost and what changes
   bestPlan() {
-    const car = carById(this.view), e = engineOf(car), boosted = isBoosted(e), cur = carTune(this.view), plan = [];
+    const car = carById(this.view), cur = carTune(this.view), e = engineOf(car), boosted = isForced(e, cur), plan = [];
     let total = 0;
     for (const [kind, def] of Object.entries(PARTS)) {
-      if (def.boostedOnly && (!boosted || e.induction === "super")) continue;
-      const keys = Object.keys(def.opts), best = keys[keys.length - 1];
+      if (def.forcedOnly && (!boosted || e.induction === "super")) continue;
+      const keys = Object.keys(def.opts).filter((k) => this.optFits(kind, k, e));
+      const best = keys[keys.length - 1];
+      if (!best) continue;
       if (cur[kind] === best) continue;
       const price = ownsPart(car.id, kind, best) ? 0 : partPrice(kind, best);
       plan.push({ kind, best, price }); total += price;
@@ -926,7 +930,7 @@ export class UI {
   }
 
   renderTune() {
-    const car = carById(this.view), t = this.effTune(), e = engineOf(car), boosted = isBoosted(e);
+    const car = carById(this.view), t = this.effTune(), e = engineOf(car), boosted = isForced(e, t);
     const fitted = carTune(this.view), hasEcu = ownsEcu(this.view);
     const sum = summary(car, t), stock = summary(car, defaultTune(car));
     $("tuneCar").textContent = car.name;
@@ -936,7 +940,7 @@ export class UI {
     ab.hidden = !bp.plan.length || P.coins < bp.total;
     ab.textContent = bp.total ? `APPLY BEST · 🪙 ${fmtCoins(bp.total)}` : "APPLY BEST";
     ab.onclick = () => this.applyBest();
-    $("tuneEngine").innerHTML = `<b>${esc(e.label)}</b><small>${e.disp.toFixed(1)}L · ${e.cyl} cyl · ${boosted ? (e.induction === "super" ? "supercharged" : e.turbos > 1 ? "twin-turbo" : "turbo") : "naturally aspirated"} · audio locked to this engine</small>`;
+    $("tuneEngine").innerHTML = `<b>${esc(e.label)}</b><small>${e.disp.toFixed(1)}L · ${e.cyl} cyl · ${isBoosted(e) ? (e.induction === "super" ? "supercharged" : e.turbos > 1 ? "twin-turbo" : "turbo") : boosted ? "turbo conversion" : "naturally aspirated"} · audio locked to this engine</small>`;
     document.querySelectorAll("#tune .tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === this.tuneTab));
     $("tabMap").hidden = this.tuneTab !== "map";
     $("tabParts").hidden = this.tuneTab !== "parts";
@@ -1020,7 +1024,17 @@ export class UI {
 
     this.renderShop(car, t, boosted, e);
     this.renderFitted(t);
-    this.drawCharts(sum, stock, t, boosted);
+  }
+
+  // A factory-turbo upgrade only bolts to an engine that already has a turbo; a conversion kit
+  // only makes sense on one that does not.
+  optFits(kind, key, e) {
+    if (kind !== "turbo") return true;
+    const o = PARTS.turbo.opts[key] || {};
+    if (e.induction === "super") return key === "stock";
+    if (o.factoryOnly) return isBoosted(e);
+    if (o.convert) return !isBoosted(e);
+    return true;
   }
 
   // ---- upgrade shop: price, what it does, what it costs, and whether you can afford it ----
@@ -1029,18 +1043,20 @@ export class UI {
     host.innerHTML = "";
     const baseHp = peakHp(car, t);
     for (const [kind, def] of Object.entries(PARTS)) {
-      const locked = def.boostedOnly && (!boosted || e.induction === "super");
+      const locked = def.forcedOnly && (!boosted || e.induction === "super");
       const group = document.createElement("div");
       group.className = "shop-group" + (locked ? " locked" : "");
       group.innerHTML = `<div class="shop-head"><b>${def.label}</b>${locked ? `<span class="muted small">not available on this engine</span>` : ""}</div>`;
       for (const [key, opt] of Object.entries(def.opts)) {
+        if (!this.optFits(kind, key, e)) continue;
         const price = partPrice(kind, key);
         const owned = ownsPart(car.id, kind, key), on = t[kind] === key;
         const afford = P.coins >= price;
         const effect = this.partEffect(kind, key, car, t, baseHp);
         const row = document.createElement("div");
         row.className = "shop-row" + (on ? " on" : "") + (locked ? " off" : "");
-        row.innerHTML = `<div class="sr-main"><b>${esc(opt.label)}</b><span class="sr-effect">${effect}</span></div>
+        const label = kind === "turbo" && !isBoosted(e) && opt.naLabel ? opt.naLabel : opt.label;
+        row.innerHTML = `<div class="sr-main"><b>${esc(label)}</b><span class="sr-effect">${effect}</span></div>
           <div class="sr-buy">${price ? `<span class="price">🪙 ${fmtCoins(price)}</span>` : `<span class="price free">Included</span>`}
           <button class="btn ${on ? "ghost" : owned ? "primary" : afford ? "accent" : "ghost"}" ${on || locked || (!owned && !afford) ? "disabled" : ""}>${on ? "FITTED" : owned ? "FIT" : afford ? "BUY" : "NEED " + fmtCoins(price - P.coins)}</button></div>`;
         if (!on && !locked && (owned || afford)) row.querySelector("button").onclick = () => this.buyPartUI(kind, key);
@@ -1080,68 +1096,6 @@ export class UI {
     if (key === "final") return [+(s.final * .75).toFixed(2), +(s.final * 1.3).toFixed(2), .01];
     return [lo, hi, step];
   }
-  // ---------- charts ----------
-  chart(id, series, opts = {}) {
-    const cv = $(id), g = cv.getContext("2d"), W = cv.width, H = cv.height;
-    const padL = 42, padR = 46, padT = 14, padB = 22;
-    g.clearRect(0, 0, W, H);
-    g.fillStyle = "#0d121c"; g.fillRect(0, 0, W, H);
-    const xs = series[0].pts.map((p) => p[0]);
-    const x0 = Math.min(...xs), x1 = Math.max(...xs);
-    const px = (x) => padL + ((x - x0) / Math.max(1, x1 - x0)) * (W - padL - padR);
-    g.strokeStyle = "#1e2636"; g.lineWidth = 1; g.font = "600 11px Barlow, sans-serif"; g.fillStyle = "#6b7689";
-    for (let r = Math.ceil(x0 / 1000) * 1000; r <= x1; r += 1000) {
-      g.beginPath(); g.moveTo(px(r), padT); g.lineTo(px(r), H - padB); g.stroke();
-      g.textAlign = "center"; g.fillText(r / 1000 + "k", px(r), H - 7);
-    }
-    if (opts.mark) {
-      g.strokeStyle = "#e04b5a"; g.setLineDash([4, 4]);
-      g.beginPath(); g.moveTo(px(opts.mark), padT); g.lineTo(px(opts.mark), H - padB); g.stroke();
-      g.setLineDash([]);
-    }
-    for (const s of series) {
-      const vals = s.pts.map((p) => p[1]);
-      const lo = s.min !== undefined ? s.min : Math.min(0, ...vals), hi = s.max !== undefined ? s.max : Math.max(...vals) * 1.1 || 1;
-      const py = (v) => H - padB - ((v - lo) / Math.max(1e-6, hi - lo)) * (H - padT - padB);
-      g.beginPath();
-      s.pts.forEach((p, i) => (i ? g.lineTo(px(p[0]), py(p[1])) : g.moveTo(px(p[0]), py(p[1]))));
-      g.strokeStyle = s.color; g.lineWidth = s.dash ? 1.5 : 2.5;
-      g.setLineDash(s.dash || []);
-      g.stroke(); g.setLineDash([]);
-      if (s.label) {
-        g.fillStyle = s.color; g.textAlign = s.right ? "left" : "right";
-        g.fillText(s.label, s.right ? W - padR + 4 : padL - 5, py(s.pts[s.pts.length - 1][1]) + 4);
-      }
-    }
-  }
-  drawCharts(sum, stock, t, boosted) {
-    const c = sum.curve, sc = stock.curve, mark = t.revLimit;
-    const pick = (arr, f) => arr.map((p) => [p.rpm, f(p)]);
-    const hpMax = Math.max(...c.map((p) => p.hp), ...sc.map((p) => p.hp)) * 1.12;
-    const nmMax = Math.max(...c.map((p) => p.nm), ...sc.map((p) => p.nm)) * 1.12;
-    this.chart("chartDyno", [
-      { pts: pick(sc, (p) => p.hp), color: "#3a5675", dash: [5, 4], max: hpMax, min: 0 },
-      { pts: pick(sc, (p) => p.nm), color: "#6b4a2e", dash: [5, 4], max: nmMax, min: 0 },
-      { pts: pick(c, (p) => p.hp), color: "#3fb8ff", max: hpMax, min: 0, label: "hp" },
-      { pts: pick(c, (p) => p.nm), color: "#b89bff", max: nmMax, min: 0, label: "Nm", right: true },
-    ], { mark });
-    const bMax = Math.max(2, ...c.map((p) => Math.max(p.boost, p.target))) * 1.2;
-    this.chart("chartBoost", boosted ? [
-      { pts: pick(c, (p) => p.target), color: "#7d879b", dash: [4, 4], max: bMax, min: 0, label: "target" },
-      { pts: pick(c, (p) => p.boost), color: "#3dff6a", max: bMax, min: 0, label: "psi" },
-    ] : [{ pts: pick(c, () => 0), color: "#3a4256", max: 1, min: 0, label: "naturally aspirated" }], { mark });
-    this.chart("chartFuel", [
-      { pts: pick(c, (p) => p.afr), color: "#3ee0ff", min: 10, max: 15, label: "AFR" },
-      { pts: pick(c, (p) => p.timing), color: "#b27dff", min: -8, max: 12, label: "timing", right: true },
-    ], { mark });
-    this.chart("chartTemp", [
-      { pts: pick(c, (p) => p.egt), color: "#ff4a55", min: 200, max: 1100, label: "EGT" },
-      { pts: pick(c, (p) => p.oil), color: "#e8f04a", min: 20, max: 1100 },
-      { pts: pick(c, (p) => p.coolant), color: "#4dffc3", min: 20, max: 1100 },
-      { pts: pick(c, (p) => p.iat), color: "#3dd6ff", min: 20, max: 1100, label: "IAT", right: true },
-    ], { mark });
-  }
-
   // ---------- music ----------
   // A browser cannot read what Spotify or the OS is playing - no web API exposes that. What it CAN
   // do is play files the player adds, read their real tags, and hand control to the OS media keys

@@ -59,7 +59,7 @@ export const SOUND_LABELS = { s58real: "BMW S58 (real recording)", f458real: "Fe
 // audio side of a tune; tuning.js builds the real one from the car's parts
 // which cars get a dual-clutch shift signature
 const SHIFT_STYLE = { b58: "bmw", s58: "bmw", s63: "bmw", b46: "bmw", i5: "audi", ea888: "audi", amg: "merc", m264: "merc" };
-export const DEFAULT_TUNE = { burble: .75, decay: 1.1, mix: .2, brap: true, turbo: .8, exhaust: .9, rasp: .7, release: "flutter", intake: .35, flutter: .7, lag: 1, t51r: false, redline: 7000, boostMax: 18, burbleRpm: 3000 };
+export const DEFAULT_TUNE = { burble: .75, burbleVol: 1, aggr: 1, drive: 1, eth: 0, shiftHard: 1, decay: 1.1, mix: .2, brap: true, turbo: .8, exhaust: .9, rasp: .7, release: "flutter", intake: .35, flutter: .7, lag: 1, t51r: false, redline: 7000, boostMax: 18, burbleRpm: 3000 };
 // How far the afterfire pops, cracks and bangs sit above the exhaust note. This lifts only the
 // transients - the steady engine tone is untouched, so the mix gets punchier, not louder overall.
 const POP_GAIN = 1.85;
@@ -130,6 +130,7 @@ export class EngineDSP {
     this.intakeF = biquad("bp", (p.intake ? p.intake[0] : 240) * 2, 1.4, sr);
     this.roarF = biquad("bp", 520, .8, sr);
     this.crackF = biquad("bp", 1700, 1.1, sr);
+    this.whistF = biquad("bp", 5200, 2.4, sr);   // the airy band that rides with the turbo whistle
     this.soft = biquad("lp", 4000, .6, sr);
     this.soft2 = biquad("lp", 6500, .5, sr);
     this.raspLP = biquad("lp", 850, .7, sr);
@@ -176,16 +177,28 @@ export class EngineDSP {
     if (dsg && sport && (m.load ?? this.load) > .25) this.dsgShift(dsg, clamp01(.35 + I));
     // A V12 cracks off a bang on every single gearchange - unlike the shift fart below it is not
     // gated on revs, load or luck, because that hard bang IS the shift on these cars.
-    if (this.p.cyl === 12) this.bang(1.6, .008);
+    if (this.p.cyl === 12) this.bang(2.4, .008);
     // a shift fart needs revs AND load: it does not happen on every single gearchange
-    if (sport && t.brap && this.rand() < clamp01(.15 + 1.1 * I)) this.burst(Math.min(3, 1 + Math.round(I * 3)), I * 1.35, .035, .05);
+    if (sport && t.brap && this.rand() < clamp01(.15 + 1.1 * I)) this.burst(Math.min(5, 2 + Math.round(I * 4)), I * 2.1, .03, .045);
     if (this.boostN > .25) this.release(.45);
   }
   // dual-clutch shift signatures: BMW = deep thud, Audi = punchy "thunt" with a crack, Mercedes = a quick brap
   dsgShift(style, k) {
-    if (style === "bmw") this.thumps.push({ t: 0, f: 62, amp: .9 * k, dur: .06 });
-    else if (style === "audi") { this.thumps.push({ t: 0, f: 88, amp: 1 * k, dur: .045 }); this.addPop(1.1 * k, .01, .012, true, 1.2); this.addPop(.8 * k, .012, .06, true, .9); }
-    else if (style === "merc") this.burst(3 + Math.round(k * 2), 1.5 * k, .02, .025, true);
+    // Violent on purpose: each box gets a hard thump under a stack of sharp cracks, and the shift
+    // fart is a real burst (several pops, rising amplitude) rather than one polite click.
+    if (style === "bmw") {
+      this.thumps.push({ t: 0, f: 62, amp: 1.6 * k, dur: .07 });
+      this.addPop(1.9 * k, .012, .008, true, 1.1); this.addPop(1.4 * k, .014, .045, true, .85); this.addPop(1.1 * k, .016, .09, true, 1.3);
+      this.bang(1.3 * k, .03);
+    } else if (style === "audi") {
+      this.thumps.push({ t: 0, f: 88, amp: 1.7 * k, dur: .055 });
+      this.addPop(2.2 * k, .01, .008, true, 1.2); this.addPop(1.6 * k, .012, .05, true, .9); this.addPop(1.4 * k, .01, .095, true, 1.4); this.addPop(1.1 * k, .012, .14, true, .8);
+      this.bang(1.1 * k, .02);
+    } else if (style === "merc") {
+      this.burst(6 + Math.round(k * 4), 2.6 * k, .014, .02, true);
+      this.thumps.push({ t: 0, f: 74, amp: 1.4 * k, dur: .06 });
+      this.bang(1.2 * k, .05);
+    }
   }
   onDownshift(m) {
     const sport = this.mode === "sport";
@@ -207,13 +220,15 @@ export class EngineDSP {
   // A bang: the exhaust gas igniting in the pipe. Long, low and loud - a pressure wave with a thump
   // underneath it and a sharp crack on top - so it reads as a bang rather than a bigger pop.
   bang(amp, delay = 0) {
-    this.addPop(amp * 2.6, .08 + this.rand() * .05, delay, false, .5 + this.rand() * .2, true);
-    this.addPop(amp * 1.2, .012, delay, true, .8 + this.rand() * .3);
-    if (this.thumps.length < 6) this.thumps.push({ t: -delay, f: 46 + this.rand() * 22, amp: Math.min(1.6, amp * .9), dur: .085 });
+    this.addPop(amp * 3.4, .09 + this.rand() * .05, delay, false, .5 + this.rand() * .2, true);
+    this.addPop(amp * 1.7, .012, delay, true, .8 + this.rand() * .3);
+    if (this.thumps.length < 8) this.thumps.push({ t: -delay, f: 44 + this.rand() * 22, amp: Math.min(2.6, amp * 1.2), dur: .1 });
   }
   // a train of pops with varied pitch, level, length and spacing - never a machine gun
   burst(count, amp, spread, gap, allSharp = false) {
     const t = this.tune, span = Math.max(.25, t.decay);
+    // wound right down, the exhaust does not burble at all: it fires one hard bang and is done
+    if ((t.decay ?? 1.1) <= .12) return this.bang(Math.min(3.2, amp * 2.2 + .8), .01);
     let at = .02 + this.rand() * .03;
     for (let i = 0; i < count; i++) {
       const k = i / Math.max(1, count - 1);
@@ -231,7 +246,7 @@ export class EngineDSP {
     if (t.release !== "bov") { this.flutter = Math.max(this.flutter, amt * (t.flutter || .7)); this.flutterT = 0; this.nextChirp = .01; }
   }
   addPop(amp, dur, delay = 0, sharp = false, pitch = 1, big = false) {
-    if (this.pops.length > 16 || amp < .015) return;
+    if (this.pops.length > 28 || amp < .015) return;
     this.pops.push({ t: -delay, dur: dur * (.7 + this.rand() * .6), amp, sharp, pitch, big, f: biquad("bp", (sharp ? 2200 : 900) * pitch, sharp ? 1.4 : 1.1, this.sr) });
   }
   process(out) {
@@ -310,7 +325,7 @@ export class EngineDSP {
         if (P.t > P.tau * 7) this.pulses.splice(k, 1);
       }
       const nz = this.rand() * 2 - 1;
-      exc += nz * env * p.rough * (sport ? 1 : .6) * (this.overrun ? 1.35 : 1);
+      exc += nz * env * p.rough * (sport ? 1 : .6) * (this.overrun ? 1.35 : 1) * (.55 + .45 * (t.aggr ?? 1));
 
       // afterfire: pressure pops go through the exhaust, sharp cracks bypass the muffler
       let crack = 0, pk = 0;
@@ -328,7 +343,7 @@ export class EngineDSP {
       // ---- exhaust system ----
       let y = this.header.pipe(exc, .35, .5);
       y = this.main.pipe(y, p.fb, .32);
-      const drive = p.drive * .72 * (.7 + .5 * load) * (sport ? 1 : .8);
+      const drive = p.drive * .72 * (.7 + .5 * load) * (sport ? 1 : .8) * (t.drive ?? 1);
       y = Math.tanh(y * drive) / Math.tanh(drive);
       const muffled = run(this.muff2, run(this.muff, y));
       // three rpm-weighted voices: chest rumble low down, growl through the mid, bark up top
@@ -338,17 +353,18 @@ export class EngineDSP {
       let o = muffled * .9
         + run(this.bodyF, y) * p.body[2] * (.9 - .2 * load) * wLow
         + run(this.barkF, y) * p.bark[2] * (.25 + .75 * load) * (sport ? 1.15 : .45) * wMid
-        + run(this.topF, y) * p.bark[2] * (p.top || 1.3) * .45 * wTop * (.3 + .7 * load);
+        + run(this.topF, y) * p.bark[2] * (p.top || 1.3) * .45 * wTop * (.3 + .7 * load) * (t.aggr ?? 1);
       this.rumble += (y - this.rumble) * .004;
       o += this.rumble * p.sub * 2.2;
       o += (y - run(this.raspLP, y)) * (.2 + .6 * load) * (sport ? .35 : .12) * (.3 + p.rough * 4) * (t.rasp ?? .7) * (this.overrun ? 1.3 : 1);
       o += run(this.inductF, exc) * load * rn * .35; // tonal induction growl
-      o += (run(this.crackF, crack) * 3.2 + pk) * POP_GAIN;   // pops and cracks sit above the exhaust note
+      const popVol = POP_GAIN * (t.burbleVol ?? 1) * (.85 + .15 * (t.aggr ?? 1)) * (1 + (t.eth || 0) * .35); // Burble loudness x aggressiveness x fuel
+      o += (run(this.crackF, crack) * 3.2 + pk) * popVol;   // pops and cracks sit above the exhaust note
       for (let k = this.thumps.length - 1; k >= 0; k--) {
         const Th = this.thumps[k]; Th.t += dt;
         if (Th.t < 0) continue;
         if (Th.t > Th.dur * 5) { this.thumps.splice(k, 1); continue; }
-        o += Math.sin(Th.t * Th.f * 6.2832) * Math.exp(-Th.t / Th.dur) * Th.amp * .9 * POP_GAIN;
+        o += Math.sin(Th.t * Th.f * 6.2832) * Math.exp(-Th.t / Th.dur) * Th.amp * .9 * popVol;
       }
       // engine-specific harmonic scream that builds with revs (SVJ V12, GT3 flat-six)
       if (p.scream) {
@@ -374,9 +390,17 @@ export class EngineDSP {
         // a big single spools slower and whistles lower; the stock twins are higher and thinner
         const pitchMul = t51 ? .62 : 1;
         this.whistle += ((p.turboPitch || 2600) * pitchMul + b * 3800 * pitchMul + rpm * .12) * dt;
-        const wl = t51 ? .011 : .006;
-        o += Math.sin(this.whistle * 6.2832) * b2 * wl * Math.max(turboAmt, t51 ? 1.2 : 0);
-        o += Math.sin(this.whistle * 12.566 + 1) * b2 * wl * .25 * Math.max(turboAmt, t51 ? 1.2 : 0);
+        // A T51R is famous for the whistle, so it gets its own level, a fifth on top and a
+        // breathy edge - and it starts singing off boost, the way a big single actually does.
+        const wl = t51 ? .052 : .0075;
+        const wAmt = Math.max(turboAmt, t51 ? 1.6 : 0);
+        const spool = t51 ? Math.max(b2, b * .55) : b2;
+        o += Math.sin(this.whistle * 6.2832) * spool * wl * wAmt;
+        o += Math.sin(this.whistle * 12.566 + 1) * spool * wl * .32 * wAmt;
+        if (t51) {
+          o += Math.sin(this.whistle * 9.4248 + 2.1) * spool * wl * .2 * wAmt;   // the fifth that makes it a scream
+          o += run(this.whistF, nz) * spool * wl * 2.6 * wAmt;                    // air rush around the tone
+        }
         if (this.flutter > .004) { // compressor surge: T51R is the deep, slow, loud one
           this.flutterT += dt; this.nextChirp -= dt;
           if (this.nextChirp <= 0) {

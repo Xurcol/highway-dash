@@ -1,6 +1,24 @@
 // Real-car body definitions, generated from a handful of measured proportions per car.
 // All values in metres, shape frame: +x = front, y = up. Output matches BODIES entries in cars.js.
 
+// Where this car's exhaust tips sit, as [x, y, z] in the body frame - the same places makeCar()
+// puts the chrome. Backfire flames are emitted from exactly these points, one per tip.
+function exhaustTips(exType, h, W, tailLo) {
+  const y = tailLo + .05, hw = W / 2 - .12, x = -h + .04;
+  const at = (...zs) => zs.map((z) => [x, y, z]);
+  switch (exType) {
+    case "mQuad": case "golfQuad": return at(hw - .5, hw - .37, -(hw - .5), -(hw - .37));
+    case "quadTrap": return at(hw - .36, hw - .5, -(hw - .36), -(hw - .5));
+    case "gtrQuad": return at(hw - .52, hw - .37, -(hw - .52), -(hw - .37));
+    case "centerQuad": return [[x, tailLo + .2, -.22], [x, tailLo + .2, -.08], [x, tailLo + .2, .08], [x, tailLo + .2, .22]];
+    case "svjCenter": return [[x, tailLo + .36, .13], [x, tailLo + .36, -.13]];
+    case "twinRound": return at(hw - .42, -(hw - .42));
+    case "rsOval": return at(hw - .46, -(hw - .46));
+    case "dualRect": return at(hw - .45, -(hw - .45));
+    case "twinSquare": default: return at(hw - .42, -(hw - .42));
+  }
+}
+
 function makeBody(p) {
   const h = p.L / 2, B = p.bottom;
   const wsX = h - p.ws, rfX = h - p.rf, rrX = h - p.rr, cX = h - p.c;
@@ -25,6 +43,7 @@ function makeBody(p) {
     taper: p.taper || [.3, .5, .35], hip: p.hip ?? .05, belt: Math.min(p.hood, p.belt), top: p.H,
     hood: p.hood, hoodF: p.hoodF, noseHi: p.noseHi, noseLo: p.noseLo, deck: deckRear, tailLo: p.tailLo, wsX, cX,
     grille: p.grille, hlType: p.hlType || "slim", tlType: p.tlType || "pair", exType: p.exType || "twin",
+    exhaust: exhaustTips(p.exType || "twinSquare", h, p.W, p.tailLo),
     extras: p.extras || [], rim: { spokes: 5, color: 0x2b2e34, caliper: 0xd41f1f, ...(p.rim || {}) },
   };
 }
@@ -81,7 +100,7 @@ export const REAL_BODIES = {
     grille: "kidney", exType: "twinRound", extras: ["lip"], rim: { spokes: 10, color: 0x9aa0a8, caliper: 0x3a3d44 } }),
   a4: makeBody({ style: "sedan", L: 4.76, W: 1.84, H: 1.43, bottom: .15, r: .33, fo: .9, wb: 2.82, noseLo: .2, noseHi: .7, hoodF: .82, ws: 1.8, hood: .97, rf: 2.62, rr: 3.4, c: 3.95, belt: 1.02, deck: 1.04, tailLo: .34, hip: .04,
     grille: "audi", hlType: "audi", tlType: "audi", exType: "twinRound", extras: ["lip"], rim: { spokes: 10, color: 0xa0a4aa, caliper: 0x3a3d44 } }),
-  c300: makeBody({ style: "sedan", L: 4.75, W: 1.82, H: 1.44, bottom: .15, r: .33, fo: .82, wb: 2.84, noseLo: .2, noseHi: .7, hoodF: .8, ws: 1.82, hood: .96, rf: 2.62, rr: 3.42, c: 3.98, belt: 1.02, deck: 1.04, tailLo: .33, hip: .04,
+  c43: makeBody({ style: "sedan", L: 4.75, W: 1.82, H: 1.44, bottom: .15, r: .33, fo: .82, wb: 2.84, noseLo: .2, noseHi: .7, hoodF: .8, ws: 1.82, hood: .96, rf: 2.62, rr: 3.42, c: 3.98, belt: 1.02, deck: 1.04, tailLo: .33, hip: .04,
     grille: "amg", hlType: "slim", tlType: "amg", exType: "twinSquare", extras: ["lip"], rim: { spokes: 5, color: 0xa0a4aa, caliper: 0x3a3d44 } }),
   c8: makeBody({ style: "coupe", L: 4.63, W: 1.93, H: 1.23, bottom: .12, r: .35, fo: .95, wb: 2.72, noseLo: .14, noseHi: .5, hoodF: .56, ws: 1.35, hood: .8, rf: 2.05, rr: 2.55, c: 3.95, belt: .96, deck: .98, tailLo: .3, hip: .1,
     grille: "c8", hlType: "c8", tlType: "c8", exType: "centerQuad", extras: ["lip", "diffuser", "splitter", "sideIntake"], rim: { spokes: 20, color: 0x1f2126, caliper: 0xf2c230 }, taper: [.45, .6, .4] }),

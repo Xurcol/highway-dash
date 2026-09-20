@@ -58,8 +58,8 @@ vec3 stars(vec3 d, float density){
 vec3 auroraCol(vec3 d){
   vec3 acc = vec3(0.);
   if (d.y < .02) return acc;
-  for (int i=0; i<18; i++){
-    float fi = float(i);
+  for (int i=0; i<8; i++){
+    float fi = (float(i) + .5) * (18. / 8.);   // spread 8 layers over the span the old 18 covered
     vec2 p = d.xz / d.y * (1. + fi*.06) * .9;
     float t = time*.025;
     float w = fbm3(p*.45 + vec2(t, -t*.6));
@@ -68,7 +68,7 @@ vec3 auroraCol(vec3 d){
     float rays = .45 + .55*vnoise(vec2(p.x*9. + w*12., t*12. + fi*.1));
     float f = 1. - fi/18.;
     vec3 c = mix(vec3(.15,1.,.55), vec3(.55,.25,1.), pow(fi/18., .8));
-    acc += c * curtain * rays * f * f * .075;
+    acc += c * curtain * rays * f * f * .075 * (18. / 8.);
   }
   return acc * smoothstep(.02, .3, d.y) * smoothstep(1., .55, d.y);
 }
@@ -95,16 +95,17 @@ void main(){
   col += vec3(.95,.95,1.) * smoothstep(.99955, .9997, md) * night * (1. - overcast);
   col += vec3(.3,.35,.5) * pow(max(md,0.), 80.) * .35 * night;
 
+#ifndef ENV
   if (h > 0.) {
     float sDen = style > 1.5 && style < 2.5 ? 2.5 : 1.;
-    col += stars(d, sDen) * night * smoothstep(0., .15, h) * (1. - cloud*.9);
-    if (style > 1.5 && style < 2.5) { // milky way
+    if (night > .01) col += stars(d, sDen) * night * smoothstep(0., .15, h) * (1. - cloud*.9);
+    if (night > .01 && style > 1.5 && style < 2.5) { // milky way
       vec3 axis = normalize(vec3(.4, .2, -1.));
       float band = exp(-pow(dot(d, normalize(cross(axis, vec3(0,1,0)))) * 4., 2.));
       float neb = fbm(d.xz/(d.y+.3)*3.);
       col += (vec3(.35,.3,.6)*neb + vec3(.9,.5,.8)*pow(neb,4.)*.8) * band * night * .55;
     }
-    if (aurora > 0.) col += auroraCol(d) * aurora * night * (1. - cloud*.8);
+    if (aurora > 0. && night > .01) col += auroraCol(d) * aurora * night * (1. - cloud*.8);
     // clouds
     vec2 cp = d.xz / (h + .08) * .9 + vec2(time*.004, time*.002);
     float n = fbm(cp);
@@ -114,6 +115,7 @@ void main(){
     cc = mix(cc, hor*.8, .25) + vec3(.05,.06,.09)*night;
     col = mix(col, cc, cov * smoothstep(0., .12, h) * .92);
   }
+#endif
   col += vec3(.75,.8,1.) * flash * smoothstep(-.1, .4, h);
   gl_FragColor = vec4(col, 1.);
   #include <colorspace_fragment>
@@ -149,10 +151,11 @@ export class SkySystem {
 
     this.pmrem = new THREE.PMREMGenerator(renderer);
     this.envScene = new THREE.Scene();
-    this.envDome = new THREE.Mesh(this.dome.geometry, mat);
+    const envMat = new THREE.ShaderMaterial({ uniforms: this.uniforms, vertexShader: skyVert, fragmentShader: skyFrag, defines: { ENV: 1 }, side: THREE.BackSide, depthWrite: false, depthTest: false, fog: false });
+    this.envDome = new THREE.Mesh(this.dome.geometry, envMat);
     this.envDome.scale.setScalar(100);
     this.envScene.add(this.envDome);
-    this.envTimer = 0; this.envRT = null;
+    this.envTimer = 0; this.envRT = null; this.envKey = "";
 
     this.precip = this.makePrecip();
     scene.add(this.precip);
@@ -261,7 +264,10 @@ export class SkySystem {
     this.precip.visible = pu.amount.value > .02;
 
     this.envTimer -= dt;
-    if (this.envTimer <= 0) {
+    // the reflection only shifts with the light, so key on what drives it (cloud/dark move slowly)
+    const envKey = [Math.round(this.hour * 10), style, Math.round(W.cloud * 8), Math.round(W.dark * 8), this.night > .5 ? 1 : 0].join("|");
+    if (this.envTimer <= 0 && envKey !== this.envKey) {
+      this.envKey = envKey;
       this.envTimer = 1.5;
       this.envDome.position.set(0, 0, 0);
       const rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 200, { size: 128 });

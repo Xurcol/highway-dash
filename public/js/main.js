@@ -212,7 +212,7 @@ const thumbCache = {
 // menu is never visible half-built, and it reports whichever stage is actually running.
 const LOADER_TIPS = [
   "Hold SPACE to glance out of the back window.",
-  "Q and E work the gear lever — R, N and D, even in automatic.",
+  "Q and E work the gear lever — N and D, even in automatic.",
   "Press M to switch between automatic and manual shifting.",
   "Threading a gap at speed pays a close-call bonus. Chain them for a combo.",
   "Hold the brake and the throttle together at a standstill to arm launch control.",
@@ -613,7 +613,7 @@ function onKey(code) {
   const d = G.dt;
   switch (code) {
     case "KeyM": d.manual = !d.manual; if (!d.manual && d.gear < 1) d.selectGear(1); ui.toast(d.manual ? "MANUAL — Q / E to shift" : "AUTOMATIC", [], "info"); break;
-    // Sequential lever: R - N - 1 - 2 ... In automatic the driver still picks R, N and D by hand
+    // Sequential lever: N - 1 - 2 ... In automatic the driver still picks N and D by hand
     // (exactly like the lever in a real auto); the box only chooses between the forward gears.
     case "KeyE": if (d.manual || d.gear <= 0) d.shiftUp(); else ui.toast("Press M for manual shifting"); break;
     case "KeyQ": if (d.manual || d.gear <= 1) d.shiftDown(); else ui.toast("Press M for manual shifting"); break;
@@ -1072,7 +1072,13 @@ function updateDrive(dt, T) {
   const evInfo = () => ({ rpm: d.rpm, load: G.liftLoad ?? d.load, boost: d.s.boostMax ? d.boost / d.s.boostMax : 0, gear: Math.max(1, d.gear), release: G.release || 0 });
   if (thrIn) { G.release = 0; G.liftLoad = d.load; }
   else { G.liftLoad = Math.max(d.load, (G.liftLoad || 0) * Math.exp(-dt * .7)); G.release = (G.release || 0) * Math.exp(-dt * 1.2); }
-  if (G.prevThrIn && !thrIn) { G.release = 10; G.engine?.event("lift", evInfo()); if (d.rpm > d.s.redline * .55) G.flameT = .6 + (d.s.antiLag ? .8 : 0); } // snap lift: flutter + overrun burble
+  if (G.prevThrIn && !thrIn) {
+    G.release = 10; G.engine?.event("lift", evInfo());
+    // a single-bang tune spits one short, fat flame; a long burble trails a smaller one
+    const oneShot = (d.s.decay ?? 1.1) <= .12;
+    G.flameSize = oneShot ? 2 : 1;
+    if (d.rpm > d.s.redline * .55) G.flameT = (oneShot ? .3 : .6) + (d.s.antiLag ? .8 : 0);
+  } // snap lift: flutter + overrun burble
   G.prevThrIn = thrIn;
   G.brk += (brkIn - G.brk) * Math.min(1, dt * 12);
   const events = d.update(dt, G.thr, G.brk);
@@ -1117,7 +1123,13 @@ function updateDrive(dt, T) {
   if (G.flameT > 0) {
     G.flameT -= dt;
     // the tailpipes sit at the rear of the car, so the flame position turns with the car
-    if (Math.random() < .35) for (const e of (B.exhaust || [[-B.L / 2, .3, .45]])) { const p = carPt(G.x, G.z, G.yaw, (e[2] || 0) * .9, B.L / 2 + .15); glows.add(p[0], (e[1] || .3), p[1], 1, .55 + Math.random() * .3, .15, .6 + Math.random() * .9); }
+    // every tip flares together, and a bigger bang throws a longer flame
+    const tips = B.exhaust || [[-B.L / 2, .3, .45]];
+    const big = Math.min(2, G.flameSize || 1);
+    if (Math.random() < .35 + .3 * big) for (const e of tips) {
+      const p = carPt(G.x, G.z, G.yaw, (e[2] || 0) * .92, B.L / 2 + .15);
+      glows.add(p[0], (e[1] || .3), p[1], 1, (.5 + Math.random() * .3) * big, .15, (.55 + Math.random() * .85) * big);
+    }
   }
 
   // score
@@ -1288,17 +1300,17 @@ function drawTach(rpm, redline, manual) {
 }
 let hudCache = {};
 function setText(el, v) { if (hudCache[el.id] !== v) { hudCache[el.id] = v; el.textContent = v; } }
-const gearLabel = (g) => (g < 0 ? "R" : g === 0 ? "N" : String(g));
-// R N 1 2 3 ... The cells are built once per car (the count only changes when the gearbox does) and
+const gearLabel = (g) => (g === 0 ? "N" : String(g));
+// N 1 2 3 ... The cells are built once per car (the count only changes when the gearbox does) and
 // after that only the highlighted class is touched, so this costs nothing per frame.
 function gearStrip(d) {
   const box = ui.el.gearStrip, n = d.s.ratios.length;
-  if (box.childElementCount !== n + 2) {
+  if (box.childElementCount !== n + 1) {
     box.textContent = "";
-    for (let g = -1; g <= n; g++) {
+    for (let g = 0; g <= n; g++) {
       const cell = document.createElement("i");
       cell.textContent = gearLabel(g);
-      if (g < 0) cell.className = "rev"; else if (g === 0) cell.className = "neu";
+      if (g === 0) cell.className = "neu";
       box.appendChild(cell);
     }
     box.dataset.on = "";
@@ -1306,7 +1318,7 @@ function gearStrip(d) {
   const key = String(d.gear);
   if (box.dataset.on === key) return;
   box.dataset.on = key;
-  const idx = d.gear + 1;
+  const idx = d.gear;
   for (let i = 0; i < box.children.length; i++) box.children[i].classList.toggle("on", i === idx);
 }
 function updateHud() {

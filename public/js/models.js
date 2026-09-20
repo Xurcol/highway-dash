@@ -283,6 +283,15 @@ function prepare(scene, car, cfg) {
     }
     for (const g of clusters) fuseByMaterial(g.list, inner, { wheel: true });
   }
+  // 1b. some exports flag a whole wheel as one group node whose hundreds of spoke and tyre pieces are
+  // plain children (so none of them is flagged itself): fuse each such group's pieces per material
+  const wheelGroups = [];
+  inner.traverse((o) => { if (!o.isMesh && o.userData.wheel) wheelGroups.push(o); });
+  for (const g of wheelGroups) {
+    const pieces = [];
+    g.traverse((o) => { if (simple(o)) pieces.push(o); });
+    if (pieces.length > 6) fuseByMaterial(pieces, g);
+  }
   // 2. everything else that never moves: one mesh per material
   const still = [];
   inner.traverse((o) => { if (simple(o) && !inWheel(o)) still.push(o); });

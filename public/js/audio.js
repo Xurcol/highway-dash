@@ -139,10 +139,13 @@ class SampleVoice {
   }
   // a varied train of real pops: count, level, spacing and pitch all come from the intensity model
   burst(count, amp, gap, spread) {
+    // matches the synth: at the minimum burble length it is one bang, not a train
+    if ((this.tuneState.decay ?? 1.1) <= .12) { const v = this.tuneState.burbleVol ?? 1; return this.shot(this.bank.pops, Math.min(POP_GAIN * v * 1.6, (amp * 4 + .5) * POP_GAIN * v), .01); }
     let at = .02 + Math.random() * .03;
     for (let i = 0; i < count; i++) {
       const k = i / Math.max(1, count - 1);
-      this.shot(this.bank.pops, Math.min(POP_GAIN, amp * 3 * POP_GAIN * (.5 + Math.random() * .7) * (1 - k * .6)), at);
+      const vol = this.tuneState.burbleVol ?? 1;
+      this.shot(this.bank.pops, Math.min(POP_GAIN * vol, amp * 3 * POP_GAIN * vol * (.5 + Math.random() * .7) * (1 - k * .6)), at);
       at += (gap + Math.random() * spread) * (1 + k * .8);
       if (at > Math.max(.3, this.tuneState.decay) * 1.15) break;
     }
@@ -153,12 +156,12 @@ class SampleVoice {
     else if (type === "upshift") {
       this.dip(.08, .3);
       const I = this.intensity({ ...info, release: 9 });
-      if (sport && T.brap && Math.random() < Math.min(1, .15 + 1.1 * I)) this.burst(Math.min(3, 1 + Math.round(I * 3)), .28 * I + .08, .05, .04);
-      if (b.shift?.length) this.shot(b.shift, .25);
+      if (sport && T.brap && Math.random() < Math.min(1, .3 + 1.1 * I)) this.burst(Math.min(5, 2 + Math.round(I * 4)), .5 * I + .16, .04, .035);
+      if (b.shift?.length) this.shot(b.shift, .6);
     } else if (type === "downshift") {
       const I = Math.max(this.intensity({ ...info, release: 7 }), sport ? .12 : 0);
-      if (I > .04) this.burst(1 + Math.round(I * 3), .25 * I + .06, .075, .05);
-      if (b.shift?.length) this.shot(b.shift, .22);
+      if (I > .04) this.burst(2 + Math.round(I * 3), .4 * I + .1, .06, .045);
+      if (b.shift?.length) this.shot(b.shift, .5);
     } else if (type === "lift") {
       const I = this.intensity(info);
       if (I > .05) this.burst(Math.min(10, 2 + Math.round(I * 9)), .3 * I, .06, .06);
@@ -222,11 +225,11 @@ export class AudioManager {
     this.tunnelVerb = ctx.createConvolver();
     this.tunnelVerb.buffer = this.tunnelImpulse();
     this.tunnelSend = ctx.createGain(); this.tunnelSend.gain.value = 0;
-    const tlp = ctx.createBiquadFilter(); tlp.type = "lowpass"; tlp.frequency.value = 4200;
+    const tlp = ctx.createBiquadFilter(); tlp.type = "lowpass"; tlp.frequency.value = 5600; // bare concrete keeps more bite
     this.engineBus.connect(this.tunnelSend); this.fx.connect(this.tunnelSend);
     this.tunnelSend.connect(tlp).connect(this.tunnelVerb).connect(this.master);
     this.echo = ctx.createDelay(1); this.echo.delayTime.value = .09;
-    const efb = ctx.createGain(); efb.gain.value = .4;
+    const efb = ctx.createGain(); efb.gain.value = .52;
     const elp = ctx.createBiquadFilter(); elp.type = "lowpass"; elp.frequency.value = 2400;
     this.echoSend = ctx.createGain(); this.echoSend.gain.value = 0;
     this.engineBus.connect(this.echoSend);
@@ -261,8 +264,8 @@ export class AudioManager {
   }
   setTunnel(f) {
     if (!this.ctx) return;
-    this.set(this.tunnelSend.gain, f * 1.15, .25);
-    this.set(this.echoSend.gain, f * .3, .25);
+    this.set(this.tunnelSend.gain, f * 2.35, .25);
+    this.set(this.echoSend.gain, f * .72, .25);
   }
   setReverb(amount) { if (this.ctx) this.reverbSend.gain.setTargetAtTime(amount, this.ctx.currentTime, 0.5); }
   engine(profile) { return new SmartEngine(this, profile); }
@@ -291,7 +294,7 @@ export class AudioManager {
         const k = .55 - .5 * Math.min(1, t / 1.8);
         lp += (((Math.random() * 2 - 1)) - lp) * k;
         const gate = Math.min(1, Math.max(0, (t - .012) / .03));    // little pre-delay, then the tail swells in
-        d[i] = lp * Math.exp(-t * 2.05) * gate * 1.9;
+        d[i] = lp * Math.exp(-t * 1.75) * gate * 2.5;
       }
       for (const [tt, amp] of early) {
         const i = Math.floor((tt + (c ? .0023 : 0)) * sr);   // slightly different times per ear = width

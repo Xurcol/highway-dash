@@ -1,8 +1,7 @@
 // Longitudinal drivetrain model: tuned torque curve, boost dynamics, gears, DCT-style shifts,
 // rev limiter, engine braking. Every number it uses comes from tuning.js - nothing is randomised.
 const G = 9.81;
-const REV_MAX = 42 / 3.6;    // m/s - how fast the car will go backwards before reverse runs out
-const REV_SELECT = 2.2;      // m/s - R and N can only be selected below this, in either direction
+const N_SELECT = 2.2;        // m/s - neutral can only be selected below this speed
 
 export class Drivetrain {
   constructor(spec) {
@@ -34,28 +33,25 @@ export class Drivetrain {
     this.launchT = 0;
     this.drive = spec.drive || "rwd";
   }
-  // gear -1 = reverse, 0 = neutral, 1..n = forward. Reverse runs a ratio a little taller than first
-  // and is speed-limited, so it behaves like a real reverse rather than a mirrored first gear.
+  // gear 0 = neutral, 1..n = forward. There is no reverse: the road only runs one way.
   ratio(g = this.gear) {
     if (g === 0) return 0;
-    if (g < 0) return -(this.s.reverse || this.s.ratios[0] * 1.08) * this.s.final;
     return this.s.ratios[g - 1] * this.s.final;
   }
   rpmFor(v, g = this.gear) {
     if (g === 0) return this.s.idle;
     return (Math.abs(v) / (2 * Math.PI * this.s.tire)) * 60 * Math.abs(this.ratio(g));
   }
-  // Selecting R or N is only legal at a near standstill; the guard is what stops a 200 km/h car
-  // being thrown into reverse. Returns false (and a "deny" event) when the change is refused.
+  // Selecting N is only legal at a near standstill, which is what stops a 200 km/h car being
+  // dropped out of gear. Returns false (and a "deny" event) when the change is refused.
   selectGear(g) {
     if (g === this.gear || this.shiftT > 0.02) return false;
-    if (g <= 0 && this.v > REV_SELECT) { this.events.push("deny"); return false; }
-    if (g >= 1 && this.v < -REV_SELECT) { this.events.push("deny"); return false; }
+    if (g <= 0 && this.v > N_SELECT) { this.events.push("deny"); return false; }
     if (g >= 1 && g > this.s.ratios.length) return false;
     this.gear = g;
     this.shiftT = this.s.shiftTime * .8;
     this.lastShift = 0;
-    this.events.push(g === 0 ? "neutral" : g < 0 ? "reverse" : "upshift");
+    this.events.push(g === 0 ? "neutral" : "upshift");
     return true;
   }
   // absolute crank torque (Nm) at an rpm - tuned curve when the car has one, old shape otherwise
@@ -64,8 +60,8 @@ export class Drivetrain {
     const t = Math.min(1.05, rpm / this.s.redline);
     return this.s.torque * Math.max(0.35, 0.58 + 0.95 * t - 0.62 * t * t);
   }
-  // Sequential shifter: R - N - 1 - 2 - ... Auto mode still manages 1..n on its own; the driver only
-  // uses these to pick R, N or D, exactly like the lever in an automatic.
+  // Sequential shifter: N - 1 - 2 - ... Auto mode still manages 1..n on its own; the driver only
+  // uses these to pick N or D, exactly like the lever in an automatic.
   shiftUp(auto = false) {
     if (this.shiftT > 0.02) return false;
     if (this.gear <= 0) return this.selectGear(this.gear + 1);
@@ -76,7 +72,7 @@ export class Drivetrain {
   }
   shiftDown(auto = false) {
     if (this.shiftT > 0.02) return false;
-    if (this.gear <= 1) return this.selectGear(Math.max(-1, this.gear - 1));
+    if (this.gear <= 1) return this.selectGear(Math.max(0, this.gear - 1));
     if (this.rpmFor(this.v, this.gear - 1) > this.s.redline * 1.03) { this.events.push("deny"); return false; }
     this.gear--; this.shiftT = this.s.shiftTime * .6; this.lastShift = 0;
     this.revMatch = .22;
@@ -90,7 +86,7 @@ export class Drivetrain {
     if (this.revMatch > 0) this.revMatch -= dt;
     this.warmth = Math.min(1, this.warmth + dt / 55);
 
-    const fwd = this.gear >= 1, neutral = this.gear === 0, rev = this.gear <= -1;
+    const fwd = this.gear >= 1, neutral = this.gear === 0;
     // engine speed (clutch slips in 1st at low speed so launches rev up)
     let rpm = this.rpmFor(this.v);
     if (neutral) {
@@ -100,11 +96,10 @@ export class Drivetrain {
     } else {
       this.freeRpm = rpm;
       if (fwd && this.gear === 1 && this.v < 9) rpm = Math.max(rpm, s.idle + throttle * s.redline * 0.45 * (1 - this.v / 9));
-      if (rev && this.v > -6) rpm = Math.max(rpm, s.idle + throttle * s.redline * .38 * (1 + this.v / 6));
     }
     rpm = Math.max(s.idle * (1 + .18 * (1 - this.warmth)), rpm); // fast idle while cold
     // ---- launch control: foot on the brake, floor the throttle at a standstill ----
-    const armed = this.v < 1.2 && this.v > -.5 && throttle > .85 && brake > .4 && this.gear === 1;
+    const armed = this.v < 1.2 && throttle > .85 && brake > .4 && this.gear === 1;
     if (armed) {
       if (!this.launch) this.events.push("launchArm");
       this.launch = 1;
@@ -131,13 +126,9 @@ export class Drivetrain {
     const tau = want > this.boost ? (s.induction === "super" ? .03 : .16 * lag) : (s.induction === "super" ? .03 : .10);
     this.boost += (want - this.boost) * Math.min(1, dt / tau);
 
-    // Reverse drives through a negative ratio, so the same expression pushes the car backwards; it
-    // also tapers off near REV_MAX, which is what keeps reverse from reaching silly speeds.
     const wheelMul = Math.abs(this.ratio()) / s.tire * 0.97;
-    const dir = rev ? -1 : 1;
-    const revFade = rev ? Math.max(0, 1 - Math.max(0, -this.v) / REV_MAX) : 1;
     const tq = this.torque(this.rpm);
-    let F = neutral ? 0 : thr * tq * wheelMul * this.assist * dir * revFade;
+    let F = neutral ? 0 : thr * tq * wheelMul * this.assist;
     if (this.shiftT > 0) F *= 0.2;
     // how much of the car's weight sits on the driven wheels (weight transfers rearward under power)
     const accelShare = Math.max(0, Math.min(.12, this.accel / G * .25));
@@ -161,21 +152,21 @@ export class Drivetrain {
       const x = Math.min(1.05, this.rpm / s.redline);
       this.overrun = this.rpm > s.idle * 1.4;
       this.ebForce = this.peak * (0.07 + 0.24 * Math.pow(x, 1.3)) * wheelMul * this.engineBrake * (this.mode === "sport" ? 1.15 : .85);
-      F -= this.ebForce * dir;
+      F -= this.ebForce;
     }
-    // Everything below resists motion, so each term follows the direction the car is actually
-    // travelling rather than assuming forwards.
-    const moving = Math.sign(this.v) || dir;
+    // Everything below resists motion. The car never runs backwards, so "moving" is always forwards.
+    const moving = 1;
     F -= 0.5 * 1.2 * s.cda * this.v * Math.abs(this.v) + moving * 0.013 * s.mass * G;
-    F -= moving * brake * s.mass * G * 1.05 * (s.brakeMul || 1);
+    // Braking is tyre-limited like acceleration is: the pads can always out-bite the contact
+    // patch, so grip sets the ceiling and the brake kit sets how close to it you get.
+    const brakeG = Math.min(1.85 * (s.brakeMul || 1), s.grip * 1.55 * (s.brakeMul || 1)) * (this.surface ?? 1);
+    F -= moving * brake * s.mass * G * brakeG;
     const a = F / s.mass;
     this.accel += (a - this.accel) * Math.min(1, dt * 8);
     const v1 = this.v + (this.launch === 1 ? 0 : a) * dt;
     // braking and rolling drag must not drag the car backwards through zero
     this.v = (brake > .02 || throttle < .05) && Math.sign(v1) !== Math.sign(this.v) && this.v !== 0 ? 0 : v1;
-    if (fwd && this.v < 0) this.v = 0;
-    if (rev && this.v > 0) this.v = 0;
-    if (rev) this.v = Math.max(this.v, -REV_MAX);
+    if (this.v < 0) this.v = 0;   // braking or drag can bring the car to rest, never push it backwards
 
     if (!this.manual && fwd && this.shiftT <= 0 && this.lastShift > 0.35) {
       const sport = true;

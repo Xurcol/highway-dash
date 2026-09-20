@@ -69,11 +69,6 @@
       <div id="ciSpec" class="spec">V10 · 7-speed DCT</div>
       <div id="ciTop" class="spec">Top speed 205 mph</div>
       <div class="custom">
-        <div class="custom-label">PAINT</div>
-        <div class="swatches" id="swatches"></div>
-        <label class="custom-pick">Custom <input type="color" id="paintPick"></label>
-        <div class="custom-label">STYLE</div>
-        <div id="styleBox" class="style-box"></div>
         <div class="custom-label">ENGINE</div>
         <div id="ciEngine" class="engine-badge"></div>
         <div class="row"><button class="btn accent" id="revBtn" style="flex:1">HOLD REV</button><button class="btn primary" id="tuneBtn" style="flex:1">WORKSHOP</button></div>
@@ -95,7 +90,7 @@
   <div class="ready-title" id="readyTitle">HIGHWAY DASH</div>
   <div class="ready-sub" id="readySub">Five lanes. Thread the needle.</div>
   <div class="ready-click" id="readyClick">CLICK TO START</div>
-  <div class="ready-keys">W/S gas &amp; brake · A/D steer · Q/E gears (R N 1 2…) · M auto/manual · hold SPACE to look back · C camera · H horn</div>
+  <div class="ready-keys">W/S gas &amp; brake · A/D steer · Q/E gears (N 1 2…) · M auto/manual · hold SPACE to look back · C camera · H horn</div>
 </section>
 
 <!-- ============ HUD ============ -->
@@ -421,15 +416,12 @@
         </div>
         <div id="tabParts" hidden></div>
       </div>
-      <div class="tune-col">
-        <h3>DYNO <small>hp &amp; torque vs rpm</small></h3>
-        <canvas id="chartDyno" class="chart" width="560" height="230"></canvas>
-        <h3>BOOST <small>psi vs rpm</small></h3>
-        <canvas id="chartBoost" class="chart" width="560" height="160"></canvas>
-        <h3>FUEL &amp; TIMING</h3>
-        <canvas id="chartFuel" class="chart" width="560" height="150"></canvas>
-        <h3>TEMPERATURES</h3>
-        <canvas id="chartTemp" class="chart" width="560" height="150"></canvas>
+      <div class="tune-col" id="customCol">
+        <h3>PAINT</h3>
+        <div class="swatches" id="swatches"></div>
+        <label class="custom-pick">Custom <input type="color" id="paintPick"></label>
+        <h3>STYLE</h3>
+        <div id="styleBox" class="style-box"></div>
       </div>
       <div class="tune-col">
         <div id="tuneWarn" class="tune-warn" hidden></div>

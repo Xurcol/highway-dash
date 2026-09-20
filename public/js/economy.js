@@ -6,7 +6,7 @@
 // Six tiers of progression. A starter car is free, a supercar is a season's worth of driving.
 export const CAR_PRICES = {
   // starter
-  b330i: 0, a4: 0, c300: 0,
+  b330i: 0, a4: 0, c43: 0,
   // street
   trailbox: 2500, golfr: 4000, dunerunner: 6000,
   // sports
@@ -27,14 +27,14 @@ export const carPrice = (car) => CAR_PRICES[car.id] ?? RARITY_PRICE[car.rarity] 
 // Price per part option, per category. "stock" is what the car came with, so it is always free.
 // Everything else has to be bought once per car and is then yours to fit and unfit for nothing.
 export const PART_PRICES = {
-  intake: { stock: 0, panel: 400, open: 1200 },
+  intake: { stock: 0, panel: 400, open: 1200 , cold: 1600 },
   fuel: { stock: 0, p93: 600, e30: 2500, e50: 5000, e85: 9000 },
   exhaust: { stock: 0, catback: 2500, downpipe: 6000 },
   catalyst: { stock: 0, sports: 1800, deleted: 3500 },
   intercooler: { stock: 0, upgraded: 3500, race: 9000 },
-  turbo: { stock: 0, upgraded: 9000, t51r: 26000 },
+  turbo: { stock: 0, upgraded: 9000, t51r: 26000 , kit: 7500, kitbig: 18000 },
   tires: { stock: 0, sport: 1500, slick: 4500 },
-  brakes: { stock: 0, sport: 1200, race: 3800 },
+  brakes: { stock: 0, sport: 1200, race: 3800, endurance: 9500 },
   suspension: { stock: 0, sport: 2000, race: 5500 },
   transmission: { stock: 0, sport: 4000, race: 11000 },
   weight: { stock: 0, stage1: 3000, stage2: 8500 },

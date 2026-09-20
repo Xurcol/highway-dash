@@ -45,15 +45,21 @@ export const ENGINE_ALIAS = { s58real: "s58", f458real: "lt2" };
 export const engineKey = (sound) => ENGINE_ALIAS[sound] || sound;
 export const engineOf = (car) => ENGINES[engineKey(car.sound || specOf(car).sound || "i4")] || ENGINES.i4;
 export const isBoosted = (e) => e.induction !== "na";
+// A naturally aspirated engine with a bolt-on kit behaves exactly like a boosted one: it makes
+// boost, it needs an intercooler, it flutters and it spools. Everything downstream asks this.
+export const isForced = (e, tune) => isBoosted(e) || !!(tune && partOpt("turbo", tune.turbo).convert);
+// a converted engine has no factory boost to start from, so the kit provides all of it
+export const stockBoostOf = (e, tune) => (isBoosted(e) ? e.stockBoost : 0);
 
 // ---------------------------------------------------------------- parts
 // Every part is a fixed, published multiplier - no hidden randomness.
 export const PARTS = {
   intake: {
     label: "Intake", opts: {
-      stock: { label: "Stock airbox", flow: 1, spool: 1, sound: .35 },
-      panel: { label: "Panel filter", flow: 1.012, spool: .995, sound: .6 },
-      open: { label: "Open cone intake", flow: 1.03, spool: .985, sound: 1 },
+      stock: { label: "Stock airbox", flow: 1, spool: 1, sound: .35, iat: 0 },
+      panel: { label: "Panel filter", flow: 1.012, spool: .995, sound: .6, iat: 0 },
+      open: { label: "Open cone intake", flow: 1.03, spool: .985, sound: 1, iat: 6 },
+      cold: { label: "Cold-air intake", flow: 1.042, spool: .975, sound: 1.25, iat: -10 },
     },
   },
   exhaust: {
@@ -71,14 +77,17 @@ export const PARTS = {
     },
   },
   turbo: {
-    label: "Turbo", boostedOnly: true, opts: {
-      stock: { label: "Stock turbo(s)", maxBoost: 6, spool: 1, taper: 1, whistle: .55, flutter: .7, lag: 1 },
-      upgraded: { label: "Upgraded hybrid", maxBoost: 11, spool: 1.16, taper: .6, whistle: .9, flutter: 1, lag: 1.25 },
-      t51r: { label: "T51R single turbo", maxBoost: 20, spool: 1.55, taper: .25, whistle: 1.5, flutter: 1.6, lag: 1.9, t51r: true },
+    // "stock" on a naturally aspirated engine means no turbo at all; the convert:true kits bolt one on.
+    label: "Turbo", opts: {
+      stock: { label: "Stock turbo(s)", naLabel: "No turbo", maxBoost: 6, spool: 1, taper: 1, whistle: .55, flutter: .7, lag: 1 },
+      upgraded: { label: "Upgraded hybrid", maxBoost: 11, spool: 1.16, taper: .6, whistle: .9, flutter: 1, lag: 1.25, factoryOnly: true },
+      t51r: { label: "T51R single turbo", maxBoost: 20, spool: 1.55, taper: .25, whistle: 1.5, flutter: 1.6, lag: 1.9, t51r: true, factoryOnly: true },
+      kit: { label: "Bolt-on turbo kit", maxBoost: 9, spool: 1.08, taper: .7, whistle: 1.05, flutter: .95, lag: 1.4, convert: true },
+      kitbig: { label: "Big single conversion", maxBoost: 17, spool: 1.42, taper: .3, whistle: 1.45, flutter: 1.5, lag: 1.95, convert: true, t51r: true },
     },
   },
   intercooler: {
-    label: "Intercooler", boostedOnly: true, opts: {
+    label: "Intercooler", forcedOnly: true, opts: {
       stock: { label: "Stock", eff: .68 },
       upgraded: { label: "Front-mount", eff: .86 },
       race: { label: "Race FMIC + meth", eff: .96 },
@@ -118,9 +127,10 @@ export const PARTS = {
   },
   brakes: {
     label: "Brakes", chassis: true, opts: {
-      stock: { label: "Stock brakes", brake: 1 },
-      sport: { label: "Big brake kit", brake: 1.18 },
-      race: { label: "Carbon ceramics", brake: 1.35 },
+      stock: { label: "Stock brakes", brake: .92 },
+      sport: { label: "Big brake kit", brake: 1.12 },
+      race: { label: "Carbon ceramics", brake: 1.3 },
+      endurance: { label: "Endurance carbon-carbon", brake: 1.5 },
     },
   },
   diff: {
@@ -173,7 +183,9 @@ export const TUNE_RANGE = {
   final: [2.2, 5.6, .01, ""],
   gearing: [.82, 1.2, .01, "x"],
   burble: [0, 2, .05, ""],
-  decay: [.2, 3, .05, "s"],
+  burbleVol: [0, 3, .05, ""],   // how loud the pops, bangs and burbles are (not how often they happen)
+  aggr: [0, 2, .05, ""],        // exhaust aggressiveness: drive, rasp and top-end bark
+  decay: [.1, 3, .05, "s"],   // at the minimum the car fires one big bang instead of a burble train
   mix: [0, 1, .05, ""],
   engineBrake: [0, 2, .05, ""],
   tc: [0, 3, 1, ""],          // traction control: off / low / medium / high
@@ -183,7 +195,7 @@ export const TUNE_RANGE = {
 export function defaultTune(car) {
   const s = specOf(car), e = engineOf(car);
   return {
-    boost: isBoosted(e) ? e.stockBoost : 0,
+    boost: isBoosted(e) ? e.stockBoost : 0,   // a conversion kit raises this via normalizeTune
     wastegate: .5,
     timing: 0,
     afr: isBoosted(e) ? 11.8 : 12.9,
@@ -192,7 +204,7 @@ export function defaultTune(car) {
     gearing: 1,
     intake: "stock", exhaust: "stock", catalyst: "stock", turbo: "stock", intercooler: "stock", fuel: "stock",
     tires: "stock", brakes: "stock", suspension: "stock", transmission: "stock", weight: "stock", remap: "stock", internals: "stock", diff: "stock", aero: "stock",
-    burble: .75, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1, tc: 2, launchRpm: .55,
+    burble: .75, burbleVol: 1, aggr: 1, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1, tc: 2, launchRpm: .55,
   };
 }
 export const PART_KINDS = Object.keys(PARTS);
@@ -202,43 +214,50 @@ export function normalizeTune(car, stored) {
   for (const [k, [lo, hi]] of Object.entries(TUNE_RANGE)) t[k] = clamp(Number.isFinite(+t[k]) ? +t[k] : d[k], lo, hi);
   for (const kind of Object.keys(PARTS)) {
     if (!PARTS[kind].opts[t[kind]]) t[kind] = d[kind];
-    if (PARTS[kind].boostedOnly && !isBoosted(e)) t[kind] = d[kind];
+    if (PARTS[kind].forcedOnly && !isForced(e, t)) t[kind] = d[kind];
+    // an NA car cannot fit a factory-turbo upgrade, and a turbo car cannot fit a conversion kit
+    if (kind === "turbo") {
+      const o = PARTS.turbo.opts[t.turbo] || {};
+      if ((o.factoryOnly && !isBoosted(e)) || (o.convert && isBoosted(e))) t.turbo = "stock";
+    }
   }
   if (e.induction === "super" && t.turbo !== "stock") t.turbo = "stock"; // no T51R on a blower
   t.revLimit = clamp(t.revLimit, s.redline * .8, e.maxRev || s.redline);
-  t.boost = isBoosted(e) ? clamp(t.boost, 4, maxBoostFor(e, t)) : 0;
+  t.boost = isForced(e, t) ? clamp(t.boost, 4, maxBoostFor(e, t)) : 0;
   t.brap = !!t.brap;
   if (!["flutter", "bov", "off"].includes(t.release)) t.release = d.release;
   return t;
 }
-export const maxBoostFor = (e, tune) => (isBoosted(e) ? e.stockBoost + partOpt("turbo", tune.turbo).maxBoost : 0);
+export const maxBoostFor = (e, tune) => (isForced(e, tune) ? stockBoostOf(e, tune) + partOpt("turbo", tune.turbo).maxBoost : 0);
 
 // ---------------------------------------------------------------- the model
 // Normalised volumetric efficiency: a smooth hump around the engine's torque peak. Boosted engines
 // are flatter because the compressor, not the head, decides the shape.
-function ve(e, rpm, revLimit) {
+function ve(e, rpm, revLimit, forced) {
   const peak = e.tqPeak || revLimit * .62;
   const x = rpm / peak;
-  const a = isBoosted(e) ? (x < 1 ? .30 : .26) : (x < 1 ? .42 : .34);
+  const a = forced ? (x < 1 ? .30 : .26) : (x < 1 ? .42 : .34);
   return clamp(1 - a * (x - 1) * (x - 1), .3, 1.02) * (rpm < 1200 ? .82 + .18 * (rpm / 1200) : 1);
 }
 
 // Steady-state boost at full throttle, in psi. Wastegate duty moves spool, overshoot and hold.
 export function boostCurve(e, tune, rpm) {
-  if (!isBoosted(e)) return 0;
+  if (!isForced(e, tune)) return 0;
   const kit = partOpt("turbo", tune.turbo), ex = partOpt("exhaust", tune.exhaust), inn = partOpt("intake", tune.intake);
   const target = clamp(tune.boost, 0, maxBoostFor(e, tune));
   if (e.induction === "super") { // belt driven: boost follows rpm, no lag, falls off at the top
-    const k = clamp((rpm - 800) / (e.peak - 800), 0, 1);
-    return target * (.25 + .75 * smooth(k)) * (rpm > e.taper ? clamp(1 - (rpm - e.taper) / 4000, .75, 1) : 1);
+    const k = clamp((rpm - 800) / ((e.peak || 6000) - 800), 0, 1);
+    return target * (.25 + .75 * smooth(k)) * (rpm > (e.taper || 6200) ? clamp(1 - (rpm - (e.taper || 6200)) / 4000, .75, 1) : 1);
   }
   const wg = clamp(tune.wastegate, 0, 1);
-  const spool = e.spool * kit.spool * ex.spool * inn.spool * (1.1 - .2 * wg);
-  const peak = lerp(e.peak, e.peak * 1.18, (kit.spool - 1) * 2) * (1.06 - .12 * wg);
+  const rev = e.maxRev || 7000;
+  const eSpool = e.spool || rev * .34, ePeak = e.peak || rev * .62, eTaper = e.taper || rev * .86;
+  const spool = eSpool * kit.spool * ex.spool * inn.spool * (1.1 - .2 * wg);
+  const peak = lerp(ePeak, ePeak * 1.18, (kit.spool - 1) * 2) * (1.06 - .12 * wg);
   const k = clamp((rpm - spool) / Math.max(400, peak - spool), 0, 1);
   let b = target * smooth(k);
   b += target * (.02 + .12 * wg) * Math.exp(-Math.pow((rpm - peak * 1.02) / (peak * .28), 2)); // wastegate creep near peak
-  const taper = e.taper * (1 + (kit.spool - 1) * .8);
+  const taper = eTaper * (1 + (kit.spool - 1) * .8);
   if (rpm > taper) b *= 1 - clamp((rpm - taper) / 3500, 0, .45) * kit.taper * (1.25 - .5 * wg) / ex.flow;
   return Math.max(0, b);
 }
@@ -248,7 +267,9 @@ export function boostCurve(e, tune, rpm) {
 // to what the engine ships with, so a stock tune always sits at a safe 0.80 whatever the engine is,
 // and a high-compression NA motor is just as fussy about timing as a big-boost turbo.
 // Past 1.0 the ECU pulls timing, so an over-aggressive tune deterministically makes LESS power.
-const iatOf = (e, tune, boost) => 25 + (boost / ATM) * 105 * (1 - (isBoosted(e) ? partOpt("intercooler", tune.intercooler).eff : .9));
+// charge temp: boost heats the air, the intercooler takes it back out, and the intake decides
+// how warm the air was to begin with (a cold-air feed is worth a few degrees on its own)
+const iatOf = (e, tune, boost) => 25 + (partOpt("intake", tune.intake).iat || 0) + (boost / ATM) * 105 * (1 - (isForced(e, tune) ? partOpt("intercooler", tune.intercooler).eff : .9));
 function knockRaw(e, tune, boost, iat) {
   const afrMargin = clamp((12.6 - tune.afr) / 1.6, -1, 1);           // richer = safer
   return ((boost + ATM) / ATM) * (1 + .085 * tune.timing) * (1 + iat / 260) * (1 - .22 * afrMargin);
@@ -256,7 +277,7 @@ function knockRaw(e, tune, boost, iat) {
 const refCache = new Map();
 function knockRef(e) {
   if (refCache.has(e)) return refCache.get(e);
-  const stock = { boost: isBoosted(e) ? e.stockBoost : 0, timing: 0, afr: isBoosted(e) ? 11.8 : 12.9, intercooler: "stock" };
+  const stock = { boost: isBoosted(e) ? e.stockBoost : 0, timing: 0, afr: isBoosted(e) ? 11.8 : 12.9, intercooler: "stock", intake: "stock", turbo: "stock" };
   const v = knockRaw(e, stock, stock.boost, iatOf(e, stock, stock.boost));
   refCache.set(e, v);
   return v;
@@ -270,7 +291,7 @@ function knockAndTiming(e, tune, rpm, boost) {
 }
 
 function afrFactor(e, afr) {
-  const best = isBoosted(e) ? 11.9 : 12.8;
+  const best = isForced(e, tune) ? 11.9 : 12.8;
   const d = (afr - best) / best;
   return clamp(1 - (d > 0 ? 3.1 : 1.5) * d * d, .72, 1.02);
 }
@@ -283,7 +304,7 @@ function rawTorque(e, tune, rpm, cal) {
   const dens = 1 - clamp((iat - 25) / 900, 0, .16);                  // hot charge = less mass
   const pr = 1 + boost / ATM;
   const over = Math.max(0, rpm - tune.revLimit) / 400;               // torque dies past the limiter
-  return cal * e.disp * ve(e, rpm, tune.revLimit) * pr * dens * parts * (1 + .016 * timing) * afrFactor(e, tune.afr) * partOpt("fuel", tune.fuel || "stock").power * partOpt("remap", tune.remap || "stock").power * Math.exp(-over * over);
+  return cal * e.disp * ve(e, rpm, tune.revLimit, isForced(e, tune)) * pr * dens * parts * (1 + .016 * timing) * afrFactor(e, tune.afr) * partOpt("fuel", tune.fuel || "stock").power * partOpt("remap", tune.remap || "stock").power * Math.exp(-over * over);
 }
 
 // One constant per car, solved so that the STOCK tune peaks at exactly the car's spec torque.
@@ -314,10 +335,10 @@ export function dyno(car, tune, step = 100) {
     const load = clamp(nm / Math.max(1, specOf(car).torque), 0, 2);
     const egt = 620 + (tune.afr - 11.9) * 58 + boost * 5.5 + kt.pulled * 12 + partOpt("catalyst", tune.catalyst).egt + rpm / 120;
     out.push({
-      rpm, nm, hp: hpFromNm(nm, rpm), boost, target: isBoosted(e) ? clamp(tune.boost, 0, maxBoostFor(e, tune)) : 0,
+      rpm, nm, hp: hpFromNm(nm, rpm), boost, target: isForced(e, tune) ? clamp(tune.boost, 0, maxBoostFor(e, tune)) : 0,
       afr: tune.afr + (rpm < 1800 ? .8 : 0), timing: kt.timing, knock: kt.knock, iat: kt.iat, pulled: kt.pulled,
       egt: Math.max(300, egt), coolant: 88 + load * 22 + boost * .5, oil: 95 + load * 32 + boost * .8,
-      spool: isBoosted(e) ? clamp(boost / Math.max(1, tune.boost), 0, 1.1) : 0, load,
+      spool: isForced(e, tune) ? clamp(boost / Math.max(1, tune.boost), 0, 1.1) : 0, load,
     });
   }
   return out;
@@ -387,11 +408,20 @@ export function summary(car, tune) {
 // pick an unrelated engine sound, only change the character of the one the car actually has.
 export function audioConfig(car, tune) {
   const e = engineOf(car), ex = partOpt("exhaust", tune.exhaust), cat = partOpt("catalyst", tune.catalyst);
-  const kit = isBoosted(e) && e.induction !== "super" ? partOpt("turbo", tune.turbo) : null;
+  const kit = isForced(e, tune) && e.induction !== "super" ? partOpt("turbo", tune.turbo) : null;
+  // The rest of the build is audible too: a harder map and built internals make the engine
+  // angrier, decatting sharpens it, and E85 gives the pops their crack.
+  const remap = partOpt("remap", tune.remap || "stock"), inn = partOpt("internals", tune.internals || "stock");
+  const fuel = partOpt("fuel", tune.fuel || "stock"), trans = partOpt("transmission", tune.transmission || "stock");
+  const built = 1 + (remap.power - 1) * 3.2 + (inn.knock - 1) * 1.6;      // ~1.0 stock -> ~1.5 fully built
+  const raw = cat.flow > 1.02 ? 1.22 : cat.flow > 1.005 ? 1.1 : 1;         // cat delete / sports cats
+  const aggr = (tune.aggr ?? 1) * built;
   return {
     engine: engineKey(car.sound || specOf(car).sound),
-    exhaust: ex.loud, rasp: ex.rasp,
-    burble: tune.burble * ex.burble * cat.burble,
+    exhaust: ex.loud * (1 + (aggr - 1) * .45), rasp: ex.rasp * aggr * raw,
+    aggr, drive: aggr * raw, eth: fuel.eth || 0,
+    shiftHard: trans.shift ? 1 / trans.shift : 1,
+    burble: tune.burble * ex.burble * cat.burble, burbleVol: tune.burbleVol ?? 1,
     decay: tune.decay, mix: tune.mix, brap: tune.brap, release: tune.release,
     intake: partOpt("intake", tune.intake).sound,
     turbo: kit ? kit.whistle : 0, flutter: kit ? kit.flutter : 0, lag: kit ? kit.lag : 1,
@@ -413,7 +443,7 @@ export function summaryCache(car, t) {
 // Which wheels are driven. Anything not listed is rear-wheel drive.
 export const DRIVE_LAYOUT = {
   golfr: "awd", rs3: "awd", rs6: "awd", gtr: "awd", x3m: "awd", x5m: "awd", x6m: "awd", m240i: "awd", m340i: "awd",
-  q50: "rwd", q60: "rwd", e63: "awd", svj: "awd", m5: "awd", chiron: "awd", laferrari: "rwd", supra: "rwd", a4: "awd", b330i: "rwd", c300: "rwd",
+  q50: "rwd", q60: "rwd", e63: "awd", svj: "awd", m5: "awd", chiron: "awd", laferrari: "rwd", supra: "rwd", a4: "awd", b330i: "rwd", c43: "awd",
 };
 // Physics view of a tuned car, handed to the Drivetrain.
 export function tunedSpec(carId, tune) {
@@ -434,14 +464,15 @@ export function tunedSpec(carId, tune) {
     boostAt: (rpm) => boostCurve(e, t, rpm),
     peakTorque: summaryCache(car, t).nm,
     boostMax: maxBoostFor(e, t),
-    turboLag: isBoosted(e) && e.induction !== "super" ? partOpt("turbo", t.turbo).lag : 0,
+    turboLag: isForced(e, t) && e.induction !== "super" ? partOpt("turbo", t.turbo).lag : 0,
     induction: e.induction,
     engineBrakeTune: t.engineBrake,
     drive: DRIVE_LAYOUT[car.id] || "rwd",
     tcAllowed: [1, .38, .22, .1][Math.round(t.tc)] ?? .22,
     launchFrac: t.launchRpm,
     eth: partOpt("fuel", t.fuel).eth,
-    antiLag: isBoosted(e) && e.induction !== "super",
+    decay: t.decay,          // the HUD/flame code needs to know about a single-bang tune
+    antiLag: isForced(e, t) && e.induction !== "super",
   };
 }
 

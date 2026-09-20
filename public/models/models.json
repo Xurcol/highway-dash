@@ -17,7 +17,11 @@
     "supra",
     "m5",
     "laferrari",
-    "chiron"
+    "chiron",
+    "rs6",
+    "x5m",
+    "q60",
+    "c43"
   ],
   "a4": {
     "paint": [
@@ -391,7 +395,7 @@
     "laferrari": "Ferrari LaFerrari (Element 6) by Echoo (sketchfab.com/echoo.), CC-BY-NC-ND-4.0",
     "chiron": "2022 Bugatti Chiron Profilee by 007 (sketchfab.com/tangwang920), CC-BY-4.0"
   },
-  "rev": 13,
+  "rev": 15,
   "supra": {
     "paint": [
       "^carpaint$"
@@ -491,6 +495,113 @@
     ],
     "wheels": [
       "no-wheel-nodes"
+    ]
+  },
+  "rs6": {
+    "paint": [
+      "2020Paint_Material"
+    ],
+    "glass": [
+      "2020Window_Material"
+    ],
+    "rim": [
+      "3DWheel1A"
+    ],
+    "caliper": [
+      "CallipersCalliperGloss"
+    ],
+    "tail": [
+      "red_glass"
+    ],
+    "head": [
+      "2020LightA"
+    ],
+    "wheelMats": [
+      "3DWheel1A"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "x5m": {
+    "paint": [
+      "tanzanite_blue_ii_metallic"
+    ],
+    "glass": [
+      "^window$"
+    ],
+    "rim": [
+      "_rim$"
+    ],
+    "caliper": [
+      "^brake_caliper$"
+    ],
+    "tail": [
+      "^tail_lights",
+      "^led_tail_light$",
+      "^brake_light",
+      "^led_brake_lamp$"
+    ],
+    "head": [
+      "^headlight_"
+    ],
+    "wheelMats": [
+      "^tire$",
+      "_rim$",
+      "^brake_(disk|pad|caliper)$"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "q60": {
+    "paint": [
+      "Q60SMI_1216010001"
+    ],
+    "glass": [
+      "Q60SMI_Glass_In"
+    ],
+    "rim": [
+      "ChangeA_Rim",
+      "Q60Srimcolor"
+    ],
+    "caliper": [
+      "ChangeA_Brake"
+    ],
+    "tail": [
+      "Q60SMI_Glass_Light"
+    ],
+    "head": [
+      "Q60SMI_Light_"
+    ],
+    "wheelMats": [
+      "ChangeA_Rim",
+      "Q60Srimcolor",
+      "Q60SMI_Tyre",
+      "ChangeA_Brake"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "c43": {
+    "paint": [
+      "^w206_paint$"
+    ],
+    "glass": [
+      "^w206_glass_int$"
+    ],
+    "rim": [
+      "^chrome$"
+    ],
+    "caliper": [
+      "^Plastic_Burnt_Red_High_Gloss$"
+    ],
+    "tail": [
+      "^w206_(lights_13|vehiclelights128|shader_brake_0|lights_global)$"
+    ],
+    "head": [
+      "^w206_(headlight|lowbeam|highbeam|drl_[LR]|glass_F|lights_29)$"
     ]
   }
 }

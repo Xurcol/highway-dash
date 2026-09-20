@@ -243,13 +243,12 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 #speedUnit{font-size:var(--t-sm);font-weight:700;letter-spacing:2px;color:var(--ink-2);text-shadow:0 1px 8px #000}
 .cl-sub{display:flex;align-items:center;justify-content:flex-end;gap:var(--s2);margin-top:var(--s1)}
 #dist{font-size:var(--t-sm);font-weight:600;color:var(--ink-2);text-shadow:0 1px 8px #000}
-/* R N 1 2 3 ... with the engaged gear lit */
+/* N 1 2 3 ... with the engaged gear lit */
 .gearstrip{grid-area:strip;display:flex;justify-content:flex-end;gap:4px}
 .gearstrip i{font-style:normal;min-width:20px;padding:2px 0;text-align:center;border-radius:var(--r1);
   font-size:var(--t-xs);font-weight:700;letter-spacing:.5px;color:var(--ink-3);
   background:var(--glass);border:1px solid transparent;transition:color .12s,background .12s,border-color .12s}
 .gearstrip i.on{color:var(--accent-ink);background:var(--grad-accent);border-color:transparent;box-shadow:var(--glow-accent)}
-.gearstrip i.rev.on{background:var(--warn);border-color:var(--warn)}
 .gearstrip i.neu.on{background:var(--ink-2);border-color:var(--ink-2)}
 .sig{font-size:var(--t-xl);color:#2a3446;transition:color .08s}
 .sig.on{color:var(--good)}
@@ -446,7 +445,6 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .tune-box .slider b{text-align:right;color:var(--accent);font-size:var(--t-sm);font-variant-numeric:tabular-nums}
 .tune-slider span{cursor:help}
 .tune-slider.off{opacity:.4}
-.chart{width:100%;height:auto;border-radius:var(--r2);border:1px solid var(--line);display:block}
 .tune-warn{background:color-mix(in srgb,var(--warn) 12%,var(--surface));border:1px solid var(--warn);
   border-radius:var(--r2);padding:var(--s3);font-size:var(--t-sm);line-height:1.45;display:flex;flex-direction:column;gap:var(--s1)}
 .gate{background:var(--sunken);border:1px dashed var(--line-2);border-radius:var(--r2);padding:var(--s4);margin-bottom:var(--s3);text-align:center}
@@ -713,3 +711,10 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
   .btn:hover,.card:hover,.veh:hover{transform:none}
   .pop,.modal-box,.loader-box,.pause-panel,.round-banner,.toast{animation-duration:.01ms!important}
 }
+
+/* ---------- workshop: car customization column ---------- */
+/* paint and style live in the workshop now, so this column scrolls on its own rather than
+   stretching the whole modal when the fitment sliders are open */
+#customCol{max-height:min(66vh,640px);overflow-y:auto;padding-right:var(--s2)}
+#customCol h3:first-child{margin-top:0}
+#customCol .custom-pick{margin-bottom:var(--s2)}
