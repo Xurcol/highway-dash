@@ -18,18 +18,21 @@ Then open http://localhost:3000.
 | Key | Action |
 | --- | --- |
 | W / ↑ | Throttle |
-| S / ↓ / Space | Brake |
+| S / ↓ | Brake |
+| Space | Look back (hold) |
 | A D / ← → | Steer |
 | N | Sport / Comfort drive mode |
 | M | Switch between manual and automatic |
-| Q / E | Shift down / up (manual) |
+| Q / E | Gear lever: R - N - 1 - 2 ... |
 | Z / X | Left / right turn signal (flashes 3 times, then turns off) |
 | H | Horn |
 | C | Change camera |
 | T / B / V | Change time of day / weather / sky style |
+| G | Switch vehicle |
 | P / R | Pause / restart |
 | L | Leaderboard |
 | Enter | Chat (online) |
+| Tab | Player list (online) |
 
 ## Cars, sound & tuning
 
@@ -37,15 +40,21 @@ The garage has 20 real cars: BMW M240i, M340i, M2, M3, M4, X3 M, X5 M and X6 M; 
 
 Every car has paint colors and a choice of engine sound. Its **TUNE** screen sets burble amount and duration, pop style, rasp, exhaust volume, turbo whistle, the turbo flutter or blow-off sound when you let off W, engine braking, and the default drive mode.
 
-## Playing with friends
+## Multiplayer
 
-Open **ONLINE**. There's no sign-up: your name and driver code are saved in a cookie. Share your code, or add a friend by theirs. Create a party (or quick play) and press **PLAY ONLINE**.
+Open **MULTIPLAYER**. There is no sign-up: your name and driver code are kept in a cookie.
 
-- Everyone in the party starts the round together after a countdown, on the same traffic.
-- The first player to crash ends the round for everyone. Scores show, then the next round starts automatically.
-- Cars don't collide with each other.
+- **Public servers** lists every public server that is live right now, with its mode, traffic, player count and the relay ping. Press JOIN; nobody has to invite you.
+- **Create server** makes a public or private (code-only) server: name, max players (2-8), game mode, traffic, and optionally a fixed time of day and weather.
+- **Private & friends** keeps the original party code, friend list, invites and Quick Play.
+- **Modes:** Free Drive (no rounds, no finish, join and leave any time), Last One Standing, First To Score, Timed Battle.
+- **In a server:** Enter opens chat, Tab lists players, G switches vehicle, Esc opens the session menu (Leave Server). Chat commands: `/players`, `/tp <player>` (also `/teleport`, `/goto`; Free Drive servers only), `/help`.
+- **Switching cars** works in every mode, on the road, without leaving the run or the server. Other players see the change immediately.
+- Traffic is deterministic from the server seed and time, so everyone sees the same cars with nothing streamed.
 
-Multiplayer runs over a public MQTT relay (HiveMQ, with EMQX as fallback), so the game works on static hosting. The optional Node server (`npm start`, then open with `?server=1`) provides the same features over WebSockets.
+Multiplayer runs over public MQTT relays (HiveMQ, EMQX and Mosquitto at once), so the game works on static hosting. The server list is the relays' retained `public/<code>` topics: the host of a public room keeps its listing fresh and the last player out removes it. Relays are third-party brokers, so there is no authoritative server: receivers clamp and sanitize every packet and rate-limit chat themselves. The optional Node server (`npm start`, then open with `?server=1`) provides the same features over WebSockets and does validate everything server-side (room capacity, chat rate, state ranges).
+
+Add `?root=some/test/namespace` to the URL to point a client at a private topic namespace, which is how the multiplayer tests avoid touching the real lobby.
 
 ## Hosting (GitHub Pages)
 

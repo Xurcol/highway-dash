@@ -103,7 +103,10 @@
   <div class="hud-tl">
     <button class="btn red sq" id="hudHome" title="Home">⬅</button>
     <button class="btn gray sq" data-open="leader" title="Leaderboard">🏆<small>[L]</small></button>
+    <button class="btn gray sq" data-open="vehicles" title="Switch vehicle">🚗<small>[G]</small></button>
+    <button class="btn gray sq" id="hudPlayers" title="Players" hidden>👥<small>[Tab]</small></button>
   </div>
+  <div id="playerPanel" class="player-panel" hidden></div>
   <div class="hud-tr">
     <button class="btn gray sq" data-open="settings" title="Settings">⚙️</button>
     <button class="btn gray sq" id="hudPause">⏸<small>[P]</small></button>
@@ -123,7 +126,7 @@
   </div>
   <div id="partyList" class="partylist"></div>
   <div id="peerMarkers" class="peer-markers"></div>
-  <div id="chatLog" class="chatlog"></div>
+  <div id="chatLog" class="chatlog" aria-live="polite"></div>
   <input id="chatInput" class="chatinput" maxlength="120" placeholder="Say something… (Enter)" hidden>
   <div id="musicWidget" class="music-widget" hidden>
     <div class="mw-art" id="mwArt"></div>
@@ -144,11 +147,24 @@
   <div class="panel center-panel pause-panel">
     <div class="pause-head"><h2>PAUSED</h2><p class="muted small" id="pauseSub"></p></div>
     <button class="btn green wide" id="resumeBtn">RESUME</button>
+    <button class="btn ghost wide" data-open="vehicles">VEHICLES</button>
+    <button class="btn ghost wide" id="pausePlayers" hidden>PLAYERS</button>
     <button class="btn ghost wide" data-open="settings">SETTINGS</button>
     <button class="btn ghost wide" data-open="controls">CONTROLS</button>
     <button class="btn red wide" id="pauseHome">RETURN TO MENU</button>
+    <button class="btn red wide" id="pauseLeave" hidden>LEAVE SERVER</button>
   </div>
 </section>
+<!-- ============ VEHICLES (switch car without leaving the game) ============ -->
+<section id="vehicles" class="modal" hidden>
+  <div class="panel modal-box vehicles-box">
+    <button class="close" data-close>✕</button>
+    <h2>SWITCH VEHICLE</h2>
+    <p class="muted small" id="vehiclesNote">Pick one of your cars. You keep your place, your session and your customization.</p>
+    <div id="vehicleGrid" class="vehicle-grid"></div>
+  </div>
+</section>
+
 <!-- ============ CONTROLS ============ -->
 <section id="controls" class="modal" hidden>
   <div class="panel modal-box">
@@ -230,9 +246,30 @@
 <section id="online" class="modal" hidden>
   <div class="panel modal-box online-box">
     <button class="close" data-close>✕</button>
-    <h2>🌐 ONLINE</h2>
+    <h2>MULTIPLAYER</h2>
     <div id="relayStatus" class="muted small" style="margin-bottom:8px"></div>
-    <div id="offlineNote" class="note" hidden>Can't reach any multiplayer relay. Check your internet connection. Some school or work networks block these connections.</div>
+    <div id="offlineNote" class="note" hidden>Can't reach the multiplayer network. Check your internet connection. Some school or work networks block these connections.</div>
+    <!-- the server you are in stays visible on every tab, with the two things you can do about it -->
+    <div id="currentServer" class="current-server" hidden></div>
+    <div class="online-tabs" id="onlineTabs">
+      <button class="tab on" data-otab="public">PUBLIC SERVERS</button>
+      <button class="tab" data-otab="create">CREATE SERVER</button>
+      <button class="tab" data-otab="private">PRIVATE &amp; FRIENDS</button>
+    </div>
+    <div class="opane" data-pane="public">
+      <div class="srv-head">
+        <span id="srvStatus" class="muted small">Searching…</span>
+        <span id="srvPing" class="muted small"></span>
+        <div class="spacer"></div>
+        <button class="btn ghost" id="srvRefresh">REFRESH</button>
+      </div>
+      <div class="srv-cols" aria-hidden="true"><span>SERVER</span><span>MODE</span><span>TRAFFIC</span><span>PLAYERS</span><span></span></div>
+      <div id="srvList" class="srv-list"></div>
+    </div>
+    <div class="opane" data-pane="create" hidden>
+      <div class="create-form" id="createForm"></div>
+    </div>
+    <div class="opane" data-pane="private" hidden>
     <div class="online-cols">
       <div class="col">
         <h3>YOU</h3>
@@ -258,8 +295,9 @@
           <button class="btn green wide big2" id="driveParty">DRIVE WITH PARTY</button>
           <button class="btn red wide" id="leaveParty">LEAVE PARTY</button>
         </div>
-        <p class="muted small">Everyone in a party drives the same traffic. The host picks the mode: Last One Standing (first crash ends the round), First To Score, or Timed Battle.</p>
+        <p class="muted small">Private parties are for friends: share the party code or invite them. Everyone drives the same traffic. The host picks the mode: Free Drive, Last One Standing, First To Score, or Timed Battle.</p>
       </div>
+    </div>
     </div>
   </div>
 </section>

@@ -224,9 +224,18 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .partylist div{background:rgba(10,14,24,.78);border-radius:var(--r1);padding:5px var(--s3);
   font-size:var(--t-sm);border-left:3px solid var(--good)}
 .partylist div.crashed{border-color:var(--bad);opacity:.6}
-.chatlog{position:absolute;left:var(--s4);bottom:150px;width:340px;display:flex;flex-direction:column;gap:var(--s1)}
-.chatlog div{background:rgba(10,14,24,.72);border-radius:var(--r1);padding:5px var(--s3);font-size:var(--t-sm);animation:fadeout 9s forwards}
+.chatlog{position:absolute;left:var(--s4);bottom:150px;width:340px;max-height:132px;overflow:hidden;
+  display:flex;flex-direction:column;justify-content:flex-end;gap:var(--s1);pointer-events:none}
+.chatlog div{background:rgba(10,14,24,.72);border-radius:var(--r1);padding:5px var(--s3);font-size:var(--t-sm);
+  line-height:1.35;overflow-wrap:anywhere;animation:fadeout 9s forwards}
 .chatlog b{color:var(--accent)}
+.chatlog .sys{color:var(--ink-2);border-left:3px solid var(--info)}
+.chatlog .sys.err{border-left-color:var(--bad);color:#ffb3b8}
+.chatlog .sys.ok{border-left-color:var(--good)}
+/* with the input open the whole recent history shows and can be scrolled */
+.chatlog.open{max-height:260px;overflow-y:auto;justify-content:flex-start;pointer-events:auto}
+.chatlog.open div{animation:none;opacity:1}
+.chatlog.open{scrollbar-width:thin}
 @keyframes fadeout{0%,80%{opacity:1}100%{opacity:0}}
 .chatinput{position:absolute;left:var(--s4);bottom:110px;width:340px;padding:10px var(--s3);
   border-radius:var(--r2);border:1px solid var(--primary);background:rgba(10,14,24,.9);font-size:var(--t-md);outline:none}
@@ -581,3 +590,62 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 .ms-note{margin:0;padding-top:var(--s2);border-top:1px solid var(--line);
   font-size:var(--t-xs);color:var(--ink-3);line-height:1.45}
 .mode-select button{padding:5px 10px;font-size:var(--t-sm)}
+
+/* ---------- multiplayer: tabs, server browser, create form ---------- */
+.online-tabs{display:flex;gap:var(--s2);border-bottom:1px solid var(--line);margin:0 0 var(--s4);padding-bottom:var(--s3)}
+.opane[hidden]{display:none}
+.current-server{display:flex;align-items:center;gap:var(--s3);flex-wrap:wrap;padding:var(--s3) var(--s4);margin-bottom:var(--s3);
+  background:var(--surface-2);border:1px solid var(--accent-dim);border-radius:var(--r2)}
+.current-server .cs-info{flex:1;min-width:180px}
+.current-server .cs-info b{display:block;font-size:var(--t-lg)}
+.current-server .cs-info small{color:var(--ink-2)}
+.srv-head{display:flex;align-items:center;gap:var(--s3);margin-bottom:var(--s2)}
+.srv-cols,.srv-row{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1.5fr) minmax(0,.9fr) 70px 92px;align-items:center;gap:var(--s3)}
+.srv-cols{padding:0 var(--s3) var(--s1);font-size:var(--t-xs);letter-spacing:1.4px;color:var(--ink-3)}
+.srv-list{display:flex;flex-direction:column;gap:var(--s2);min-height:150px;max-height:min(46vh,420px);overflow-y:auto}
+.srv-row{padding:var(--s3);background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r2);
+  transition:border-color .14s var(--ease),background .14s var(--ease)}
+.srv-row:hover{border-color:var(--line-2);background:var(--surface-3)}
+.srv-row .nm b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srv-row .nm small{color:var(--ink-3)}
+.srv-row .cnt{font-variant-numeric:tabular-nums;font-weight:700;text-align:center}
+.srv-row.full .cnt{color:var(--bad)}
+.srv-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--s2);padding:var(--s6) var(--s4);
+  text-align:center;color:var(--ink-2);border:1px dashed var(--line-2);border-radius:var(--r2)}
+.srv-spin{width:26px;height:26px;border-radius:50%;border:3px solid var(--line-2);border-top-color:var(--accent);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.create-form{display:flex;flex-direction:column;gap:var(--s3);max-width:560px}
+.create-form .cf-row{display:grid;grid-template-columns:110px 1fr;align-items:center;gap:var(--s3)}
+.create-form .cf-row>span{color:var(--ink-3);font-size:var(--t-xs);letter-spacing:1.2px;text-transform:uppercase}
+.create-form input[type=text]{width:100%}
+.chips.wrap{flex-wrap:wrap}
+@media (max-width:760px){
+  .srv-cols{display:none}
+  .srv-row{grid-template-columns:1fr auto;grid-template-areas:"n b" "m c"}
+  .srv-row>:nth-child(1){grid-area:n}.srv-row>:nth-child(2){grid-area:m}.srv-row>:nth-child(3){display:none}
+  .srv-row>:nth-child(4){grid-area:c;text-align:left}.srv-row>:nth-child(5){grid-area:b}
+  .create-form .cf-row{grid-template-columns:1fr}
+}
+/* ---------- vehicle switcher ---------- */
+.vehicles-box{width:min(820px,94vw)}
+.vehicle-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--s3);max-height:min(60vh,520px);overflow-y:auto;padding:var(--s1)}
+.veh{display:flex;flex-direction:column;gap:var(--s1);padding:var(--s2);text-align:left;color:var(--ink);cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r2);
+  transition:transform .12s var(--ease),border-color .12s var(--ease),background .12s var(--ease)}
+.veh:hover{transform:translateY(-2px);border-color:var(--line-2);background:var(--surface-3)}
+.veh:active{transform:none}
+.veh.cur{border-color:var(--accent);cursor:default}
+.veh img{width:100%;aspect-ratio:240/130;object-fit:cover;border-radius:var(--r1);background:var(--sunken)}
+.veh b{font-size:var(--t-sm);line-height:1.2}
+.veh small{color:var(--ink-3);font-size:var(--t-xs)}
+/* ---------- player list ---------- */
+.player-panel{position:absolute;top:64px;left:var(--s4);width:min(330px,88vw);pointer-events:auto;
+  background:rgba(10,13,20,.9);border:1px solid var(--line-2);border-radius:var(--r2);padding:var(--s3);box-shadow:var(--shadow);
+  display:flex;flex-direction:column;gap:var(--s1);animation:pauseIn .16s var(--ease) both}
+.player-panel[hidden]{display:none}
+.player-panel h4{margin:0 0 var(--s1);font-size:var(--t-xs);letter-spacing:1.4px;color:var(--ink-3)}
+.pl-row{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:var(--s2);padding:5px var(--s2);border-radius:var(--r1);background:var(--surface-2)}
+.pl-row b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pl-row small{display:block;color:var(--ink-3)}
+.pl-row .dist{font-variant-numeric:tabular-nums;color:var(--ink-2);font-size:var(--t-sm)}
+.pl-row .btn{padding:3px var(--s2);font-size:var(--t-xs)}

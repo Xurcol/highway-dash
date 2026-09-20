@@ -58,7 +58,14 @@ export class UI {
     $("pause").hidden = true;
     if (name !== "hud") this.chatInput.hidden = true;
   }
-  setPaused(p) { $("pause").hidden = !p; }
+  // live = the multiplayer session menu: the world keeps running, so it offers Leave Server instead of a plain exit
+  setPaused(p, live = false) {
+    $("pause").hidden = !p;
+    $("pauseSub").textContent = p && live ? "The server keeps running while this is open." : "";
+    $("pausePlayers").hidden = !(p && live);
+    $("pauseLeave").hidden = !(p && live);
+    $("pauseHome").hidden = !!(p && live);
+  }
   setReady(title, sub, click) {
     if (this.readyCache === title + sub + click) return;
     this.readyCache = title + sub + click;
@@ -77,11 +84,18 @@ export class UI {
   }
   hideRoundResults() { clearInterval(this.roundTimer); $("roundBanner").hidden = true; }
   anyModalOpen() { return [...document.querySelectorAll(".modal")].some((m) => !m.hidden); }
+  // one confirmation, then a clean exit: main.js drops the party state, the relay clears our presence
+  leaveServer() {
+    if (!this.net.room) return;
+    if (!confirm(`Leave ${this.net.room.name || "this server"}?`)) return;
+    this.ctx.leaveServer();
+  }
   openModal(id) {
     this.closeModals();
     $(id).hidden = false;
+    if (id === "vehicles") this.renderVehicles();
     if (id === "leader") { this.net.send({ t: "leaderboard" }); this.renderBoard($("leaderBoard")); }
-    if (id === "online") this.renderOnline();
+    if (id === "online") { this.renderOnline(); if ((this.onlineTab || "public") === "public") this.net.send?.({ t: "publicRefresh" }); }
     if (id === "settings") this.renderSettings();
     if (id === "tune") this.renderTune();
     this.ctx.audio.ui();
@@ -122,12 +136,59 @@ export class UI {
     c.textContent = `CLOSE CALL! x${combo}`;
     c.classList.remove("on"); void c.offsetWidth; c.classList.add("on");
   }
-  chat(name, text) {
+  // Keeps the last 60 lines. Closed, only the newest few show and they fade; with the input open the
+  // whole history is visible and scrollable. kind is "" for a player message, or info | ok | err for the game.
+  chat(name, text, kind = "") {
     const d = document.createElement("div");
-    d.innerHTML = `<b>${esc(name)}:</b> ${esc(text)}`;
+    if (kind) { d.className = "sys " + (kind === "info" ? "" : kind); d.textContent = text; }
+    else d.innerHTML = `<b>${esc(name)}:</b> ${esc(text)}`;
     const log = $("chatLog");
     log.appendChild(d);
-    while (log.children.length > 8) log.firstChild.remove();
+    while (log.children.length > 60) log.firstChild.remove();
+    if (log.classList.contains("open")) log.scrollTop = log.scrollHeight;
+  }
+  chatSys(text, kind = "info") { this.chat("", text, kind); }
+  chatOpen(open) { const log = $("chatLog"); log.classList.toggle("open", open); if (open) log.scrollTop = log.scrollHeight; }
+
+  // ---------- vehicle switcher ----------
+  renderVehicles() {
+    const grid = $("vehicleGrid"), cur = this.ctx.currentCar();
+    grid.innerHTML = "";
+    const mine = CARS.filter((c) => P.owned.includes(c.id));
+    for (const c of mine) {
+      const b = document.createElement("button");
+      b.className = "veh" + (c.id === cur ? " cur" : "");
+      b.innerHTML = `<img src="${this.thumbs[c.id] || ""}" alt=""><b>${esc(c.name)}</b><small>${c.id === cur ? "In use" : esc(c.rarity)}</small>`;
+      if (c.id !== cur) b.onclick = () => { this.ctx.audio.ui(); this.closeModals(); this.ctx.switchCar(c.id); };
+      grid.appendChild(b);
+    }
+    $("vehiclesNote").textContent = mine.length < CARS.length
+      ? "Pick one of your cars. You keep your place, your session and your customization. Buy more in the garage."
+      : "Pick a car. You keep your place, your session and your customization.";
+  }
+
+  // ---------- player list ----------
+  togglePlayers(force) {
+    const p = $("playerPanel"), show = force ?? p.hidden;
+    p.hidden = !show;
+    if (show) this.refreshPlayers();
+  }
+  refreshPlayers() {
+    const online = this.ctx.mode() === "online" && !!this.net.room;
+    $("hudPlayers").hidden = !online;
+    const panel = $("playerPanel");
+    if (panel.hidden) return;
+    if (!online) { panel.hidden = true; return; }
+    const rows = this.ctx.playerRows(), free = this.ctx.freeMode();
+    panel.innerHTML = `<h4>PLAYERS · ${rows.length}/${this.net.room.max || 8}</h4>`;
+    for (const r of rows) {
+      const d = document.createElement("div");
+      d.className = "pl-row";
+      d.innerHTML = `<div><b>${esc(r.name)}${r.me ? " (you)" : ""}</b><small>${esc(r.car)}</small></div><span class="dist">${r.me ? "" : r.dist === null ? "—" : r.dist < 1000 ? Math.round(r.dist) + " m" : (r.dist / 1000).toFixed(1) + " km"}</span>`;
+      if (!r.me && free) d.appendChild(this.mini("TP", "primary", () => { const m = this.ctx.teleportTo(r.name); this.chatSys(m.text, m.ok ? "ok" : "err"); }));
+      else d.appendChild(document.createElement("span"));
+      panel.appendChild(d);
+    }
   }
   // Marker elements are cached by id. This runs every frame, so the old attribute-selector lookup
   // (one DOM query per peer per frame) and the colour write have both been taken out of the loop.
@@ -171,6 +232,10 @@ export class UI {
     $("hudRestart").onclick = () => this.ctx.restart();
     $("resumeBtn").onclick = () => this.ctx.resume();
     $("pauseHome").onclick = () => this.ctx.home();
+    $("pauseLeave").onclick = () => this.leaveServer();
+    $("pausePlayers").onclick = () => { this.ctx.resume(); this.togglePlayers(true); };
+    $("hudPlayers").onclick = () => this.togglePlayers();
+    setInterval(() => this.refreshPlayers(), 500);
   }
 
   // ---------- home / garage ----------
@@ -542,10 +607,107 @@ export class UI {
     $("joinParty").onclick = () => { const c = $("joinCode").value.trim(); if (c) n.send({ t: "roomJoin", code: c }); };
     $("leaveParty").onclick = () => n.send({ t: "roomLeave" });
     $("driveParty").onclick = () => { this.closeModals(); this.onlineSelected = true; this.ctx.play("online"); };
+    // --- tabs + public server browser ---
+    this.onlineTab = "public";
+    $("onlineTabs").querySelectorAll("[data-otab]").forEach((b) => b.onclick = () => {
+      this.onlineTab = b.dataset.otab; this.ctx.audio.ui(); this.renderOnline();
+      if (this.onlineTab === "public") n.send({ t: "publicRefresh" });
+    });
+    $("srvRefresh").onclick = () => { this.ctx.audio.ui(); n.send({ t: "publicRefresh" }); };
+    this.createOpts = { name: "", max: 8, mode: "free", traffic: P.settings.traffic || "Heavy", hour: undefined, weather: undefined, visibility: "public" };
+    this.renderCreateForm();
+  }
+  renderCreateForm() {
+    const n = this.net, o = this.createOpts, box = $("createForm");
+    const chip = (k, v, label) => `<button data-k="${k}" data-v="${v}" class="${String(o[k] ?? "") === String(v) ? "on" : ""}">${label}</button>`;
+    const blurb = { free: "Free Drive: no rounds, no finish line. Drive, chat and teleport to each other. Players can join and leave any time.",
+      crash: "Last One Standing: the first crash ends the round for everyone.", target: "First To Score: the first driver to reach the score target wins the round.", timed: "Timed Battle: highest score when the clock runs out wins." };
+    box.innerHTML = `
+      <div class="cf-row"><span>Server name</span><input type="text" id="cfName" maxlength="24" placeholder="${esc(n.me?.name || "My")}'s server" value="${esc(o.name)}"></div>
+      <div class="cf-row"><span>Visibility</span><div class="chips">${chip("visibility", "public", "Public")}${chip("visibility", "private", "Private (code only)")}</div></div>
+      <div class="cf-row"><span>Max players</span><div class="chips">${[2, 4, 6, 8].map((v) => chip("max", v, v)).join("")}</div></div>
+      <div class="cf-row"><span>Game mode</span><div class="chips wrap">${Object.entries(this.ctx.PARTY_MODES).map(([k, v]) => chip("mode", k, v)).join("")}</div></div>
+      <div class="cf-row"><span>Traffic</span><div class="chips">${Object.keys(TRAFFIC_LEVELS).map((k) => chip("traffic", k, k)).join("")}</div></div>
+      <div class="cf-row"><span>Time of day</span><div class="chips wrap">${chip("hour", "", "Each player's own")}${Object.entries(TIME_PRESETS).map(([k, h]) => chip("hour", h, k)).join("")}</div></div>
+      <div class="cf-row"><span>Weather</span><div class="chips wrap">${chip("weather", "", "Each player's own")}${Object.keys(WEATHERS).map((k) => chip("weather", k, k)).join("")}</div></div>
+      <button class="btn green big2" id="cfCreate">CREATE SERVER</button>
+      <p class="muted small">${blurb[o.mode] || ""}</p>`;
+    box.querySelectorAll("button[data-k]").forEach((b) => b.onclick = () => {
+      const k = b.dataset.k, v = b.dataset.v;
+      o[k] = k === "max" ? +v : k === "hour" ? (v === "" ? undefined : +v) : k === "weather" ? (v === "" ? undefined : v) : v;
+      this.ctx.audio.ui(); this.renderCreateForm();
+    });
+    $("cfName").oninput = (e) => { o.name = e.target.value; };
+    $("cfCreate").onclick = () => {
+      if (!n.connected) return this.toast("Not connected to the multiplayer network yet", [], "warn");
+      if (n.room) return this.toast("Leave your current server first", [], "warn");
+      this.autoDrive = true;
+      n.send({ t: "roomCreate", name: o.name.trim(), max: o.max, mode: o.mode, traffic: o.traffic, hour: o.hour, weather: o.weather, public: o.visibility === "public" });
+    };
+    this.syncCreateButton();
+  }
+  syncCreateButton() {
+    const b = $("cfCreate");
+    if (!b) return;
+    const ok = this.net.connected;
+    b.disabled = !ok; b.textContent = ok ? "CREATE SERVER" : "CONNECTING…";
+  }
+  // the server you are currently in, on top of every tab
+  renderCurrentServer() {
+    const n = this.net, box = $("currentServer");
+    if (!n.room) { box.hidden = true; return; }
+    const r = n.room;
+    box.hidden = false;
+    box.innerHTML = `<div class="cs-info"><small>YOU'RE IN</small><b>${esc(r.name || "Party " + r.code)}</b>
+      <small>${esc(this.ctx.PARTY_MODES[r.mode || "crash"] || "")} · ${r.players.length}/${r.max || 8} players · ${r.public ? "Public" : "Private"} · code ${esc(r.code)}</small></div>`;
+    box.appendChild(this.mini("DRIVE", "green", () => { this.closeModals(); this.onlineSelected = true; this.ctx.play("online"); }));
+    box.appendChild(this.mini("LEAVE SERVER", "red", () => this.leaveServer()));
+  }
+  renderPublic() {
+    const n = this.net, list = $("srvList");
+    if (!n.publicServers) {
+      $("srvStatus").textContent = ""; $("srvPing").textContent = "";
+      list.innerHTML = `<div class="srv-empty"><b>Public servers need the online relay</b><span>They aren't available in this connection mode.</span></div>`;
+      return;
+    }
+    const servers = n.publicServers(), st = n.listState;
+    const searching = !n.connected ? st !== "offline" : st === "loading";
+    $("srvStatus").textContent = !n.connected ? (st === "offline" ? "Can't reach the multiplayer network" : "Connecting to the multiplayer network…")
+      : searching ? "Searching for servers…" : `${servers.length} server${servers.length === 1 ? "" : "s"} online`;
+    $("srvPing").textContent = n.connected && n.ping != null ? `· relay ping ${Math.round(n.ping)} ms` : "";
+    list.innerHTML = "";
+    if (!servers.length) {
+      list.innerHTML = searching
+        ? `<div class="srv-empty"><i class="srv-spin"></i><span>Looking for servers…</span></div>`
+        : n.connected
+          ? `<div class="srv-empty"><b>No public servers right now</b><span>Be the first: open the Create Server tab, or use Quick Play under Private &amp; Friends.</span></div>`
+          : `<div class="srv-empty"><b>Not connected</b><span>Check your internet connection, then press Refresh.</span></div>`;
+      return;
+    }
+    for (const s of servers) {
+      const d = document.createElement("div");
+      d.className = "srv-row" + (s.full ? " full" : "");
+      d.innerHTML = `<div class="nm"><b>${esc(s.name)}</b><small>host ${esc(s.host)} · #${esc(s.code)}</small></div>
+        <div>${esc(this.ctx.PARTY_MODES[s.mode] || s.mode)}</div><div>${esc(s.traffic)}</div><div class="cnt">${s.players}/${s.max}</div><div></div>`;
+      const btn = this.mini(s.mine ? "JOINED" : s.full ? "FULL" : "JOIN", s.mine ? "ghost" : s.full ? "ghost" : "green", () => {
+        if (!n.connected) return this.toast("Not connected to the multiplayer network", [], "warn");
+        this.autoDrive = true; this.toast(`Joining ${s.name}…`, [], "info");
+        n.send({ t: "roomJoin", code: s.code });
+      });
+      if (s.mine || s.full) btn.disabled = true;
+      d.lastElementChild.appendChild(btn);
+      list.appendChild(d);
+    }
   }
   renderOnline() {
     const n = this.net;
-    $("offlineNote").hidden = n.connected;
+    $("offlineNote").hidden = n.connected || n.listState !== "offline";
+    const tab = this.onlineTab || "public";
+    $("onlineTabs").querySelectorAll("[data-otab]").forEach((b) => b.classList.toggle("on", b.dataset.otab === tab));
+    document.querySelectorAll("#online .opane").forEach((p) => { p.hidden = p.dataset.pane !== tab; });
+    this.renderCurrentServer();
+    if (tab === "public") this.renderPublic();
+    if (tab === "create") this.syncCreateButton();
     if (n.relayStatus) $("relayStatus").textContent = "Relays: " + n.relayStatus().map((r) => `${r.name} ${r.up ? "✓" : "✗"}`).join(" · ");
     if (document.activeElement !== $("nameInput")) $("nameInput").value = P.name;
     $("myCode").textContent = n.me?.code || "------";
@@ -611,16 +773,31 @@ export class UI {
     const refresh = () => { if (!$("online").hidden) this.renderOnline(); if (this.ctx.state() === "home") this.renderHome(); };
     n.addEventListener("status", () => {
       refresh();
+      if (n.connected && !$("online").hidden && (this.onlineTab || "public") === "public" && n.listState !== "ready") n.send({ t: "publicRefresh" });
       if (n.me && P.name !== n.me.name && n.connected) n.send({ t: "setName", name: P.name });
       if (n.me) { n.send({ t: "leaderboard" }); if (P.best > (n.me.best || 0)) n.send({ t: "score", score: P.best, level: P.level }); }
     });
     n.addEventListener("social", refresh);
     n.addEventListener("room", (e) => {
       refresh();
-      if (n.room && e.detail.fresh) { this.onlineSelected = true; this.toast(`🟢 Joined party ${n.room.code}`); }
-      if (!n.room && this.ctx.mode() === "online" && this.ctx.state() !== "home") { this.toast("You left the party"); this.ctx.home(); }
+      if (n.room && e.detail.fresh) {
+        this.onlineSelected = true;
+        this.toast(`Joined ${n.room.name || "party " + n.room.code}`, [], "success");
+        // joining or creating from a list goes straight to the road
+        if (this.autoDrive) { this.autoDrive = false; this.closeModals(); this.ctx.play("online"); }
+      }
+      if (!n.room) {
+        this.autoDrive = false;
+        // leaving mid-drive returns you to the multiplayer menu rather than dropping you at the garage
+        if (this.ctx.mode() === "online" && this.ctx.state() !== "home") {
+          this.toast("You left the server", [], "info"); this.ctx.home();
+          this.onlineTab = "public"; this.openModal("online"); n.send({ t: "publicRefresh" });
+        }
+      }
     });
-    n.addEventListener("error", (e) => this.toast("⚠️ " + e.detail.msg));
+    n.addEventListener("publicList", () => { if (!$("online").hidden && (this.onlineTab || "public") === "public") this.renderPublic(); });
+    n.addEventListener("ping", () => { if (!$("online").hidden) $("srvPing").textContent = n.ping != null ? `· relay ping ${Math.round(n.ping)} ms` : ""; });
+    n.addEventListener("error", (e) => { this.autoDrive = false; this.toast(e.detail.msg, [], "error"); });
     n.addEventListener("toast", (e) => this.toast(e.detail.msg));
     n.addEventListener("friendRequest", (e) => {
       const r = e.detail;

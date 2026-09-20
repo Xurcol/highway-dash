@@ -19,7 +19,8 @@ export const NET = {
 // Also tracks the packet spacing, which sets how big an interpolation buffer this peer needs.
 export function pushState(peer, m) {
   const b = peer.buf;
-  if (b.length && b[b.length - 1].rd !== m.rd) { b.length = 0; peer.gap = 0; peer.jit = 0; peer.behind = 0; }
+  // a new round OR a teleport is a discontinuity: drop the history so nobody glides across the map
+  if (b.length && (b[b.length - 1].rd !== m.rd || (b[b.length - 1].tp || 0) !== (m.tp || 0))) { b.length = 0; peer.gap = 0; peer.jit = 0; peer.behind = 0; }
   let j = b.length;
   while (j > 0 && b[j - 1].T > m.T) j--;
   if (j > 0 && b[j - 1].T === m.T) return;
@@ -138,6 +139,7 @@ export class Net extends EventTarget {
     this.offset = 0; this.bestRtt = Infinity;
     this.peers = new Map(); // id -> {name, car, buf:[{T, s}]}
     this.retry = 1000;
+    this.publicList = []; this.listState = "idle"; this.ping = null;
   }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   now() { return Date.now() + this.offset; }
@@ -163,15 +165,23 @@ export class Net extends EventTarget {
     };
     ws.onmessage = (e) => this.onMessage(JSON.parse(e.data));
   }
-  send(m) { if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m)); }
+  send(m) {
+    if (m.t === "publicRefresh") { this.listState = "loading"; this.emit("publicList"); }
+    if (this.ws && this.ws.readyState === 1) this.ws.send(JSON.stringify(m));
+  }
+  // same shape as the relay client's list, so the server browser does not care which transport is in use
+  publicServers() { return this.publicList.map((s) => ({ ...s, full: s.players >= s.max, mine: this.room?.code === s.code })); }
 
   onMessage(m) {
     switch (m.t) {
       case "pong": {
         const rtt = performance.now() - m.c;
         if (rtt < this.bestRtt) { this.bestRtt = rtt; this.offset = m.s + rtt / 2 - Date.now(); }
+        this.ping = this.ping === null ? rtt : this.ping * .6 + rtt * .4;   // a real round trip to the server itself
+        this.emit("ping");
         break;
       }
+      case "publicList": this.publicList = Array.isArray(m.servers) ? m.servers : []; this.listState = "ready"; this.emit("publicList"); break;
       case "welcome":
         store.set("hd_token", m.token);
         this.me = { id: m.id, code: m.code, name: m.name, best: m.best };

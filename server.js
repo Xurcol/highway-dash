@@ -92,7 +92,7 @@ function pushSocial(u) {
 const notifyFriends = (u) => u.friends.forEach((f) => db.users[f] && pushSocial(db.users[f]));
 
 function roomInfo(r) {
-  return { t: "room", code: r.code, seed: r.seed, epoch: r.epoch, round: r.round, roundState: r.roundState, public: r.public, traffic: r.traffic, mode: r.mode, target: r.target, dur: r.dur,
+  return { t: "room", code: r.code, seed: r.seed, epoch: r.epoch, round: r.round, roundState: r.roundState, public: r.public, traffic: r.traffic, mode: r.mode, target: r.target, dur: r.dur, name: r.name, max: r.max, hour: r.hour, weather: r.weather,
     players: [...r.members].map((id) => ({ id, name: db.users[id].name, car: online.get(id)?.car || "", build: online.get(id)?.build || null })) };
 }
 function leaveRoom(ws) {
@@ -105,7 +105,7 @@ function leaveRoom(ws) {
 }
 function joinRoom(ws, r) {
   if (ws.room === r.code) return send(ws, roomInfo(r));
-  if (r.members.size >= MAX_ROOM) return send(ws, { t: "error", msg: "That party is full" });
+  if (r.members.size >= (r.max || MAX_ROOM)) return send(ws, { t: "error", msg: "That server is full" });
   if (ws.room) leaveRoom(ws);
   r.members.add(ws.user.id);
   ws.room = r.code;
@@ -113,6 +113,9 @@ function joinRoom(ws, r) {
   notifyFriends(ws.user);
 }
 const LEVELS = ["Chill", "Normal", "Heavy", "Insane"];
+const ROOM_MODES = ["crash", "target", "timed", "free"];
+const cleanText = (s, n) => String(s ?? "").replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
+const clampNum = (v, lo, hi, d = 0) => { v = +v; return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
 // ---- party rounds: everyone starts together on the same seed; the first crash ends the round for all ----
 const COUNTDOWN = 3000, RESULTS = 0;
 function startRound(r, delay = COUNTDOWN) {
@@ -134,10 +137,12 @@ function endRound(r, crasher, win = false, timed = false) {
   clearTimeout(r.timer);
   r.timer = setTimeout(() => { if (rooms.get(r.code) === r && r.members.size) startRound(r); }, RESULTS);
 }
-function makeRoom(isPublic, traffic) {
+function makeRoom(isPublic, traffic, o = {}) {
   let code;
   do { code = String(crypto.randomInt(100000, 999999)); } while (rooms.has(code));
-  const r = { code, seed: crypto.randomInt(1, 2 ** 31), epoch: Date.now(), round: 0, roundState: "lobby", members: new Set(), public: isPublic, traffic: LEVELS.includes(traffic) ? traffic : "Heavy", mode: "crash", target: 10000, dur: 120 };
+  const r = { code, seed: crypto.randomInt(1, 2 ** 31), epoch: Date.now(), round: 0, roundState: "lobby", members: new Set(), public: isPublic, traffic: LEVELS.includes(traffic) ? traffic : "Heavy",
+    mode: ROOM_MODES.includes(o.mode) ? o.mode : "crash", target: 10000, dur: 120, name: cleanText(o.name, 24), max: Math.round(clampNum(o.max, 2, MAX_ROOM, MAX_ROOM)),
+    hour: o.hour === undefined ? undefined : clampNum(o.hour, 0, 24, 12), weather: o.weather === undefined ? undefined : cleanText(o.weather, 12) };
   rooms.set(code, r);
   return r;
 }
@@ -221,9 +226,25 @@ wss.on("connection", (ws) => {
         save(); pushSocial(u); pushSocial(other);
         break;
       }
-      case "roomCreate": joinRoom(ws, makeRoom(false, m.traffic)); break;
+      case "roomCreate": {
+        // a client may only be in one room and cannot create rooms faster than one every 3 s
+        const now = Date.now();
+        if (ws.lastCreate && now - ws.lastCreate < 3000) return send(ws, { t: "error", msg: "Slow down - creating servers too fast" });
+        ws.lastCreate = now;
+        joinRoom(ws, makeRoom(!!m.public, m.traffic, { ...m, name: cleanText(m.name, 24) || `${u.name}'s server` }));
+        break;
+      }
+      // the list of joinable public servers, built from live rooms only - nothing here is remembered or faked
+      case "publicRefresh": {
+        const servers = [...rooms.values()].filter((x) => x.public && x.members.size).map((x) => ({
+          code: x.code, name: x.name || "Public server", mode: x.mode, players: x.members.size, max: x.max || MAX_ROOM, traffic: x.traffic,
+          host: db.users[[...x.members][0]]?.name || "",
+        }));
+        send(ws, { t: "publicList", servers });
+        break;
+      }
       case "quickPlay": {
-        const r = [...rooms.values()].find((x) => x.public && x.members.size < MAX_ROOM) || makeRoom(true, "Heavy");
+        const r = [...rooms.values()].find((x) => x.public && x.members.size < (x.max || MAX_ROOM)) || makeRoom(true, "Heavy", { name: `${u.name}'s server` });
         joinRoom(ws, r);
         break;
       }
@@ -248,23 +269,30 @@ wss.on("connection", (ws) => {
       case "roomLeave": if (ws.room) { leaveRoom(ws); notifyFriends(u); send(ws, { t: "roomLeft" }); } break;
       case "state": {
         const r = rooms.get(ws.room);
-        if (!r || typeof m.s !== "object") return;
-        if (typeof m.s.sc === "number") ws.lastScore = Math.max(0, Math.floor(m.s.sc));
-        const msg = JSON.stringify({ t: "state", id: u.id, s: m.s });
+        if (!r || !m.s || typeof m.s !== "object" || !Number.isFinite(+m.s.x) || !Number.isFinite(+m.s.z)) return;
+        const ss = m.s;
+        ss.x = clampNum(ss.x, -40, 40); ss.z = clampNum(ss.z, -1e7, 1e7); ss.v = clampNum(ss.v, -80, 220);
+        if (typeof ss.sc === "number") ws.lastScore = Math.max(0, Math.floor(ss.sc));
+        const msg = JSON.stringify({ t: "state", id: u.id, s: ss });
         r.members.forEach((id) => { if (id !== u.id) { const o = online.get(id); o && o.readyState === 1 && o.send(msg); } });
         break;
       }
       case "chat": {
         const r = rooms.get(ws.room);
-        const text = String(m.text || "").slice(0, 120).trim();
+        const text = cleanText(m.text, 120);
         if (!r || !text) return;
+        // at most 4 messages in any 5 seconds per user
+        const nowT = Date.now();
+        ws.chatT = (ws.chatT || []).filter((t) => nowT - t < 5000);
+        if (ws.chatT.length >= 4) return send(ws, { t: "error", msg: "You're sending messages too fast" });
+        ws.chatT.push(nowT);
         r.members.forEach((id) => toUser(id, { t: "chat", name: u.name, text }));
         break;
       }
       case "roomSettings": {
         const r = rooms.get(ws.room);
         if (!r || [...r.members][0] !== u.id || r.roundState === "running") return;
-        r.mode = ["crash", "target", "timed"].includes(m.mode) ? m.mode : "crash";
+        r.mode = ROOM_MODES.includes(m.mode) ? m.mode : "crash";
         r.target = Math.max(1000, Math.min(100000, m.target | 0 || 10000));
         r.dur = Math.max(30, Math.min(600, m.dur | 0 || 120));
         if (LEVELS.includes(m.traffic)) r.traffic = m.traffic;

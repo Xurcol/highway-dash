@@ -13,7 +13,8 @@
 import mqtt from "/vendor/mqtt.esm.js";
 import { store, pushState } from "./net.js";
 
-const ROOT = "xurcoxyz/hdash/v1/";
+// ?root=... points a client at a private topic namespace, so tests never touch the real lobby.
+const ROOT = (() => { const r = new URLSearchParams(location.search).get("root"); return r && /^[\w\-\/]{3,60}$/.test(r) ? r.replace(/\/?$/, "/") : "xurcoxyz/hdash/v1/"; })();
 // Every player connects to all relays at once and publishes to each, so two players can never end up
 // on different relays (a slow or blocked relay just drops out). Duplicate deliveries are filtered by id.
 const BROKERS = [
@@ -22,9 +23,35 @@ const BROKERS = [
   { name: "Mosquitto", url: "wss://test.mosquitto.org:8081" },
 ];
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const MAX_ROOM = 8;
+const MAX_ROOM = 8, MIN_ROOM = 2;
+const ROOM_MODES = ["crash", "target", "timed", "free"];
+const LISTING_TTL = 3 * 60 * 1000;      // a listing nobody has refreshed for this long is dead
+const cleanText = (s, n) => String(s ?? "").replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
+const num = (v, lo, hi, d = 0) => { v = +v; return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
+// Every state packet comes from a stranger over a public broker, so nothing in it is trusted: numbers are
+// clamped to plausible ranges and unknown fields are dropped before they can reach the renderer.
+function sanitizeState(m) {
+  if (!m || typeof m !== "object" || !Number.isFinite(+m.T) || !Number.isFinite(+m.x) || !Number.isFinite(+m.z)) return null;
+  const o = {
+    T: +m.T, x: num(m.x, -40, 40), z: num(m.z, -1e7, 1e7), y: num(m.y, -5, 200), ry: num(m.ry, -7, 7), pitch: num(m.pitch, -7, 7), roll: num(m.roll, -7, 7),
+    w: num(m.w, 0, 1e15), rd: num(m.rd, 0, 1e9), tp: num(m.tp, 0, 1e9), vx: num(m.vx, -80, 80), v: num(m.v, -80, 220),
+    rpm: num(m.rpm, 0, 20000), thr: num(m.thr, 0, 1), ld: num(m.ld, 0, 2), g: num(m.g, -1, 20) | 0, sh: m.sh ? 1 : 0, bo: num(m.bo, 0, 200),
+    brk: m.brk ? 1 : 0, sl: m.sl ? 1 : 0, sr: m.sr ? 1 : 0, cr: m.cr ? 1 : 0, sc: num(m.sc, 0, 1e9) | 0,
+  };
+  if (m.c && typeof m.c === "object") {
+    const c = m.c;
+    o.c = { car: cleanText(c.car, 24), col: c.col === undefined ? undefined : num(c.col, 0, 0xffffff) | 0, st: typeof c.st === "object" ? c.st : undefined, md: c.md ? 1 : 0, a: typeof c.a === "object" ? c.a : undefined };
+    // the traffic fingerprint pair is only meaningful when both halves are present
+    if (Number.isFinite(+c.tq) && Number.isFinite(+c.th)) { o.c.tq = num(c.tq, 0, 1e7); o.c.th = num(c.th, -2147483648, 2147483647) | 0; }
+  }
+  return o;
+}
 const STALE = 3 * 60 * 1000; // presence older than this counts as offline (tab closed without a clean disconnect)
 const live = (p) => p && !p.offline && Date.now() - (p.t || 0) < STALE;
+
+// A relay whose socket is closing still reports connected for a moment. Publishing into it made the
+// browser log an error for every packet (20 a second) until the library noticed, so check the socket.
+const linkOpen = (l) => l.client.connected && (l.client.stream?.socket?.readyState ?? 1) === 1;
 
 const cookie = {
   get(k) { const m = document.cookie.match(new RegExp("(?:^|; )" + k + "=([^;]*)")); return m ? decodeURIComponent(m[1]) : null; },
@@ -49,6 +76,10 @@ export class RelayNet extends EventTarget {
     this.links = [];
     this.seen = new Map(); // message id -> time, for de-duplicating the same message arriving via several relays
     this.fastSeen = new Map(); // sender -> ring of recent payload hashes, for the 20 Hz state stream
+    this.ping = null; this.pingSent = new Map();   // relay round-trip time, ms
+    this.chatIn = new Map(); this.chatOut = [];    // chat rate limiting (incoming per sender, outgoing for us)
+    this.listState = "idle";                       // idle | loading | ready | offline
+    this.joinTimer = 0; this.gotInfo = false;
   }
   emit(type, detail) { this.dispatchEvent(new CustomEvent(type, { detail })); }
   now() { return Date.now() + this.clockOffset; }
@@ -71,12 +102,12 @@ export class RelayNet extends EventTarget {
   t(topic) { return ROOT + topic; }
   pub(topic, obj, retain = false) {
     const payload = obj === null ? "" : JSON.stringify({ ...obj, _m: randCode(10) });
-    for (const l of this.links) if (l.client.connected) l.client.publish(this.t(topic), payload, { qos: retain ? 1 : 0, retain });
+    for (const l of this.links) if (linkOpen(l)) l.client.publish(this.t(topic), payload, { qos: retain ? 1 : 0, retain });
   }
   // state stream: no de-dup id needed per relay copy beyond T ordering, keep payloads small
   pubFast(topic, obj) {
     const payload = JSON.stringify(obj);
-    for (const l of this.links) if (l.client.connected) l.client.publish(this.t(topic), payload, { qos: 0 });
+    for (const l of this.links) if (linkOpen(l)) l.client.publish(this.t(topic), payload, { qos: 0 });
   }
   relayStatus() { return this.links.map((l) => ({ name: l.name, up: l.client.connected })); }
 
@@ -92,7 +123,9 @@ export class RelayNet extends EventTarget {
   }
   open() {
     clearInterval(this.beat);
-    this.beat = setInterval(() => { this.publishPresence(); this.pruneSeen(); }, 60000);
+    this.beat = setInterval(() => { this.publishPresence(); this.pruneSeen(); this.publishListing(); }, 60000);
+    clearInterval(this.pingBeat);
+    this.pingBeat = setInterval(() => this.pingRelay(), 20000);
     for (const b of BROKERS) {
       const will = { topic: this.t(`presence/${this.me.code}`), payload: JSON.stringify({ ...this.presence(true), t: 0 }), qos: 1, retain: true };
       const client = mqtt.connect(b.url, { clientId: `hd_${this.me.code}_${randCode(4)}`, keepalive: 30, reconnectPeriod: 4000, connectTimeout: 15000, clean: true, will });
@@ -100,7 +133,7 @@ export class RelayNet extends EventTarget {
       this.links.push(link);
       client.on("connect", () => {
         const c = this.me.code;
-        client.subscribe([this.t("presence/+"), this.t(`req/${c}/+`), this.t(`acc/${c}/+`), this.t(`inbox/${c}`), this.t("public/+")], { qos: 0 });
+        client.subscribe([this.t("presence/+"), this.t(`req/${c}/+`), this.t(`acc/${c}/+`), this.t(`inbox/${c}`), this.t("public/+"), this.t(`ping/${c}`)], { qos: 0 });
         if (this.room) client.subscribe(this.roomTopics(this.room.code), { qos: 0 });
         client.publish(this.t(`presence/${c}`), JSON.stringify({ ...this.presence(false), _m: randCode(10) }), { qos: 1, retain: true });
         this.linkChanged();
@@ -159,7 +192,16 @@ export class RelayNet extends EventTarget {
         if (this.room) this.roomSoon();
         break;
       }
-      case "public": if (m) this.publicRooms.set(parts[1], m); else this.publicRooms.delete(parts[1]); break;
+      case "public":
+        if (m && typeof m === "object") this.publicRooms.set(parts[1], { ...m, rx: Date.now() });
+        else this.publicRooms.delete(parts[1]);
+        if (this.listState !== "idle") this.listSoon();
+        break;
+      case "ping": {
+        const sent = this.pingSent.get(m?.k);
+        if (sent) { this.pingSent.delete(m.k); const rtt = Math.round(performance.now() - sent); this.ping = this.ping === null ? rtt : Math.min(this.ping * .5 + rtt * .5, rtt + 200); this.emit("ping"); }
+        break;
+      }
       case "req": {
         const from = parts[2];
         if (m && !this.friendCodes.has(from) && !this.incomingMap.has(from)) this.emit("friendRequest", { id: from, name: cleanName(m.name) });
@@ -184,13 +226,21 @@ export class RelayNet extends EventTarget {
         if (kind === "info") this.applyInfo(m);
         else if (kind === "s" && m) {
           const from = parts[3];
-          if (from === this.me.code) break;
+          if (from === this.me.code || !/^[A-Z2-9]{6}$/.test(from)) break;
           let peer = this.peers.get(from);
-          if (!peer) { peer = { buf: [], name: this.players.get(from)?.name || "Driver", car: m.car }; this.peers.set(from, peer); this.roomSoon(); }
-          if (typeof m.w === "number") this.clockSample(from, m.w);
-          pushState(peer, m);
-          peer.last = performance.now(); peer.car = m.car;
-        } else if (kind === "c" && m) this.emit("chat", { name: cleanName(m.name), text: String(m.text).slice(0, 120) });
+          // a party is small: a stranger publishing into the room topic cannot conjure dozens of cars
+          if (!peer && this.peers.size >= MAX_ROOM + 3) break;
+          const st = sanitizeState(m);
+          if (!st) break;
+          if (!peer) { peer = { buf: [], name: this.players.get(from)?.name || "Driver", car: st.c?.car }; this.peers.set(from, peer); this.roomSoon(); }
+          if (typeof st.w === "number") this.clockSample(from, st.w);
+          pushState(peer, st);
+          peer.last = performance.now(); if (st.c?.car) peer.car = st.c.car;
+        } else if (kind === "c" && m) {
+          const from = cleanName(m.name), text = cleanText(m.text, 120);
+          if (!text || this.chatLimited(from)) break;
+          this.emit("chat", { name: from, text });
+        }
         else if (kind === "e" && m && m.id !== this.me.code) this.emit("event", { id: m.id, name: cleanName(m.name), kind: String(m.kind), v: m.v | 0, d: m.d ? String(m.d).slice(0, 48) : undefined });
         break;
       }
@@ -218,10 +268,16 @@ export class RelayNet extends EventTarget {
   joinRoom(code, info) {
     if (this.room?.code === code) return this.roomSoon(true);
     const count = [...this.players.values()].filter((p) => p.room === code && live(p)).length;
-    if (count >= MAX_ROOM) return this.emit("error", { msg: "That party is full" });
+    const cap = this.publicRooms.get(code)?.max || MAX_ROOM;
+    if (!info && count >= cap) return this.emit("error", { msg: "That server is full" });
     if (this.room) this.leaveRoom(true);
     this.joinT = Date.now();
     this.roomInfo = info || { round: 0, seed: 1, epoch: Date.now(), traffic: "Heavy", public: false };
+    // joining someone else's room: if nothing answers in a few seconds it is closed or never existed
+    clearTimeout(this.joinTimer); this.gotInfo = !!info;
+    if (!info) this.joinTimer = setTimeout(() => {
+      if (this.room?.code === code && !this.gotInfo) { this.emit("error", { msg: "Couldn't find that server — it may have closed." }); this.leaveRoom(); }
+    }, 7000);
     this.room = { code, players: [], ...this.roomInfo };
     this.subRoom(code);
     if (info) this.pub(`room/${code}/info`, info, true);
@@ -232,6 +288,9 @@ export class RelayNet extends EventTarget {
   leaveRoom(silent = false) {
     if (!this.room) return;
     const code = this.room.code;
+    // the last player out takes the listing down so the browser never shows an empty ghost server
+    if (this.roomInfo?.public && this.room.players.length <= 1) this.pub(`public/${code}`, null, true);
+    clearTimeout(this.joinTimer);
     this.unsubRoom(code);
     for (const id of this.peers.keys()) this.emit("peerLeft", id);
     this.peers.clear(); this.fastSeen.clear();
@@ -243,6 +302,7 @@ export class RelayNet extends EventTarget {
     if (!info || !this.room) return;
     const prev = this.roomInfo || {};
     this.roomInfo = info;
+    this.gotInfo = true; clearTimeout(this.joinTimer);
     if (info.prevEnd && info.round > (prev.round || 0) && info.prevEnd.round === prev.round) this.emit("roundEnd", info.prevEnd);
     this.roomSoon();
   }
@@ -260,7 +320,8 @@ export class RelayNet extends EventTarget {
       for (const p of players) { const peer = this.peers.get(p.id); if (peer) { peer.name = p.name; peer.car = p.car || peer.car; } }
       const now = this.now();
       const roundState = !info.round ? "lobby" : now < info.epoch ? "countdown" : "running";
-      this.room = { code: this.room.code, seed: info.seed ?? 1, epoch: info.epoch ?? now, round: info.round || 0, roundState, traffic: info.traffic || "Heavy", public: !!info.public, mode: info.mode || "crash", target: info.target || 10000, dur: info.dur || 120, players };
+      this.room = { code: this.room.code, seed: info.seed ?? 1, epoch: info.epoch ?? now, round: info.round || 0, roundState, traffic: info.traffic || "Heavy", public: !!info.public, mode: ROOM_MODES.includes(info.mode) ? info.mode : "crash", target: info.target || 10000, dur: info.dur || 120, name: info.name || "", max: info.max || MAX_ROOM, hour: info.hour, weather: info.weather, players };
+      this.publishListing();
       const fresh = this.freshRoom; this.freshRoom = false;
       if (!fresh && this.prevPlayers) for (const p of players) if (p.id !== this.me.code && !this.prevPlayers.has(p.id)) this.emit("toast", { msg: `🟢 ${p.name} joined the party` });
       this.prevPlayers = new Set(players.map((p) => p.id));
@@ -271,7 +332,68 @@ export class RelayNet extends EventTarget {
   }
   newRoundInfo(extra = {}) {
     const info = this.roomInfo || {};
-    return { round: (info.round || 0) + 1, seed: (Math.random() * 2 ** 31) | 0, epoch: this.now() + 3000, traffic: info.traffic || "Heavy", public: !!info.public, mode: info.mode || "crash", target: info.target || 10000, dur: info.dur || 120, ...extra };
+    return { round: (info.round || 0) + 1, seed: (Math.random() * 2 ** 31) | 0, epoch: this.now() + 3000, traffic: info.traffic || "Heavy", public: !!info.public, mode: info.mode || "crash", target: info.target || 10000, dur: info.dur || 120, name: info.name || "", max: info.max || MAX_ROOM, hour: info.hour, weather: info.weather, ...extra };
+  }
+
+  // ---------- public servers ----------
+  // Normalises whatever the create form (or quick play) sends into a complete, safe room description.
+  roomOpts(m = {}) {
+    return {
+      name: cleanText(m.name, 24) || `${this.me.name}'s server`,
+      max: Math.round(num(m.max, MIN_ROOM, MAX_ROOM, MAX_ROOM)),
+      mode: ROOM_MODES.includes(m.mode) ? m.mode : "crash",
+      target: Math.round(num(m.target, 1000, 100000, 10000)), dur: Math.round(num(m.dur, 30, 600, 120)),
+      traffic: ["Chill", "Normal", "Heavy", "Insane"].includes(m.traffic) ? m.traffic : "Heavy",
+      public: !!m.public,
+      hour: m.hour === undefined ? undefined : num(m.hour, 0, 24, 12), weather: m.weather === undefined ? undefined : cleanText(m.weather, 12),
+    };
+  }
+  // The host of a public room keeps its retained listing fresh (and up to date after a settings change).
+  // If the host leaves, whoever becomes first in the roster picks the job up on the next room update.
+  publishListing() {
+    const r = this.room, info = this.roomInfo;
+    if (!r || !info?.public || r.players[0]?.id !== this.me.code) return;
+    this.pub(`public/${r.code}`, { name: info.name || "Public server", mode: r.mode, max: info.max || MAX_ROOM, traffic: r.traffic, host: this.me.name, t: Date.now() }, true);
+  }
+  // Live entries only: a listing counts if people are actually in the room, or it was published a moment ago.
+  publicServers() {
+    const now = Date.now(), counts = new Map();
+    for (const p of this.players.values()) if (p.room && live(p)) counts.set(p.room, (counts.get(p.room) || 0) + 1);
+    const out = [];
+    for (const [code, l] of this.publicRooms) {
+      const n = counts.get(code) || 0;
+      if (!n && now - (l.t || 0) > 20000) continue;
+      if (now - (l.t || 0) > LISTING_TTL && !n) continue;
+      const max = l.max || MAX_ROOM;
+      out.push({ code, name: cleanText(l.name, 24) || "Public server", mode: ROOM_MODES.includes(l.mode) ? l.mode : "crash", players: n, max, traffic: l.traffic || "Heavy", host: cleanName(l.host), full: n >= max, mine: this.room?.code === code });
+    }
+    return out.sort((a, b) => (a.full - b.full) || b.players - a.players || a.name.localeCompare(b.name));
+  }
+  // Re-subscribing makes the broker replay every retained listing, which is the actual "query".
+  refreshPublic() {
+    this.listState = this.connected ? "loading" : "offline";
+    this.emit("publicList");
+    if (!this.connected) return;
+    for (const l of this.links) if (l.client.connected) { l.client.unsubscribe(this.t("public/+")); l.client.subscribe(this.t("public/+"), { qos: 0 }); }
+    this.pingRelay();
+    clearTimeout(this.listT);
+    this.listT = setTimeout(() => { this.listState = this.connected ? "ready" : "offline"; this.emit("publicList"); }, 1300);
+  }
+  listSoon() { clearTimeout(this.listRedraw); this.listRedraw = setTimeout(() => this.emit("publicList"), 250); }
+  // Round trip to the relay we are connected through. It says nothing about a particular host's latency
+  // (there is no direct connection to one), so the UI labels it as the relay ping.
+  pingRelay() {
+    if (!this.me) return;
+    const k = randCode(6);
+    this.pingSent.set(k, performance.now());
+    if (this.pingSent.size > 20) this.pingSent.delete(this.pingSent.keys().next().value);
+    this.pubFast(`ping/${this.me.code}`, { k });
+  }
+  chatLimited(from) {
+    const now = performance.now(), a = (this.chatIn.get(from) || []).filter((t) => now - t < 5000);
+    a.push(now); this.chatIn.set(from, a);
+    if (this.chatIn.size > 64) this.chatIn.delete(this.chatIn.keys().next().value);
+    return a.length > 8;
   }
 
   // ---------- leaderboard ----------
@@ -309,16 +431,17 @@ export class RelayNet extends EventTarget {
         break;
       case "friendDecline": this.incomingMap.delete(m.id); this.pub(`req/${c}/${m.id}`, null, true); this.socialSoon(); break;
       case "friendRemove": this.friendCodes.delete(m.id); store.set("hd_friends", [...this.friendCodes]); this.socialSoon(); break;
-      case "roomCreate": this.joinRoom(String(100000 + Math.floor(Math.random() * 900000)), { round: 0, seed: 1, epoch: Date.now(), traffic: m.traffic || "Heavy", public: false }); break;
+      case "roomCreate": {
+        const o = this.roomOpts(m);
+        this.joinRoom(String(100000 + Math.floor(Math.random() * 900000)), { round: 0, seed: 1, epoch: Date.now(), ...o });
+        break;
+      }
       case "quickPlay": {
-        const counts = new Map();
-        for (const p of this.players.values()) if (p.room && live(p)) counts.set(p.room, (counts.get(p.room) || 0) + 1);
-        const pick = [...this.publicRooms.keys()].find((code) => (counts.get(code) || 0) > 0 && counts.get(code) < MAX_ROOM);
+        const pick = this.publicServers().find((s) => !s.full && s.players > 0)?.code;
         if (pick) this.joinRoom(pick);
         else {
           const code = String(100000 + Math.floor(Math.random() * 900000));
-          this.pub(`public/${code}`, { traffic: "Heavy", t: Date.now() }, true);
-          this.joinRoom(code, { round: 0, seed: 1, epoch: Date.now(), traffic: "Heavy", public: true });
+          this.joinRoom(code, { round: 0, seed: 1, epoch: Date.now(), ...this.roomOpts({ name: `${this.me.name}'s server`, public: true }) });
         }
         break;
       }
@@ -327,7 +450,18 @@ export class RelayNet extends EventTarget {
       case "invite": if (this.room) { this.pub(`inbox/${m.id}`, { type: "invite", from: this.me.name, fromId: c, room: this.room.code }); this.emit("toast", { msg: "Invite sent" }); } break;
       case "roomLeave": this.leaveRoom(); break;
       case "state": if (this.room) { this.myScore = m.s.sc || 0; this.pubFast(`room/${this.room.code}/s/${c}`, m.s); } break;
-      case "chat": if (this.room) this.pub(`room/${this.room.code}/c`, { name: this.me.name, text: String(m.text || "").slice(0, 120) }); break;
+      case "chat": {
+        if (!this.room) break;
+        const text = cleanText(m.text, 120), now = performance.now();
+        if (!text) break;
+        // at most 4 messages in any 5 seconds
+        this.chatOut = this.chatOut.filter((t) => now - t < 5000);
+        if (this.chatOut.length >= 4) return this.emit("error", { msg: "You're sending messages too fast" });
+        this.chatOut.push(now);
+        this.pub(`room/${this.room.code}/c`, { name: this.me.name, text });
+        break;
+      }
+      case "publicRefresh": this.refreshPublic(); break;
       case "event": if (this.room) this.pub(`room/${this.room.code}/e`, { id: c, name: this.me.name, kind: m.kind, v: m.v, d: m.d }); break;
       case "score": {
         const s = Math.floor(Number(m.score) || 0);
@@ -341,7 +475,7 @@ export class RelayNet extends EventTarget {
       // the host (first to join) sets the party's mode, score target, time and traffic between rounds
       case "roomSettings": {
         if (!this.room || this.room.players?.[0]?.id !== c || this.room.roundState === "running") return;
-        const info = { ...(this.roomInfo || {}), mode: ["crash", "target", "timed"].includes(m.mode) ? m.mode : "crash", target: Math.max(1000, Math.min(100000, m.target | 0 || 10000)), dur: Math.max(30, Math.min(600, m.dur | 0 || 120)), traffic: m.traffic || this.roomInfo?.traffic || "Heavy" };
+        const info = { ...(this.roomInfo || {}), mode: ROOM_MODES.includes(m.mode) ? m.mode : "crash", target: Math.max(1000, Math.min(100000, m.target | 0 || 10000)), dur: Math.max(30, Math.min(600, m.dur | 0 || 120)), traffic: m.traffic || this.roomInfo?.traffic || "Heavy" };
         this.pub(`room/${this.room.code}/info`, info, true);
         break;
       }

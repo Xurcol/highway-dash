@@ -281,13 +281,13 @@ const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagN
 addEventListener("keydown", (e) => {
   if (typing()) {
     if (e.code === "Enter" && document.activeElement.id === "chatInput") sendChat();
-    if (e.code === "Escape") document.activeElement.blur();
+    if (e.code === "Escape") { if (document.activeElement.id === "chatInput") closeChat(); else document.activeElement.blur(); }
     return;
   }
   if (e.repeat) { keys[e.code] = true; return; }
   keys[e.code] = true;
   onKey(e.code);
-  if (["Space", "ArrowUp", "ArrowDown"].includes(e.code)) e.preventDefault();
+  if (["Space", "ArrowUp", "ArrowDown"].includes(e.code) || (e.code === "Tab" && state !== "home" && !ui.anyModalOpen() && !typing())) e.preventDefault();
 });
 addEventListener("keyup", (e) => {
   keys[e.code] = false;
@@ -309,12 +309,14 @@ let soloT = 0;
 // cops), timeattack (2 minutes, crashes cost score).
 // Party: crash (first crash ends the round), target (first to a score), timed (highest score when time's up).
 const SOLO_MODES = { classic: "Classic", freedrive: "Free Drive", police: "Police Chase", timeattack: "Time Attack" };
-const PARTY_MODES = { crash: "Last One Standing", target: "First To Score", timed: "Timed Battle" };
+const PARTY_MODES = { free: "Free Drive", crash: "Last One Standing", target: "First To Score", timed: "Timed Battle" };
 const TIME_ATTACK = 120;
 const soloMode = () => (SOLO_MODES[P.settings.soloMode] ? P.settings.soloMode : "classic");
 const partyMode = () => (mode === "online" && net.room ? net.room.mode || "crash" : null);
 // crashes respawn you (with a score penalty) instead of ending the run in these modes
 const respawnMode = () => (mode === "online" ? partyMode() !== "crash" : soloMode() === "timeattack" || soloMode() === "freedrive");
+// Free Drive, solo or in a server: no rounds, no finish, crashes cost nothing
+const freeMode = () => (mode === "online" ? partyMode() === "free" : mode === "solo" && soloMode() === "freedrive");
 // chase / far / hood / bumper - the drive camera, cycled with C and remembered between sessions
 const CAMS = ["CHASE CAM", "FAR CHASE", "HOOD CAM", "BUMPER CAM"];
 let camMode = Math.min(CAMS.length - 1, Math.max(0, P.settings.cam | 0));
@@ -396,18 +398,25 @@ async function ensureAudio() {
   if (!G.engine) G.engine = audio.engine(carSound(G.def.id));
 }
 
+let joinHint = null;   // where the other drivers were when we entered a running server
 function enterReady(asMode) {
   mode = asMode;
   buildPlayerCar();
   if (mode === "online" && net.room) {
     traffic.setSeed(net.room.seed, net.room.traffic || "Heavy", false);
-    const others = [...remotes.values()].filter((r) => r.s && !r.s.cr);
-    G.z = others.length ? others.reduce((a, r) => a + r.s.z, 0) / others.length + 30 : 0;
+    const others = (joinHint || livePeers()).filter((o) => !o.cr);
+    G.z = others.length ? others.reduce((a, o) => a + o.z, 0) / others.length + 30 : 0;
   } else {
     traffic.setSeed((Math.random() * 2 ** 31) | 0, P.settings.traffic, true);
     soloT = 0; G.z = 0;
   }
   G.x = pickSpawn(getT(), G.z);
+  // joining a server that is already running: land on a clear bit of road, not on top of anyone
+  if (mode === "online" && net.room) {
+    const seen = (joinHint || livePeers()).filter((o) => !o.cr);
+    joinHint = null;
+    if (seen.length) { const sp = safeSpotNear(seen.reduce((a, o) => a + o.z, 0) / seen.length, getT(), seen); G.z = sp.z; G.x = sp.x; }
+  }
   Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: G.god ? 1e9 : 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, sentWin: false, bestCombo: 0, slide: 0, driftYaw: 0, slideDir: 0, flameT: 0, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
   G.prevDz.clear();
   G.dt.v = 0; G.readyRpm = G.dt.s.idle;
@@ -447,7 +456,7 @@ function crash(hitCar) {
   audio.crash(Math.min(1, v / 50));
   G.crashT = 0; G.shake = 1;
   G.engine?.params(G.dt.s.idle, 0, 0);
-  if (respawnMode()) { if (soloMode() !== "freedrive") { G.score *= .9; ui.toast("Crashed — respawning (-10% score)", [], "warn"); } else ui.toast("Respawning", [], "info"); G.combo = 0; if (mode === "online") net.send({ t: "event", kind: "crash", v: Math.floor(G.score) }); return; }
+  if (respawnMode()) { if (!freeMode()) { G.score *= .9; ui.toast("Crashed — respawning (-10% score)", [], "warn"); } else ui.toast("Respawning", [], "info"); G.combo = 0; if (mode === "online") net.send({ t: "event", kind: "crash", v: Math.floor(G.score) }); return; }
   if (mode === "online" && partyRound) { const res = awardRun(); ui.toast(`+${res.coins.toLocaleString()} coins`); G.awarded = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score) }); }
   else net.send({ t: "event", kind: "crash", v: Math.floor(G.score) });
 }
@@ -509,7 +518,11 @@ function enterPartyRound() {
   const room = net.room;
   if (!room || !room.round) return;
   partyRound = room.round;
+  joinHint = livePeers();                 // remember where everyone is before the round change clears the buffers
   for (const p of net.peers.values()) p.buf.length = 0;
+  // a server can fix the time and weather for everyone; otherwise everyone keeps their own
+  if (typeof room.hour === "number") { sky.hour = room.hour; sky.flow = false; }
+  if (room.weather && WEATHERS[room.weather]) sky.setWeather(room.weather);
   ui.hideRoundResults();
   enterReady("online");
   if (room.roundState === "running" && getT() > 1) return startDriving(); // late joiner drops in beside the pack
@@ -564,6 +577,13 @@ function revive() {
   return true;
 }
 function goHome() {
+  // leaving a free-drive session cashes in what you earned in it, since it has no results screen
+  if (state === "drive" && freeMode() && G.score > 0 && !G.awarded) {
+    const res = awardRun();
+    ui.toast(`Session paid out +${res.coins.toLocaleString()} coins`, [], "success");
+  }
+  menuOpen = false; ui.setPaused(false);
+  sky.hour = P.settings.hour; sky.flow = P.settings.flow; sky.setWeather(P.settings.weather);
   state = "home"; paused = false;
   G.engine?.params(900, 0, 0);
   audio.horn(false);
@@ -585,7 +605,9 @@ function onKey(code) {
     case "KeyT": { const names = Object.keys(TIME_PRESETS); const i = (names.findIndex((n) => Math.abs(TIME_PRESETS[n] - sky.hour) < .3) + 1) % names.length; P.settings.hour = sky.hour = TIME_PRESETS[names[i]]; save(); ui.toast(`🕒 ${names[i]}`); break; }
     case "KeyB": { const names = Object.keys(WEATHERS); const i = (names.indexOf(sky.weatherName) + 1) % names.length; sky.setWeather(names[i]); P.settings.weather = names[i]; save(); ui.toast(`🌦 ${names[i]}`); break; }
     case "KeyV": { const i = (SKY_STYLES.indexOf(sky.style) + 1) % SKY_STYLES.length; sky.setStyle(SKY_STYLES[i]); P.settings.sky = SKY_STYLES[i]; save(); ui.toast(`✨ ${SKY_STYLES[i]} sky`); break; }
-    case "Enter": if (mode === "online" && net.room) { ui.chatInput.hidden = false; ui.chatInput.focus(); } break;
+    case "Enter": if (mode === "online" && net.room) openChat(); break;
+    case "KeyG": ui.openModal("vehicles"); break;
+    case "Tab": if (mode === "online" && net.room) ui.togglePlayers(); break;
   }
   if (state !== "drive" || paused) return;
   const d = G.dt;
@@ -600,17 +622,115 @@ function onKey(code) {
     case "KeyH": audio.horn(true); break;
   }
 }
+let menuOpen = false;
 function togglePause() {
   if (state === "over") return;
-  if (mode === "online") return ui.toast("Can't pause during online play");
+  if (mode === "online") { menuOpen = !menuOpen; ui.setPaused(menuOpen, true); return; }
   paused = !paused;
   ui.setPaused(paused);
   if (paused) { G.engine?.params(900, 0, 0); audio.horn(false); }
 }
+function openChat() { ui.chatInput.hidden = false; ui.chatInput.focus(); ui.chatOpen(true); }
+function closeChat() { ui.chatInput.value = ""; ui.chatInput.hidden = true; ui.chatInput.blur(); ui.chatOpen(false); }
 function sendChat() {
-  const text = ui.chatInput.value.trim();
-  if (text) net.send({ t: "chat", text });
-  ui.chatInput.value = ""; ui.chatInput.hidden = true; ui.chatInput.blur();
+  const text = ui.chatInput.value.trim().slice(0, 120);
+  if (text) { if (text.startsWith("/")) chatCommand(text); else net.send({ t: "chat", text }); }
+  closeChat();
+}
+
+// ---------------- players, teleporting and switching cars ----------------
+// Who is in the server, how far away, and what they drive. Distances come from the interpolated
+// positions the renderer already has, so this costs nothing extra.
+// Where a player is right now, from the newest snapshot. This works the moment a packet has arrived,
+// before their car has ever been drawn, and ignores anyone we have not heard from for 5 s (they left or froze).
+function peerNow(id) {
+  const p = net.peers.get(id), l = p?.buf.at(-1);
+  if (!l || performance.now() - (p.last || 0) > 5000) return null;
+  return { id, x: l.x, z: l.z, v: l.v || 0, cr: !!l.cr, name: String(p.name || "") };
+}
+const livePeers = () => [...net.peers.keys()].map(peerNow).filter(Boolean);
+function playerRows() {
+  const me = net.me?.id ?? net.me?.code, rows = [];
+  for (const p of net.room?.players || []) {
+    const isMe = p.id === me, pn = isMe ? null : peerNow(p.id);
+    rows.push({ id: p.id, me: isMe, name: p.name, car: carById((isMe ? G.def.id : p.build?.car || p.car) || CARS[0].id).name, dist: isMe ? 0 : pn ? Math.abs(pn.z - G.z) : null });
+  }
+  return rows;
+}
+// exact name first, then a prefix, then anywhere in the name - so /tp al finds "Alex"
+function findPeer(q) {
+  q = q.trim().toLowerCase();
+  if (!q) return null;
+  const all = [...net.peers.entries()].map(([id, p]) => ({ id, name: String(p.name || "") }));
+  return all.find((x) => x.name.toLowerCase() === q) || all.find((x) => x.name.toLowerCase().startsWith(q)) || all.find((x) => x.name.toLowerCase().includes(q)) || null;
+}
+// A spot beside or behind the target: clear of traffic (the same test used for spawning), clear of every
+// other player, on the road, and never inside the car being visited. The target drives towards -z, so a
+// positive offset is "behind" them; the last few entries are ahead of them as a fallback.
+function safeSpotNear(tz, T, others = livePeers()) {
+  const clear = (x, z) => traffic.laneClear(T, x, z, 70, 45) && !others.some((o) => Math.abs(o.x - x) < 3.8 && Math.abs(o.z - z) < 16);
+  for (const dz of [30, 44, 60, 80, -34, -56, 110]) for (const i of LANE_ORDER) if (clear(laneX(i), tz + dz)) return { x: laneX(i), z: tz + dz };
+  return { x: laneX(2), z: tz + 140 };
+}
+// returns { ok, text } so the chat and the player list can both show the result
+function teleportTo(query) {
+  if (mode !== "online" || !net.room) return { ok: false, text: "Teleporting only works inside an online server." };
+  if (!freeMode()) return { ok: false, text: "Teleporting is only allowed in Free Drive servers." };
+  if (state !== "drive") return { ok: false, text: "Start driving first." };
+  const p = findPeer(query);
+  if (!p) return { ok: false, text: "Player not found." };
+  const s = peerNow(p.id);
+  if (!s) return { ok: false, text: `${p.name} isn't sending position right now.` };
+  const spot = safeSpotNear(s.z, getT());
+  G.z = spot.z; G.x = spot.x; G.vx = 0; G.yaw = 0; G.thrown = null;
+  G.car.group.position.set(G.x, 0, G.z); G.car.group.rotation.set(0, 0, 0);
+  setSpeed(Math.max(60, Math.min(220, s.v * 3.6 * .92)));   // roll in at about their pace, not from a standstill
+  shieldSpawn(); G.ghostT = 2.5; G.prevDz.clear(); G.combo = 0;
+  G.tpN = (G.tpN | 0) + 1; G.snapCam = true; G.sendT = 0;   // tell everyone this was a jump, right now
+  return { ok: true, text: `Teleported near ${p.name}.` };
+}
+function chatCommand(text) {
+  const [cmd, ...rest] = text.slice(1).trim().split(/\s+/), arg = rest.join(" ");
+  const say = (t, k = "info") => ui.chatSys(t, k);
+  switch ((cmd || "").toLowerCase()) {
+    case "players": case "list": case "who": {
+      if (!net.room) return say("You're not in a server.", "err");
+      const rows = playerRows();
+      say(`Players (${rows.length}/${net.room.max || 8}):`);
+      for (const r of rows) say(`  ${r.name}${r.me ? " (you)" : ""} - ${r.car}${r.me || r.dist === null ? "" : " - " + Math.round(r.dist) + " m"}`);
+      return;
+    }
+    case "tp": case "teleport": case "goto": {
+      if (!arg) return say("Usage: /tp <player>", "err");
+      const res = teleportTo(arg);
+      return say(res.text, res.ok ? "ok" : "err");
+    }
+    case "help": case "?": return say("Commands: /players, /tp <player> (also /teleport, /goto), /help");
+    default: return say(`Unknown command "/${cmd}". Try /help`, "err");
+  }
+}
+// Swap the car under you without leaving the run or the server: same place, same speed, same session.
+// Other players see it because the identity block in the state stream (and the build broadcast) carries
+// the new car, and their client rebuilds that one remote car in place - no second car is ever created.
+function switchCar(id) {
+  if (!CARS.some((c) => c.id === id) || !P.owned.includes(id)) return ui.toast("You don't own that car yet", [], "warn");
+  if (id === G.def.id) return;
+  if (!["ready", "drive"].includes(state)) return ui.toast("Can't switch cars right now", [], "warn");
+  const pos = G.car.group.position.clone(), rot = G.car.group.rotation.clone(), kmh = Math.max(0, G.dt.v * 3.6), manual = G.dt.manual;
+  P.equipped = id; save();
+  buildPlayerCar();                      // removes the old car, builds the new one + drivetrain + engine voice
+  G.car.group.position.copy(pos); G.car.group.rotation.copy(rot);
+  G.dt.manual = manual;
+  if (state === "drive") { setSpeed(kmh); shieldSpawn(); G.ghostT = Math.max(G.ghostT, 2); }
+  applyTune();
+  G.cfgDirty = 1; G.sendT = 0;
+  net.send({ t: "setCar", car: id });
+  ui.toast(`Now driving the ${G.def.name}`, [], "success");
+}
+function leaveServer() {
+  menuOpen = false; ui.setPaused(false);
+  partyRound = 0;
+  net.send({ t: "roomLeave" });
 }
 
 // a point on the car (lx sideways, lz along it; +z is the rear) in world space, for any heading
@@ -772,7 +892,7 @@ const CATCHUP = { on: 500, full: 300, off: 150, maxPower: .35, maxKmh: 25, rampU
 function updateCatchUp(dt, list) {
   const d = G.dt;
   if (!d) return;
-  const alive = mode === "online" && state === "drive" && list && list.some((x) => !x.s.cr);
+  const alive = mode === "online" && !freeMode() && state === "drive" && list && list.some((x) => !x.s.cr);
   if (!alive) { G.catchOn = false; G.catch = Math.max(0, (G.catch || 0) - dt * CATCHUP.rampDown); }
   else {
     const lead = Math.min(...list.filter((x) => !x.s.cr).map((x) => x.s.z));
@@ -926,7 +1046,7 @@ function updateModeHud(T) {
   const el = document.getElementById("modeHud");
   let txt = "";
   if (state === "drive" || state === "crashed") {
-    if (mode === "solo" && soloMode() === "freedrive") txt = `FREE DRIVE · ${(G.dist / 1609.34).toFixed(1)} MI`;
+    if (freeMode()) txt = mode === "online" ? `FREE DRIVE · ${net.room.players.length} PLAYER${net.room.players.length === 1 ? "" : "S"}` : `FREE DRIVE · ${(G.dist / 1609.34).toFixed(1)} MI`;
     else if (mode === "solo" && soloMode() === "timeattack") txt = `TIME ${Math.max(0, Math.ceil(TIME_ATTACK - T))}s`;
     else if (mode === "solo" && soloMode() === "police") {
       const p = police.state;
@@ -1108,7 +1228,8 @@ function updateCamera(dt) {
       const tall = camera.aspect < 1.1 ? 1.5 : 0;
       const back = (far ? 12 : 8) + tall + B.L * .35 + kmh * .01;
       target.set(G.x * .9, (far ? 4.4 : 2.7) + B.top * .45 + tall * .3, G.z + back);
-      if (state === "drive") camera.position.lerp(target, Math.min(1, dt * 7)); else camera.position.lerp(tmpV.set(G.x * .8, target.y + 2, G.z + back + 4), Math.min(1, dt * 2));
+      if (G.snapCam) { camera.position.copy(target); G.snapCam = false; }
+      else if (state === "drive") camera.position.lerp(target, Math.min(1, dt * 7)); else camera.position.lerp(tmpV.set(G.x * .8, target.y + 2, G.z + back + 4), Math.min(1, dt * 2));
       camera.position.z = state === "drive" ? Math.min(camera.position.z, G.z + back + 2) : camera.position.z;
       look.set(G.x, 1.6 + tall * .4, G.z - 30);
       if (state !== "drive") look.set(G.x, .8, G.z);
@@ -1319,7 +1440,7 @@ function frame(now) {
       const s = {
         T: +T.toFixed(3), x: +G.x.toFixed(2), z: +G.z.toFixed(2), y: +(t ? t.pos.y : 0).toFixed(2),
         ry: +gp.rotation.y.toFixed(3), pitch: +gp.rotation.x.toFixed(3), roll: +gp.rotation.z.toFixed(3),
-        w: Math.round(net.now()), rd: partyRound, vx: +G.vx.toFixed(2), v: +d.v.toFixed(2),
+        w: Math.round(net.now()), rd: partyRound, tp: G.tpN | 0, vx: +G.vx.toFixed(2), v: +d.v.toFixed(2),
         rpm: Math.round(d.rpm), thr: +G.thr.toFixed(2), ld: +d.load.toFixed(2), g: d.gear, sh: d.shiftT > 0 ? 1 : 0,
         bo: Math.round((d.s.boostMax ? d.boost / d.s.boostMax : 0) * 100),
         brk: G.brk > .3 ? 1 : 0, sl: G.sigL && G.sigOn ? 1 : 0, sr: G.sigR && G.sigOn ? 1 : 0,
@@ -1431,6 +1552,7 @@ const ui = new UI({
   revPreview,
   revHold,
   applyTune,
+  currentCar: () => G.def.id, switchCar, leaveServer, playerRows, teleportTo, freeMode,
   play: (asMode) => { audio.init(); if (asMode === "online") partyDrive(); else { partyRound = 0; enterReady(asMode); } },
   revive, restart: () => { enterReady(mode); startDriving(); }, home: goHome,
   resume: () => togglePause(), applySettings,
