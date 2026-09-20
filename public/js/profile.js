@@ -134,7 +134,7 @@ export function payPaint(carId) {
   return { ok: true, price: COSMETIC_PRICES.paint };
 }
 
-export const carStyle = (id) => ({ finish: "gloss", tint: "dark", stance: "stock", rim: null, caliper: null, glow: null, drl: null, drop: null, offset: 0, camber: 0, wsize: 1, ...(P.styles?.[id] || {}) });
+export const carStyle = (id) => ({ finish: "gloss", tint: "dark", lightTint: false, stance: "stock", rim: null, caliper: null, glow: null, drl: null, drop: null, offset: 0, camber: 0, wsize: 1, ...(P.styles?.[id] || {}) });
 // A style option is paid for once per car; after that it can be switched back to for free.
 // Whatever a car is already wearing counts as paid for.
 export function ownsStyle(id, key, val) {

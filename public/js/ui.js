@@ -303,6 +303,7 @@ export class UI {
       ["rim", "Wheels", [{ v: null, label: "Stock" }, ...sw(COLORS)]],
       ["caliper", "Calipers", [{ v: null, label: "Stock" }, ...sw([0xd41f1f, 0xf2c230, 0x1f5fd6, 0x22b573, 0xff6a1a, 0x16181c])]],
       ["tint", "Window tint", Object.entries(TINTS).map(([k, v]) => ({ v: k, label: v.label }))],
+      ["lightTint", "Tint lights", [{ v: false, label: "Off" }, { v: true, label: "On" }]],
       ["drl", "DRLs", [{ v: null, label: "Stock" }, ...sw([0xffffff, 0x9fdcff, 0x3d8bff, 0xffd84a, 0xff9a2a, 0x7cff5a, 0xb27dff, 0xff5ad1, 0xff3040])]],
       ["glow", "Underglow", [{ v: null, label: "Off" }, ...sw([0x3dd6ff, 0xff2d95, 0x7cff5a, 0xb27dff, 0xffd12a, 0xff4a55])]],
     ];

@@ -105,6 +105,39 @@ function upgrade(m, cache) {
   cache.set(m, n);
   return n;
 }
+// Cut one mesh into pieces by where each triangle sits (world-space centroid -> bucket index).
+// Returns [{ mesh, bucket }]; a mesh whose triangles all land in one bucket is returned untouched.
+function splitMesh(o, classify) {
+  const g = o.geometry.index ? o.geometry.toNonIndexed() : o.geometry, pos = g.attributes.position;
+  o.updateWorldMatrix(true, false);
+  const tris = new Map(), a = new THREE.Vector3(), b = new THREE.Vector3(), c = new THREE.Vector3();
+  for (let t = 0; t < pos.count / 3; t++) {
+    a.fromBufferAttribute(pos, t * 3).applyMatrix4(o.matrixWorld); b.fromBufferAttribute(pos, t * 3 + 1).applyMatrix4(o.matrixWorld); c.fromBufferAttribute(pos, t * 3 + 2).applyMatrix4(o.matrixWorld);
+    const k = classify(a.add(b).add(c).multiplyScalar(1 / 3));
+    if (!tris.has(k)) tris.set(k, []);
+    tris.get(k).push(t);
+  }
+  if (tris.size <= 1) return [{ mesh: o, bucket: tris.size ? [...tris.keys()][0] : 0 }];
+  const out = [];
+  for (const [bucket, list] of tris) {
+    const ng = new THREE.BufferGeometry();
+    for (const [name, at] of Object.entries(g.attributes)) {
+      const arr = new at.array.constructor(list.length * 3 * at.itemSize);
+      let w = 0;
+      for (const t of list) for (let v = 0; v < 3; v++) for (let i = 0; i < at.itemSize; i++) arr[w++] = [at.getX, at.getY, at.getZ, at.getW][i].call(at, t * 3 + v);
+      ng.setAttribute(name, new THREE.BufferAttribute(arr, at.itemSize, at.normalized));
+    }
+    const m = new THREE.Mesh(ng, o.material);
+    m.name = o.name; m.position.copy(o.position); m.quaternion.copy(o.quaternion); m.scale.copy(o.scale);
+    m.userData = { ...o.userData }; m.castShadow = o.castShadow; m.receiveShadow = o.receiveShadow; m.visible = o.visible;
+    out.push({ mesh: m, bucket });
+  }
+  const parent = o.parent;
+  for (const p of out) parent.add(p.mesh);
+  parent.remove(o);
+  o.geometry.dispose();
+  return out;
+}
 // normalise orientation (front toward -z), real-world length, grounding, and tag paint/lights/wheels
 function prepare(scene, car, cfg) {
   const inner = new THREE.Group();
@@ -164,10 +197,29 @@ function prepare(scene, car, cfg) {
     // out of the tint so headlights and taillights never get tinted
     if (!Array.isArray(o.material) && o.material.userData.role === "glass" && new THREE.Box3().setFromObject(o).max.y < carH * .6) {
       const g = o.material;
-      if (!lens.has(g)) { const l = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, transparent: true, opacity: .22, envMapIntensity: 2 }); l.name = g.name + "_lens"; patchLit(l); lens.set(g, l); }
+      if (!lens.has(g)) { const l = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, transparent: true, opacity: .22, envMapIntensity: 2 }); l.name = g.name + "_lens"; l.userData.role = "lens"; patchLit(l); lens.set(g, l); }
       o.material = lens.get(g);
     }
   });
+  // wheels welded into one mesh (a whole axle, or all four) can't spin or lower: cut them into one mesh per wheel
+  const Wd = BODIES[car.body].W, carL = new THREE.Box3().setFromObject(inner).getSize(new THREE.Vector3()).z;
+  const merged = [];
+  inner.updateMatrixWorld(true);
+  inner.traverse((o) => { if (o.isMesh && o.userData.wheel && !Array.isArray(o.material)) merged.push(o); });
+  for (const o of merged) {
+    const bx = new THREE.Box3().setFromObject(o), sz = bx.getSize(new THREE.Vector3()), ce = bx.getCenter(new THREE.Vector3());
+    const wide = sz.x > Wd * .45, long = sz.z > 1.1;
+    if (sz.y > 1.1 || (!wide && !long)) continue;
+    for (const p of splitMesh(o, (v) => (wide ? (v.x > ce.x ? 1 : 0) : 0) + (long ? (v.z > ce.z ? 2 : 0) : 0))) p.mesh.userData.wheel = true;
+  }
+  // a window and a headlight/taillight are often one glass mesh: cut the lamp end off so tint only touches the windows
+  const glassMeshes = [];
+  inner.traverse((o) => { if (o.isMesh && !Array.isArray(o.material) && o.material.userData.role === "glass") glassMeshes.push(o); });
+  for (const o of glassMeshes) {
+    const g = o.material;
+    if (!lens.has(g)) { const l = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, transparent: true, opacity: .22, envMapIntensity: 2 }); l.name = g.name + "_lens"; l.userData.role = "lens"; patchLit(l); lens.set(g, l); }
+    for (const p of splitMesh(o, (v) => (Math.abs(v.z) > carL / 2 - .8 && v.y < carH * .72 ? 1 : 0))) if (p.bucket === 1) p.mesh.material = lens.get(g);
+  }
   const root = new THREE.Group();
   root.add(inner);
   // sharper textures at glancing angles (paint decals, tyre sidewalls, badges)
@@ -183,7 +235,7 @@ export class ModelCar {
     this.group = new THREE.Group();
     this.bodyGroup = tpl.root.clone(true);
     this.group.add(this.bodyGroup, contactShadow(this.B.L, this.B.W));
-    this.paint = []; this.tails = []; this.heads = []; this.glass = []; this.rims = []; this.calipers = [];
+    this.paint = []; this.tails = []; this.heads = []; this.glass = []; this.rims = []; this.calipers = []; this.lenses = [];
     const cloned = new Map();
     this.bodyGroup.traverse((o) => {
       if (!o.isMesh) return;
@@ -191,7 +243,7 @@ export class ModelCar {
         if (!m.userData.role) return m;
         if (!cloned.has(m)) { const c = m.clone(); c.onBeforeCompile = m.onBeforeCompile; c.customProgramCacheKey = m.customProgramCacheKey; cloned.set(m, c); }
         const c = cloned.get(m);
-        const list = { paint: this.paint, tail: this.tails, head: this.heads, glass: this.glass, rim: this.rims, caliper: this.calipers }[m.userData.role];
+        const list = { paint: this.paint, tail: this.tails, head: this.heads, glass: this.glass, rim: this.rims, caliper: this.calipers, lens: this.lenses }[m.userData.role];
         if (!list.includes(c)) list.push(c);
         return c;
       };
@@ -274,6 +326,8 @@ export class ModelCar {
     this.calipers.forEach((m, i) => m.color.copy(st.caliper != null ? new THREE.Color(st.caliper) : this.calBase[i]));
     const t = TINTS[st.tint] || TINTS.dark;
     for (const m of this.glass) { m.color.set(t.c); m.opacity = t.o; m.transparent = t.o < 1; }
+    // lamp lenses stay clear unless "tint lights" is on; the DRL glow still shows through either way
+    for (const m of this.lenses) { if (st.lightTint) { m.color.set(t.c); m.opacity = Math.min(.9, Math.max(.22, t.o)); } else { m.color.set(0xffffff); m.opacity = .22; } }
     // lowering sinks the body over the wheels, so it only works when the wheels are separate parts
     const drop = this.wheels.length >= 4 ? (st.drop != null ? st.drop : (STANCES[st.stance] || STANCES.stock).drop) : 0;
     this.bodyGroup.position.y = -drop;
@@ -300,7 +354,7 @@ export class ModelCar {
     }
   }
   dispose() {
-    for (const m of [...this.paint, ...this.tails, ...this.heads, ...this.glass, ...this.rims, ...this.calipers]) m.dispose();
+    for (const m of [...this.paint, ...this.tails, ...this.heads, ...this.glass, ...this.lenses, ...this.rims, ...this.calipers]) m.dispose();
     users.set(this.carId, Math.max(0, (users.get(this.carId) || 1) - 1));
   }
 }

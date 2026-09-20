@@ -164,6 +164,9 @@
     ],
     "wheels": [
       "no-wheel-nodes"
+    ],
+    "rim": [
+      "Koleso_mat_support"
     ]
   },
   "q50": {
@@ -378,7 +381,7 @@
     "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0",
     "supra": "Toyota Supra by Jiaxing (sketchfab.com/saitoyang), CC-BY-4.0"
   },
-  "rev": 8,
+  "rev": 9,
   "supra": {
     "paint": [
       "^carpaint$"
