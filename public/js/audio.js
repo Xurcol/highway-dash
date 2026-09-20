@@ -54,6 +54,10 @@ function loadBank(ctx, name) {
   return banks.get(name);
 }
 
+// How far the recorded afterfire one-shots sit above the engine loops. Matches POP_GAIN in
+// engine-dsp.js so the synth and the sampled engines bang at the same level.
+const POP_GAIN = 1.85;
+
 // Loops are pitched to the current rpm and equal-power crossfaded with their neighbours;
 // on-throttle and off-throttle ladders are blended by throttle. Pops and flutter are real one-shots.
 class SampleVoice {
@@ -138,7 +142,7 @@ class SampleVoice {
     let at = .02 + Math.random() * .03;
     for (let i = 0; i < count; i++) {
       const k = i / Math.max(1, count - 1);
-      this.shot(this.bank.pops, Math.min(1, amp * 3 * (.5 + Math.random() * .7) * (1 - k * .6)), at);
+      this.shot(this.bank.pops, Math.min(POP_GAIN, amp * 3 * POP_GAIN * (.5 + Math.random() * .7) * (1 - k * .6)), at);
       at += (gap + Math.random() * spread) * (1 + k * .8);
       if (at > Math.max(.3, this.tuneState.decay) * 1.15) break;
     }

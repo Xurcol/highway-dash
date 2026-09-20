@@ -131,7 +131,8 @@ export const CARS = [
   { id: "laferrari", name: "Ferrari LaFerrari", rarity: "MYTHIC", price: 30000, body: "svj", color: 0xc8102e, handling: 93, sound: "v12",
     spec: spec({ hp: 949, torque: 900, mass: 1255, ratios: [3.909, 2.438, 1.81, 1.458, 1.185, .967, .844], final: 3.9, redline: 9250, idle: 900, cda: .62, grip: 1.25, tire: .35, shiftTime: .05 }) },
 ];
-export const RARITY_COLORS = { COMMON: "#9aa3ad", RARE: "#3d8bff", EPIC: "#b44cff", LEGENDARY: "#e8f04a", MYTHIC: "#ff3b5c" };
+// kept in step with the --rar-* tokens in style.css
+export const RARITY_COLORS = { COMMON: "#98a2b3", RARE: "#4c9dff", EPIC: "#a855f7", LEGENDARY: "#ffb92e", MYTHIC: "#ff4d6d" };
 export const specOf = (car) => car.spec || ENGINE_SPECS[car.body];
 
 export function carStats(car) {

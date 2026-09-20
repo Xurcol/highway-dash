@@ -6,7 +6,10 @@ import { makeTrafficCar, BODIES } from "./cars.js";
 import { hash, laneX, LANES } from "./world.js";
 
 export const TRAFFIC_LEVELS = { Chill: .24, Normal: .38, Heavy: .5, Insane: .64 };
-const SAME_V = [118, 106, 96, 86, 74].map((k) => k / 3.6);
+// Every lane runs at the posted 60 mph. One speed for all lanes keeps the swerve maths simple:
+// a lane change never has to match a different cruise speed.
+export const TRAFFIC_MPH = 60;
+const SAME_V = new Array(5).fill((TRAFFIC_MPH / 0.621371) / 3.6);
 const S = 34;
 const PALETTE = [0xf2f2f2, 0x1d1f24, 0x9aa1aa, 0xc62828, 0x1e5bd8, 0xf2c230, 0x2e7d4f, 0x6d3fb0, 0xe0701c, 0x7a1f2b, 0x5b6f86, 0xd8cbb0];
 const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "van", "suv", "coupe", "muscle", "sedan", "suv", "hatch", "m340i", "q50", "x5m", "charger", "golfr", "c63", "rs6", "x3m"];

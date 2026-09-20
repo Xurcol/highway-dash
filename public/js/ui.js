@@ -311,7 +311,8 @@ export class UI {
     const car = carById(this.view), st = carStats(car), spec = specOf(car);
     this.ctx.selectCar(this.view);
     for (const [k, v] of [["Spd", st.speed], ["Acc", st.accel], ["Han", st.handling]]) { $("st" + k).style.width = v + "%"; $("st" + k + "N").textContent = v; }
-    const r = $("ciRarity"); r.textContent = car.rarity; r.style.background = RARITY_COLORS[car.rarity];
+    // the badge tints itself off --rar; see .rarity in style.css
+    const r = $("ciRarity"); r.textContent = car.rarity; r.style.setProperty("--rar", RARITY_COLORS[car.rarity]);
     $("ciName").textContent = car.name;
     $("ciName").style.fontSize = car.name.length > 20 ? "26px" : car.name.length > 12 ? "32px" : "";
     $("ciSpec").textContent = `${SOUND_LABELS[carSound(car.id)] || ""} · ${spec.ratios.length}-speed`;
@@ -339,7 +340,8 @@ export class UI {
       const own = P.owned.includes(c.id);
       const price = priceOfCar(c.id);
       const label = c.id === P.equipped ? "EQUIPPED" : own ? "OWNED" : `🪙 ${fmtCoins(price)}`;
-      d.innerHTML = `<div class="r" style="color:${RARITY_COLORS[c.rarity]}">${c.rarity}</div><img src="${this.thumbs[c.id] || ""}" alt=""><div class="n">${esc(c.name)}</div>
+      d.style.setProperty("--rar", RARITY_COLORS[c.rarity]); // the card's edge, bar and glow all follow it
+      d.innerHTML = `<div class="r" style="color:var(--rar)">${c.rarity}</div><img src="${this.thumbs[c.id] || ""}" alt=""><div class="n">${esc(c.name)}</div>
         <div class="p ${c.id === P.equipped ? "eq" : own ? "own" : P.coins < price ? "poor" : ""}">${label}</div>`;
       d.onclick = () => { this.view = c.id; this.ctx.audio.ui(); this.renderHome(); };
       cards.appendChild(d);

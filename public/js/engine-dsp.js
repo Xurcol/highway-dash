@@ -60,6 +60,9 @@ export const SOUND_LABELS = { s58real: "BMW S58 (real recording)", f458real: "Fe
 // which cars get a dual-clutch shift signature
 const SHIFT_STYLE = { b58: "bmw", s58: "bmw", s63: "bmw", b46: "bmw", i5: "audi", ea888: "audi", amg: "merc", m264: "merc" };
 export const DEFAULT_TUNE = { burble: .75, decay: 1.1, mix: .2, brap: true, turbo: .8, exhaust: .9, rasp: .7, release: "flutter", intake: .35, flutter: .7, lag: 1, t51r: false, redline: 7000, boostMax: 18, burbleRpm: 3000 };
+// How far the afterfire pops, cracks and bangs sit above the exhaust note. This lifts only the
+// transients - the steady engine tone is untouched, so the mix gets punchier, not louder overall.
+const POP_GAIN = 1.85;
 
 // ---------------------------------------------------------------- the burble model
 // How much unburnt fuel reaches the exhaust when the throttle shuts. Everything that matters is an
@@ -171,6 +174,9 @@ export class EngineDSP {
     this.cut = dsg ? .035 : sport ? .07 : .03;      // dual-clutch cars swap gears almost instantly
     const I = this.intensity({ ...m, release: 9 });
     if (dsg && sport && (m.load ?? this.load) > .25) this.dsgShift(dsg, clamp01(.35 + I));
+    // A V12 cracks off a bang on every single gearchange - unlike the shift fart below it is not
+    // gated on revs, load or luck, because that hard bang IS the shift on these cars.
+    if (this.p.cyl === 12) this.bang(1.6, .008);
     // a shift fart needs revs AND load: it does not happen on every single gearchange
     if (sport && t.brap && this.rand() < clamp01(.15 + 1.1 * I)) this.burst(Math.min(3, 1 + Math.round(I * 3)), I * 1.35, .035, .05);
     if (this.boostN > .25) this.release(.45);
@@ -337,12 +343,12 @@ export class EngineDSP {
       o += this.rumble * p.sub * 2.2;
       o += (y - run(this.raspLP, y)) * (.2 + .6 * load) * (sport ? .35 : .12) * (.3 + p.rough * 4) * (t.rasp ?? .7) * (this.overrun ? 1.3 : 1);
       o += run(this.inductF, exc) * load * rn * .35; // tonal induction growl
-      o += run(this.crackF, crack) * 3.2 + pk;   // pops and cracks sit above the exhaust note
+      o += (run(this.crackF, crack) * 3.2 + pk) * POP_GAIN;   // pops and cracks sit above the exhaust note
       for (let k = this.thumps.length - 1; k >= 0; k--) {
         const Th = this.thumps[k]; Th.t += dt;
         if (Th.t < 0) continue;
         if (Th.t > Th.dur * 5) { this.thumps.splice(k, 1); continue; }
-        o += Math.sin(Th.t * Th.f * 6.2832) * Math.exp(-Th.t / Th.dur) * Th.amp * .9;
+        o += Math.sin(Th.t * Th.f * 6.2832) * Math.exp(-Th.t / Th.dur) * Th.amp * .9 * POP_GAIN;
       }
       // engine-specific harmonic scream that builds with revs (SVJ V12, GT3 flat-six)
       if (p.scream) {
