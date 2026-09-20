@@ -214,7 +214,7 @@ export class AudioManager {
     this.windBus.connect(this.master);
     // tunnel acoustics: long bright reverb + slap-back echo off the walls
     this.tunnelVerb = ctx.createConvolver();
-    this.tunnelVerb.buffer = this.impulse(2.6, 1.7);
+    this.tunnelVerb.buffer = this.tunnelImpulse();
     this.tunnelSend = ctx.createGain(); this.tunnelSend.gain.value = 0;
     const tlp = ctx.createBiquadFilter(); tlp.type = "lowpass"; tlp.frequency.value = 4200;
     this.engineBus.connect(this.tunnelSend); this.fx.connect(this.tunnelSend);
@@ -255,8 +255,8 @@ export class AudioManager {
   }
   setTunnel(f) {
     if (!this.ctx) return;
-    this.set(this.tunnelSend.gain, f * .8, .25);
-    this.set(this.echoSend.gain, f * .38, .25);
+    this.set(this.tunnelSend.gain, f * 1.15, .25);
+    this.set(this.echoSend.gain, f * .3, .25);
   }
   setReverb(amount) { if (this.ctx) this.reverbSend.gain.setTargetAtTime(amount, this.ctx.currentTime, 0.5); }
   engine(profile) { return new SmartEngine(this, profile); }
@@ -267,6 +267,30 @@ export class AudioManager {
     for (let i = 0; i < d.length; i++) {
       const w = Math.random() * 2 - 1;
       if (brown) { last = (last + 0.02 * w) / 1.02; d[i] = last * 3.5; } else d[i] = w;
+    }
+    return b;
+  }
+  // A tunnel is a long hard-walled tube: a short gap, a burst of discrete wall reflections, then a
+  // dense tail that lasts a few seconds and loses its highs first (bare concrete absorbs treble
+  // faster than bass). The old impulse was plain decaying noise, which just sounds like a fuzzy tail.
+  tunnelImpulse() {
+    const sr = this.ctx.sampleRate, sec = 3.4, len = Math.floor(sr * sec), b = this.ctx.createBuffer(2, len, sr);
+    const early = [[.009, .9], [.017, .75], [.026, .8], [.038, .6], [.051, .55], [.069, .45], [.093, .38], [.121, .3]];
+    for (let c = 0; c < 2; c++) {
+      const d = b.getChannelData(c);
+      let lp = 0;
+      for (let i = 0; i < len; i++) {
+        const t = i / sr;
+        // treble dies faster than bass: the low-pass gets heavier as the tail goes on
+        const k = .55 - .5 * Math.min(1, t / 1.8);
+        lp += (((Math.random() * 2 - 1)) - lp) * k;
+        const gate = Math.min(1, Math.max(0, (t - .012) / .03));    // little pre-delay, then the tail swells in
+        d[i] = lp * Math.exp(-t * 2.05) * gate * 1.9;
+      }
+      for (const [tt, amp] of early) {
+        const i = Math.floor((tt + (c ? .0023 : 0)) * sr);   // slightly different times per ear = width
+        if (i < len) d[i] += amp * (c ? -1 : 1) * .9;
+      }
     }
     return b;
   }

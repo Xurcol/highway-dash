@@ -163,12 +163,16 @@
     ],
     "wheelMats": [
       "Koleso",
-      "Tire_mat"
+      "Tire_mat",
+      "^metal$"
     ],
     "wheels": [
       "no-wheel-nodes"
     ],
     "rim": [
+      "^metal$"
+    ],
+    "caliper": [
       "Koleso_mat_support"
     ]
   },
@@ -387,7 +391,7 @@
     "laferrari": "Ferrari LaFerrari (Element 6) by Echoo (sketchfab.com/echoo.), CC-BY-NC-ND-4.0",
     "chiron": "2022 Bugatti Chiron Profilee by 007 (sketchfab.com/tangwang920), CC-BY-4.0"
   },
-  "rev": 12,
+  "rev": 13,
   "supra": {
     "paint": [
       "^carpaint$"

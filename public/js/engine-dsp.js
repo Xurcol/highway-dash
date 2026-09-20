@@ -9,7 +9,7 @@
 //   -> three rpm-weighted resonators (chest rumble -> mid growl -> top-end bark) + sub rumble
 //   -> intake: runner resonance gated by the same firing events, plus induction roar with boost
 //   -> turbo whistle / compressor surge (T51R = deep, slow, loud) / blow-off, supercharger whine
-//   -> afterfire burbles and crackles from the decel-fuel-cut model in burbleIntensity()
+//   -> afterfire pops and bangs from the decel-fuel-cut model in burbleIntensity()
 //   -> gentle saturation -> DC block
 // Noise only ever appears gated by combustion events, never as a continuous bed.
 
@@ -191,11 +191,19 @@ export class EngineDSP {
     const t = this.tune, I = this.intensity(m);
     if (I > .04) {
       this.crackle = Math.min(1.6, this.crackle + I * 1.4);       // trailing overrun crackle
-      this.burst(Math.min(14, 3 + Math.round(I * 11)), Math.min(1.6, I * 1.5), .06, .05);
+      this.burst(Math.min(6, 2 + Math.round(I * 4)), Math.min(1.6, I * 1.5), .07, .06);
+      if (I > .3 && this.rand() < .35 + I * .5) this.bang(Math.min(1.6, .7 + I), .05 + this.rand() * .09);
     }
     // anti-lag: ignition retarded into the manifold keeps the turbo lit and fires the exhaust
     if (t.antilag && (m.rpm ?? this.rpm) > 3500 && this.boostN > .3) { this.als = .9 + this.rand() * .4; this.alsNext = .03; }
     if (this.boostN > .15) this.release(1);
+  }
+  // A bang: the exhaust gas igniting in the pipe. Long, low and loud - a pressure wave with a thump
+  // underneath it and a sharp crack on top - so it reads as a bang rather than a bigger pop.
+  bang(amp, delay = 0) {
+    this.addPop(amp * 2.6, .08 + this.rand() * .05, delay, false, .5 + this.rand() * .2, true);
+    this.addPop(amp * 1.2, .012, delay, true, .8 + this.rand() * .3);
+    if (this.thumps.length < 6) this.thumps.push({ t: -delay, f: 46 + this.rand() * 22, amp: Math.min(1.6, amp * .9), dur: .085 });
   }
   // a train of pops with varied pitch, level, length and spacing - never a machine gun
   burst(count, amp, spread, gap, allSharp = false) {
@@ -216,9 +224,9 @@ export class EngineDSP {
     if (t.release === "bov" || t.bov) this.bov = Math.max(this.bov, amt * .9);
     if (t.release !== "bov") { this.flutter = Math.max(this.flutter, amt * (t.flutter || .7)); this.flutterT = 0; this.nextChirp = .01; }
   }
-  addPop(amp, dur, delay = 0, sharp = false, pitch = 1) {
+  addPop(amp, dur, delay = 0, sharp = false, pitch = 1, big = false) {
     if (this.pops.length > 16 || amp < .015) return;
-    this.pops.push({ t: -delay, dur: dur * (.7 + this.rand() * .6), amp, sharp, pitch, f: biquad("bp", (sharp ? 2200 : 900) * pitch, sharp ? 1.4 : 1.1, this.sr) });
+    this.pops.push({ t: -delay, dur: dur * (.7 + this.rand() * .6), amp, sharp, pitch, big, f: biquad("bp", (sharp ? 2200 : 900) * pitch, sharp ? 1.4 : 1.1, this.sr) });
   }
   process(out) {
     const n = out.length, sr = this.sr, p = this.p, t = this.tune, dt = 1 / sr;
@@ -279,9 +287,11 @@ export class EngineDSP {
         const lope = p.jitter ? (this.rand() - .5) * p.jitter * .06 * Math.max(0, 1 - rpm / 3000) : 0;
         const a = p.amps[c] * cyl * cold * (1 + (this.rand() - .5) * 2 * p.var) * (1 + lope * 20);
         if (this.pulses.length < 10) this.pulses.push({ t: -(this.runner[c] + Math.max(0, lope)), a, tau });
-        if (this.crackle > .02 && thr < .12 && rpm > 1800 && this.rand() < this.crackle * .22) {
-          const sharp = this.rand() < t.mix;
-          this.addPop((.2 + this.rand() * .7) * this.crackle * Math.min(1.6, t.burble + .2), sharp ? .006 + this.rand() * .01 : .02 + this.rand() * .035, this.rand() * .004, sharp, .8 + this.rand() * .6);
+        if (this.crackle > .02 && thr < .12 && rpm > 1800 && this.rand() < this.crackle * .085) {
+          const g = this.crackle * Math.min(1.6, t.burble + .2);
+          // ~1 in 4 overrun events is a real bang: deep, long and much louder than a pop
+          if (this.rand() < .26) this.bang(Math.min(1.8, .8 + g * .8), 0);
+          else this.addPop((.35 + this.rand() * .55) * g, .03 + this.rand() * .04, this.rand() * .004, false, .7 + this.rand() * .45);
         }
       }
       let exc = 0, env = 0;
@@ -306,7 +316,7 @@ export class EngineDSP {
         const e = Math.exp(-P.t / (P.dur * .25));
         const body = P.amp * 1.3 * (e - Math.exp(-P.t / .0008)) + nz * e * P.amp * .3;
         if (P.sharp) crack += run(P.f, nz * e * P.amp * 1.6);
-        else { const v = run(P.f, body); exc += v * .55 + body * .5; pk += v * 2.4; }
+        else { const v = run(P.f, body); exc += v * .55 + body * .5; pk += v * (P.big ? 4.2 : 2.4); }
       }
 
       // ---- exhaust system ----
@@ -330,6 +340,7 @@ export class EngineDSP {
       o += run(this.crackF, crack) * 3.2 + pk;   // pops and cracks sit above the exhaust note
       for (let k = this.thumps.length - 1; k >= 0; k--) {
         const Th = this.thumps[k]; Th.t += dt;
+        if (Th.t < 0) continue;
         if (Th.t > Th.dur * 5) { this.thumps.splice(k, 1); continue; }
         o += Math.sin(Th.t * Th.f * 6.2832) * Math.exp(-Th.t / Th.dur) * Th.amp * .9;
       }

@@ -250,6 +250,8 @@ function prepare(scene, car, cfg) {
   const Wd = BODIES[car.body].W, carL = new THREE.Box3().setFromObject(inner).getSize(new THREE.Vector3()).z;
   const merged = [];
   inner.updateMatrixWorld(true);
+  // a wheel's centre is one tyre-radius off the ground; anything flagged higher up is body, not wheel
+  inner.traverse((o) => { if (o.isMesh && o.userData.wheel && new THREE.Box3().setFromObject(o).getCenter(new THREE.Vector3()).y > carH * .4) o.userData.wheel = false; });
   inner.traverse((o) => { if (o.isMesh && o.userData.wheel && !Array.isArray(o.material)) merged.push(o); });
   for (const o of merged) {
     const bx = new THREE.Box3().setFromObject(o), sz = bx.getSize(new THREE.Vector3()), ce = bx.getCenter(new THREE.Vector3());
@@ -333,7 +335,8 @@ export class ModelCar {
     const clusters = [];
     for (const p of parts) {
       const g = clusters.find((q) => Math.hypot(q.c.x - p.c.x, q.c.z - p.c.z) < .4 && Math.abs(q.c.y - p.c.y) < .4);
-      if (g) { g.list.push(p); g.box.union(p.box); g.c = g.box.getCenter(new THREE.Vector3()); } else clusters.push({ list: [p], box: p.box.clone(), c: p.c.clone() });
+      const dia = p.box.getSize(new THREE.Vector3()); p.dia = Math.max(dia.y, dia.z);
+      if (g) { g.list.push(p); g.box.union(p.box); if (p.dia > g.dia) { g.dia = p.dia; g.c = p.c.clone(); } } else clusters.push({ list: [p], box: p.box.clone(), c: p.c.clone(), dia: p.dia });
     }
     for (const g of clusters) {
       const centre = g.c;
