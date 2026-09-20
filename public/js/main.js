@@ -996,7 +996,8 @@ function updateDrive(dt, T) {
   audio.tires?.(0, spin, kmh);
   if (G.flameT > 0) {
     G.flameT -= dt;
-    if (Math.random() < .35) for (const e of (B.exhaust || [[-B.L / 2, .3, .45]])) glows.add(G.x + (e[2] || 0) * .9, (e[1] || .3), G.z + B.L / 2 + .15, 1, .55 + Math.random() * .3, .15, .6 + Math.random() * .9);
+    // the tailpipes sit at the rear of the car, so the flame position turns with the car
+    if (Math.random() < .35) for (const e of (B.exhaust || [[-B.L / 2, .3, .45]])) { const p = carPt(G.x, G.z, G.yaw, (e[2] || 0) * .9, B.L / 2 + .15); glows.add(p[0], (e[1] || .3), p[1], 1, .55 + Math.random() * .3, .15, .6 + Math.random() * .9); }
   }
 
   // score
