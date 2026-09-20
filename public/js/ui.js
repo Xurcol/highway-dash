@@ -191,18 +191,13 @@ export class UI {
       this.ctx.play(this.onlineSelected && this.net.room ? "online" : "solo");
     };
     $("ciAction").onclick = () => this.buyOrEquip(this.view, () => this.renderHome());
-    // scroll wheel flips through the garage
-    let wheelAt = 0;
+    // The wheel only browses: it scrolls the car strip sideways. Nothing is selected until you click a car.
     $("home").addEventListener("wheel", (e) => {
       if (document.querySelector(".modal:not([hidden])") || !$("showOff").hidden || e.target.closest(".carinfo, .modal, input")) return;
+      const strip = $("cards");
+      if (!strip || strip.scrollWidth <= strip.clientWidth) return;
       e.preventDefault();
-      if (performance.now() - wheelAt < 120 || !e.deltaY) return;
-      wheelAt = performance.now();
-      const list = CARS.filter((c) => this.filter === "all" || (this.filter === "owned") === P.owned.includes(c.id));
-      const i = list.findIndex((c) => c.id === this.view), n = list[(i + (e.deltaY > 0 ? 1 : -1) + list.length) % list.length];
-      if (!n) return;
-      this.view = n.id; this.ctx.audio.ui(); this.renderHome();
-      $("cards").querySelector(".card.sel")?.scrollIntoView({ block: "nearest", inline: "center" });
+      strip.scrollLeft += (Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY);
     }, { passive: false });
     $("paintPick").oninput = (e) => this.paint(parseInt(e.target.value.slice(1), 16));
     this.holdToRev($("revBtn"));
