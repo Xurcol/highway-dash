@@ -23,7 +23,8 @@
     "q60",
     "c43",
     "charger",
-    "carrera"
+    "carrera",
+    "e63"
   ],
   "a4": {
     "paint": [
@@ -397,7 +398,7 @@
     "laferrari": "Ferrari LaFerrari (Element 6) by Echoo (sketchfab.com/echoo.), CC-BY-NC-ND-4.0",
     "chiron": "2022 Bugatti Chiron Profilee by 007 (sketchfab.com/tangwang920), CC-BY-4.0"
   },
-  "rev": 16,
+  "rev": 17,
   "supra": {
     "paint": [
       "^carpaint$"
@@ -650,6 +651,14 @@
     "wheelMats": [
       "^rubber$",
       "^Material.001$"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "e63": {
+    "paint": [
+      "Scene_-_Root"
     ],
     "wheels": [
       "no-wheel-nodes"
