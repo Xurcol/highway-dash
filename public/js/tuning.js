@@ -443,7 +443,7 @@ export function summaryCache(car, t) {
 // Which wheels are driven. Anything not listed is rear-wheel drive.
 export const DRIVE_LAYOUT = {
   golfr: "awd", rs3: "awd", rs6: "awd", gtr: "awd", x3m: "awd", x5m: "awd", x6m: "awd", m240i: "awd", m340i: "awd",
-  q50: "rwd", q60: "rwd", e63: "awd", svj: "awd", m5: "awd", chiron: "awd", laferrari: "rwd", supra: "rwd", a4: "awd", b330i: "rwd", c43: "awd",
+  q50: "rwd", q60: "rwd", e63: "awd", svj: "awd", m5: "awd", chiron: "awd", laferrari: "rwd", supra: "rwd", a4: "awd", b330i: "rwd", c43: "awd", charger: "rwd", carrera: "awd",
 };
 // Physics view of a tuned car, handed to the Drivetrain.
 export function tunedSpec(carId, tune) {

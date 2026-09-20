@@ -171,7 +171,10 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
   border:1px solid color-mix(in srgb,var(--rar) 42%,transparent)}
 .carinfo h1{font-size:var(--t-xl);line-height:1.15;margin-top:var(--s1)}
 .spec{color:var(--ink-3);font-size:var(--t-sm)}
-#ciAction{margin-top:auto;font-size:var(--t-lg);padding:13px}
+/* the paint and style pickers moved to the workshop, so this panel no longer fills itself:
+   let the car identity sit at the top instead of being pushed to the bottom by auto margins */
+#ciAction{font-size:var(--t-lg);padding:13px}
+.carinfo .custom{margin-top:auto}
 .custom{width:100%;margin-top:var(--s3)}
 .custom-label{font-size:var(--t-xs);color:var(--ink-3);font-weight:600;letter-spacing:1.2px;margin:var(--s4) 0 var(--s2)}
 .swatches{display:grid;grid-template-columns:repeat(6,1fr);gap:var(--s2)}

@@ -96,6 +96,8 @@ export const REAL_BODIES = {
     grille: "svj", hlType: "y", tlType: "y", exType: "svjCenter", extras: ["alaWing", "diffuser", "splitter", "sideIntake", "louvers", "skirts"], rim: { spokes: 5, color: 0x1f2126, caliper: 0xf2c230 }, taper: [.46, .72, .38] }),
   gt3rs: makeBody({ style: "fastback", L: 4.57, W: 1.9, H: 1.32, bottom: .11, r: .35, fo: .98, wb: 2.46, noseLo: .14, noseHi: .56, hoodF: .64, ws: 1.5, hood: .84, rf: 2.3, rr: 2.85, c: 4.1, belt: 1.0, deck: 1.02, tailLo: .32, hip: .15,
     grille: "c8", hlType: "round2", tlType: "audiBar", exType: "twinRound", extras: ["wing", "diffuser", "splitter", "louvers", "skirts"], rim: { spokes: 5, color: 0x16181c, caliper: 0xf2c230 }, taper: [.44, .62, .5] }),
+  carrera: makeBody({ style: "fastback", L: 4.52, W: 1.85, H: 1.3, bottom: .12, r: .34, fo: .96, wb: 2.45, noseLo: .14, noseHi: .54, hoodF: .62, ws: 1.48, hood: .82, rf: 2.26, rr: 2.82, c: 4.05, belt: .98, deck: 1.0, tailLo: .33, hip: .16,
+    grille: "c8", hlType: "round2", tlType: "audiBar", exType: "twinRound", extras: ["diffuser", "skirts"], rim: { spokes: 5, color: 0x9aa0a8, caliper: 0xd41f1f }, taper: [.42, .6, .48] }),
   b330i: makeBody({ ...bmwSedan, L: 4.71, W: 1.83, H: 1.44, bottom: .15, r: .33, fo: .83, wb: 2.85, ws: 1.75, hood: .98, rf: 2.58, rr: 3.3, c: 3.9, belt: 1.02, deck: 1.04, tailLo: .33, hip: .03,
     grille: "kidney", exType: "twinRound", extras: ["lip"], rim: { spokes: 10, color: 0x9aa0a8, caliper: 0x3a3d44 } }),
   a4: makeBody({ style: "sedan", L: 4.76, W: 1.84, H: 1.43, bottom: .15, r: .33, fo: .9, wb: 2.82, noseLo: .2, noseHi: .7, hoodF: .82, ws: 1.8, hood: .97, rf: 2.62, rr: 3.4, c: 3.95, belt: 1.02, deck: 1.04, tailLo: .34, hip: .04,

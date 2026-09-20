@@ -124,8 +124,27 @@ class SampleVoice {
       burble: T.burble, crackle: 1, sport: this.mode === "sport",
     });
   }
+  // A pop built from noise when the bank has none to play: a band-passed crack over a short
+  // low thump, shaped like the synth's addPop so a sample-backed car still burbles.
+  synthPop(gain, delay = 0) {
+    const ctx = this.ctx, t0 = ctx.currentTime + delay;
+    const dur = .05 + Math.random() * .07;
+    const n = Math.floor(ctx.sampleRate * dur), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (n * .18));
+    const src = ctx.createBufferSource(); src.buffer = buf;
+    const bp = ctx.createBiquadFilter(); bp.type = "bandpass";
+    bp.frequency.value = 340 + Math.random() * 520; bp.Q.value = 1.1;
+    const g = ctx.createGain(); g.gain.value = gain * 1.5;
+    src.connect(bp).connect(g).connect(this.out);
+    // the thump underneath, which is what makes it read as a bang rather than a click
+    const o = ctx.createOscillator(), og = ctx.createGain();
+    o.frequency.setValueAtTime(58 + Math.random() * 26, t0);
+    og.gain.setValueAtTime(gain * .9, t0); og.gain.exponentialRampToValueAtTime(.0001, t0 + .09);
+    o.connect(og).connect(this.out);
+    src.start(t0); o.start(t0); o.stop(t0 + .1);
+  }
   shot(list, gain, delay = 0) {
-    if (!list || !list.length) return;
+    if (!list || !list.length) return this.synthPop(gain, delay);
     const e = list[(Math.random() * list.length) | 0];
     const src = this.ctx.createBufferSource(); src.buffer = e.buf; src.playbackRate.value = .92 + Math.random() * .16;
     const g = this.ctx.createGain(); g.gain.value = gain;
@@ -157,15 +176,15 @@ class SampleVoice {
       this.dip(.08, .3);
       const I = this.intensity({ ...info, release: 9 });
       if (sport && T.brap && Math.random() < Math.min(1, .3 + 1.1 * I)) this.burst(Math.min(5, 2 + Math.round(I * 4)), .5 * I + .16, .04, .035);
-      if (b.shift?.length) this.shot(b.shift, .6);
+      if (b.shift?.length) this.shot(b.shift, .28);   // no synth fallback: guarded by the length check
     } else if (type === "downshift") {
       const I = Math.max(this.intensity({ ...info, release: 7 }), sport ? .12 : 0);
       if (I > .04) this.burst(2 + Math.round(I * 3), .4 * I + .1, .06, .045);
-      if (b.shift?.length) this.shot(b.shift, .5);
+      if (b.shift?.length) this.shot(b.shift, .24);
     } else if (type === "lift") {
       const I = this.intensity(info);
       if (I > .05) this.burst(Math.min(10, 2 + Math.round(I * 9)), .3 * I, .06, .06);
-      if (T.release !== "off" && (T.turbo > 0 || T.t51r) && this.boostN > .15) this.shot(b.flutter, Math.min(.4, .2 * (T.flutter || .7) + .12 * this.boostN), .02);
+      if (T.release !== "off" && (T.turbo > 0 || T.t51r) && this.boostN > .15 && b.flutter?.length) this.shot(b.flutter, Math.min(.4, .2 * (T.flutter || .7) + .12 * this.boostN), .02);
     }
   }
   tune(t, mode) { Object.assign(this.tuneState, t || {}); if (mode) this.mode = mode; }

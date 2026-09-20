@@ -21,7 +21,9 @@
     "rs6",
     "x5m",
     "q60",
-    "c43"
+    "c43",
+    "charger",
+    "carrera"
   ],
   "a4": {
     "paint": [
@@ -395,7 +397,7 @@
     "laferrari": "Ferrari LaFerrari (Element 6) by Echoo (sketchfab.com/echoo.), CC-BY-NC-ND-4.0",
     "chiron": "2022 Bugatti Chiron Profilee by 007 (sketchfab.com/tangwang920), CC-BY-4.0"
   },
-  "rev": 15,
+  "rev": 16,
   "supra": {
     "paint": [
       "^carpaint$"
@@ -602,6 +604,55 @@
     ],
     "head": [
       "^w206_(headlight|lowbeam|highbeam|drl_[LR]|glass_F|lights_29)$"
+    ]
+  },
+  "charger": {
+    "paint": [
+      "^d2phong2SG1$"
+    ],
+    "glass": [
+      "^d2phong7SG1$"
+    ],
+    "rim": [
+      "Wheel1A_3D"
+    ],
+    "caliper": [
+      "CallipersCalliper"
+    ],
+    "tail": [
+      "^d2phong12SG1$"
+    ],
+    "head": [
+      "^d2phong14SG1$"
+    ],
+    "wheelMats": [
+      "Wheel1A_3D",
+      "CallipersCalliper",
+      "riphong18SG1"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "carrera": {
+    "paint": [
+      "^paint$"
+    ],
+    "glass": [
+      "^window$"
+    ],
+    "caliper": [
+      "^Material.001$"
+    ],
+    "head": [
+      "^lights$"
+    ],
+    "wheelMats": [
+      "^rubber$",
+      "^Material.001$"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
     ]
   }
 }
