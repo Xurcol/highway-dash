@@ -1088,13 +1088,12 @@ function updateCamera(dt) {
   const target = new THREE.Vector3(), look = new THREE.Vector3();
   const B = BODIES[G.def.body];
   if (state === "ready") {
-    const a = performance.now() * .00012 + .9;
-    const R = 8.5 + B.L * .4;
-    target.set(G.x - Math.sin(a) * R, 1.9, G.z - Math.cos(a) * R);
-    look.set(G.x + 1.2, .8, G.z);
-    camera.position.lerp(target, Math.min(1, dt * 3));
+    // Sit exactly where the drive camera will be, so pressing PLAY / starting does not glide anywhere.
+    const back = 8 + B.L * .35, tall = camera.aspect < 1.1 ? 1.5 : 0;
+    camera.position.set(G.x * .9, 2.7 + B.top * .45 + tall * .3, G.z + back);
+    look.set(G.x, 1.6 + tall * .4, G.z - 30);
     camera.lookAt(look);
-    camera.fov = 45;
+    camera.fov = 58;
   } else {
     const far = camMode === 1;
     const hood = camMode === 2 || camMode === 3;
