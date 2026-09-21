@@ -90,7 +90,7 @@
   <div class="ready-title" id="readyTitle">HIGHWAY DASH</div>
   <div class="ready-sub" id="readySub">Five lanes. Thread the needle.</div>
   <div class="ready-click" id="readyClick">CLICK TO START</div>
-  <div class="ready-keys">W/S gas &amp; brake · A/D steer · Q/E gears (N 1 2…) · M auto/manual · hold SPACE to look back · C camera · H horn</div>
+  <div class="ready-keys">W/S gas &amp; brake · A/D steer · Q/E gears (N 1 2…) · M auto/manual · hold SPACE to look back · C camera (chase / far / hood / bumper / custom) · H horn</div>
 </section>
 
 <!-- ============ HUD ============ -->
@@ -180,7 +180,7 @@
       <div>
         <h3>VIEW</h3>
         <div class="keys">
-          <span>C</span>Camera: chase, far, hood, bumper<span>Space</span>Look back (hold)<span>T</span>Next time of day
+          <span>C</span>Camera: chase, far, hood, bumper, custom<span>Space</span>Look back (hold)<span>T</span>Next time of day
         </div>
         <h3>GAME</h3>
         <div class="keys">
@@ -323,6 +323,8 @@
         <h3>DRIVING</h3>
         <label class="toggle"><input type="checkbox" id="optManual"> Start in manual gearbox [M]</label>
         <label class="toggle"><input type="checkbox" id="optHideNames"> Hide other players' names</label>
+        <h3>CAMERA <small>[C]</small></h3>
+        <button class="btn ghost wide" data-open="camEdit">CUSTOMIZE CAMERA...</button>
         <h3>GRAPHICS</h3>
         <label class="toggle"><input type="checkbox" id="optShadows"> Shadows</label>
         <label class="toggle"><input type="checkbox" id="optBloom"> Bloom <span class="muted small">(light bleed at night)</span></label>
@@ -386,6 +388,30 @@
       <p class="muted small" id="mediaNote"></p>
     </div>
     <div id="mediaList" class="media-list"></div>
+  </div>
+</section>
+
+<section id="camEdit" class="modal" hidden>
+  <div class="panel modal-box cam-box">
+    <button class="close" data-close>✕</button>
+    <h2>🎥 CUSTOM CAMERA</h2>
+    <div class="cam-grid">
+      <div class="cam-view">
+        <canvas id="camPreview" width="480" height="270"></canvas>
+        <p class="muted small" id="camPreviewNote">Live preview: what this camera sees, behind your car.</p>
+      </div>
+      <div class="cam-controls">
+        <label class="cam-slider"><span>Distance</span><input type="range" id="camDist" min="3" max="22" step="0.5"><b id="camDistV"></b></label>
+        <label class="cam-slider"><span>Height</span><input type="range" id="camHeight" min="0.8" max="9" step="0.1"><b id="camHeightV"></b></label>
+        <label class="cam-slider"><span>Tilt</span><input type="range" id="camPitch" min="-8" max="14" step="0.5"><b id="camPitchV"></b></label>
+        <label class="cam-slider"><span>Field of view</span><input type="range" id="camFov" min="40" max="100" step="1"><b id="camFovV"></b></label>
+        <div class="row cam-actions">
+          <button class="btn accent" id="camUse" style="flex:1">USE THIS CAMERA</button>
+          <button class="btn ghost" id="camReset">RESET</button>
+        </div>
+        <p class="muted small">While driving, <b>C</b> cycles chase, far, hood, bumper and this custom camera. Tilt is the angle the view points below level, and the field of view widens a little as you speed up.</p>
+      </div>
+    </div>
   </div>
 </section>
 

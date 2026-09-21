@@ -97,11 +97,48 @@ export class UI {
     if (id === "leader") { this.net.send({ t: "leaderboard" }); this.renderBoard($("leaderBoard")); }
     if (id === "online") { this.renderOnline(); if ((this.onlineTab || "public") === "public") this.net.send?.({ t: "publicRefresh" }); }
     if (id === "settings") this.renderSettings();
+    if (id === "camEdit") this.renderCamEdit();
     if (id === "tune") this.renderTune();
     this.ctx.audio.ui();
   }
   toggleModal(id) { if (!$(id).hidden) this.closeModals(); else this.openModal(id); }
-  closeModals() { document.querySelectorAll(".modal").forEach((m) => (m.hidden = true)); }
+  closeModals() { document.querySelectorAll(".modal").forEach((m) => (m.hidden = true)); clearInterval(this.camTimer); this.camTimer = null; }
+  // ---------- custom camera editor ----------
+  // Four sliders and a live picture of what they do. The picture is drawn by the game (it owns the
+  // renderer and the garage car); this only has to say when to redraw it.
+  renderCamEdit() {
+    const cam = { ...this.ctx.getCustomCam() };
+    const box = $("camPreview");
+    // match the game window's proportions, so the horizontal view in the preview is the one you get
+    const asp = Math.min(2.2, Math.max(1.1, innerWidth / Math.max(1, innerHeight)));
+    box.width = 480; box.height = Math.round(480 / asp);
+    const rows = [
+      ["camDist", "camDistV", "dist", (v) => v.toFixed(1) + " m"],
+      ["camHeight", "camHeightV", "height", (v) => v.toFixed(1) + " m"],
+      ["camPitch", "camPitchV", "pitch", (v) => (v > 0 ? v.toFixed(1) + "° down" : v < 0 ? Math.abs(v).toFixed(1) + "° up" : "level")],
+      ["camFov", "camFovV", "fov", (v) => Math.round(v) + "°"],
+    ];
+    const draw = () => {
+      const ok = this.ctx.renderCamPreview(box, cam);
+      $("camPreviewNote").textContent = ok ? "Live preview: what this camera sees, behind your car." : "Open the garage first - the preview needs a car to look at.";
+    };
+    const commit = () => { P.settings.customCam = { ...cam }; save(); };
+    for (const [id, out, key, fmt] of rows) {
+      const el = $(id);
+      el.value = cam[key]; $(out).textContent = fmt(+cam[key]);
+      el.oninput = () => { cam[key] = +el.value; $(out).textContent = fmt(cam[key]); commit(); draw(); };
+    }
+    $("camReset").onclick = () => {
+      Object.assign(cam, { dist: 9, height: 3.4, pitch: 4, fov: 60 });
+      for (const [id, out, key, fmt] of rows) { $(id).value = cam[key]; $(out).textContent = fmt(cam[key]); }
+      commit(); draw(); this.ctx.audio.ui();
+    };
+    $("camUse").onclick = () => { commit(); this.ctx.useCustomCam(); this.ctx.audio.ui(); this.closeModals(); };
+    // the garage car can still be loading when the editor opens, so keep redrawing while it is up
+    draw();
+    clearInterval(this.camTimer);
+    this.camTimer = setInterval(() => { if ($("camEdit").hidden) { clearInterval(this.camTimer); this.camTimer = null; } else draw(); }, 350);
+  }
   // Notifications. kind is info (default) | success | warn | error and only changes the accent and
   // icon, so every call site stays a one-liner. Repeats of the same message inside a second are
   // folded into a counter instead of stacking, and the column is capped so nothing can flood it.

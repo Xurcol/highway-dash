@@ -729,3 +729,15 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 .ms-select:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
 /* the opened list is drawn by the browser, so give it a dark base it can inherit */
 .ms-select option{background:#181c27;color:var(--ink);font-weight:600}
+
+/* ---------- custom camera editor ---------- */
+.cam-box{width:min(940px,100%)}
+.cam-grid{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(250px,1fr);gap:var(--s5);align-items:start}
+.cam-view #camPreview{display:block;width:100%;height:auto;border-radius:var(--r2);border:1px solid var(--hairline);background:#101418;
+  box-shadow:0 1px 0 var(--hairline) inset,var(--shadow-sm)}
+.cam-view p{margin:var(--s2) 0 0}
+.cam-controls{display:flex;flex-direction:column;gap:var(--s3)}
+.cam-slider{display:grid;grid-template-columns:96px 1fr 68px;align-items:center;gap:var(--s3);font-size:var(--t-sm);color:var(--ink-2)}
+.cam-slider b{text-align:right;color:var(--accent);font-variant-numeric:tabular-nums;font-size:var(--t-sm)}
+.cam-actions{margin-top:var(--s2)}
+@media (max-width:760px){.cam-grid{grid-template-columns:1fr}}

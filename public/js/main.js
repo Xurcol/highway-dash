@@ -216,6 +216,88 @@ function renderShowroom(rect) {
   lampUniforms.lampCount.value = saved;
   renderer.toneMappingExposure = savedExposure;
 }
+
+// ---------------- custom camera preview ----------------
+// The camera editor shows what the camera it is building would see: the garage car on a stretch of
+// road with a few cars ahead of it, drawn from the camera's own position, height, tilt and field
+// of view. It is rendered into an offscreen target and copied into a plain 2D canvas in the editor,
+// rather than drawn into the main canvas, because the editor is a modal with a blurred backdrop and
+// anything drawn behind it would just be smeared into the background.
+const previewCam = new THREE.PerspectiveCamera(60, 16 / 9, .1, 500);
+let previewRig = null, previewSky = null, previewRT = null, previewBuf = null, previewImg = null;
+function buildPreviewRig() {
+  previewRig = new THREE.Group(); previewRig.visible = false;
+  // asphalt, laid out exactly like the game's road so the lanes line up with the numbers in the editor
+  const c = document.createElement("canvas"); c.width = 256; c.height = 512;
+  const g = c.getContext("2d"), pxm = 256 / 23, pyz = 512 / 46;
+  g.fillStyle = "#2d3138"; g.fillRect(0, 0, 256, 512);
+  for (let i = 0; i < 2600; i++) { const v = 34 + Math.random() * 26; g.fillStyle = "rgba(" + v + "," + v + "," + (v + 6) + ",.5)"; g.fillRect(Math.random() * 256, Math.random() * 512, 2, 2); }
+  g.fillStyle = "#e6b829"; g.fillRect((1.5 - .08) * pxm, 0, .16 * pxm, 512);
+  g.fillStyle = "#e8e9e4"; g.fillRect((21.5 - .08) * pxm, 0, .16 * pxm, 512);
+  for (let l = 1; l < 5; l++) for (let z0 = 0; z0 < 46; z0 += 12) g.fillRect((1.5 + l * 4 - .08) * pxm, (z0 + 1) * pyz, .16 * pxm, 3 * pyz);
+  const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(1, 500 / 46);
+  tex.anisotropy = 8;
+  const road = new THREE.Mesh(new THREE.PlaneGeometry(23, 500).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ map: tex, roughness: .92 }));
+  road.position.set(0, .002, -230); road.receiveShadow = true;
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(900, 900).rotateX(-Math.PI / 2), new THREE.MeshStandardMaterial({ color: 0x8a9a62, roughness: 1 }));
+  ground.position.y = -.03;
+  previewRig.add(ground, road);
+  // some traffic ahead, so distance reads as distance
+  const cols = [0xc62828, 0x1e5bd8, 0xe8e6df, 0x2b2f36, 0xf2c230, 0x2e7d4f];
+  [[-8, -20], [4, -26], [-4, -38], [8, -46], [0, -58], [-8, -74], [4, -90], [-4, -110]].forEach(([x, z], i) => {
+    const car = new THREE.Group(), col = cols[i % cols.length];
+    const body = new THREE.Mesh(new THREE.BoxGeometry(1.85, .7, 4.6), new THREE.MeshStandardMaterial({ color: col, roughness: .4, metalness: .3 }));
+    body.position.y = .62;
+    const cab = new THREE.Mesh(new THREE.BoxGeometry(1.6, .55, 2.3), new THREE.MeshStandardMaterial({ color: 0x1a222c, roughness: .25, metalness: .4 }));
+    cab.position.set(0, 1.2, .1);
+    car.add(body, cab); car.position.set(x, 0, z); car.traverse((o) => { if (o.isMesh) o.castShadow = true; });
+    previewRig.add(car);
+  });
+  show.add(previewRig);
+  // daylight sky and a hazy horizon
+  const sc = document.createElement("canvas"); sc.width = 4; sc.height = 256;
+  const sg = sc.getContext("2d"), grd = sg.createLinearGradient(0, 0, 0, 256);
+  grd.addColorStop(0, "#4f86cf"); grd.addColorStop(.55, "#9fc3e6"); grd.addColorStop(.62, "#d6e4ee"); grd.addColorStop(.63, "#8a9a62"); grd.addColorStop(1, "#6d7d4a");
+  sg.fillStyle = grd; sg.fillRect(0, 0, 4, 256);
+  previewSky = new THREE.CanvasTexture(sc); previewSky.colorSpace = THREE.SRGBColorSpace;
+}
+// Draws the preview for cam = { dist, height, pitch, fov } into a 2D canvas. Returns false when
+// there is no car in the garage yet to point the camera at.
+function renderCamPreview(canvas, cam) {
+  if (!canvas || !showCar || !showCarId) return false;
+  const w = canvas.width, h = canvas.height;
+  if (!previewRig) buildPreviewRig();
+  if (!previewRT || previewRT.width !== w || previewRT.height !== h) {
+    previewRT?.dispose();
+    previewRT = new THREE.WebGLRenderTarget(w, h, { samples: 4 });
+    previewRT.texture.colorSpace = THREE.SRGBColorSpace;
+    previewBuf = new Uint8Array(w * h * 4); previewImg = new ImageData(w, h);
+  }
+  const car = showCar.group;
+  const saved = { rot: car.rotation.y, y: car.position.y, bg: show.background, deco: showDeco.visible, lamps: lampUniforms.lampCount.value };
+  showDeco.visible = false; previewRig.visible = true; show.background = previewSky;
+  car.rotation.y = 0; car.position.y = 0;                 // facing down the road, on the road
+  lampUniforms.lampCount.value = 0;
+  // the same numbers the game camera uses: sits dist behind and height above the car, and looks at a
+  // point 30m ahead that is pitch degrees lower than the camera
+  previewCam.aspect = w / h; previewCam.fov = cam.fov;
+  previewCam.position.set(0, cam.height, cam.dist);
+  previewCam.lookAt(0, customLookY(cam), -30);
+  previewCam.updateProjectionMatrix(); previewCam.updateMatrixWorld();
+  renderer.setRenderTarget(previewRT);
+  renderer.render(show, previewCam);
+  renderer.setRenderTarget(null);
+  renderer.readRenderTargetPixels(previewRT, 0, 0, w, h, previewBuf);
+  // put everything back exactly as it was, so the garage never notices
+  car.rotation.y = saved.rot; car.position.y = saved.y; show.background = saved.bg;
+  showDeco.visible = saved.deco; previewRig.visible = false; lampUniforms.lampCount.value = saved.lamps;
+  // a render target is stored bottom-up; a canvas is top-down
+  const row = w * 4;
+  for (let y = 0; y < h; y++) previewImg.data.set(previewBuf.subarray((h - 1 - y) * row, (h - y) * row), y * row);
+  canvas.getContext("2d").putImageData(previewImg, 0, 0);
+  return true;
+}
+
 function makeThumbs(ids = CARS.map((c) => c.id)) {
   const out = {}, w = 240, h = 130, pr = renderer.getPixelRatio();
   if (canvas.width < w * pr || canvas.height < h * pr) return out;   // window not sized yet
@@ -369,7 +451,18 @@ const respawnMode = () => (mode === "online" ? partyMode() !== "crash" : soloMod
 // Free Drive, solo or in a server: no rounds, no finish, crashes cost nothing
 const freeMode = () => (mode === "online" ? partyMode() === "free" : mode === "solo" && soloMode() === "freedrive");
 // chase / far / hood / bumper - the drive camera, cycled with C and remembered between sessions
-const CAMS = ["CHASE CAM", "FAR CHASE", "HOOD CAM", "BUMPER CAM"];
+const CAMS = ["CHASE CAM", "FAR CHASE", "HOOD CAM", "BUMPER CAM", "CUSTOM CAM"];
+const CUSTOM_CAM = 4;
+const customLookY = (cc) => cc.height - Math.tan(cc.pitch * Math.PI / 180) * (cc.dist + 30);
+// The camera the player builds in the editor: how far behind, how high, how far it tips down, and
+// how wide it sees. Clamped on the way out, so a stale or hand-edited save cannot put it underground.
+const customCam = () => {
+  const c = P.settings.customCam || {};
+  return {
+    dist: Math.min(22, Math.max(3, +c.dist || 9)), height: Math.min(9, Math.max(.8, +c.height || 3.4)),
+    pitch: Math.min(14, Math.max(-8, c.pitch ?? 4)), fov: Math.min(100, Math.max(40, +c.fov || 60)),
+  };
+};
 let camMode = Math.min(CAMS.length - 1, Math.max(0, P.settings.cam | 0));
 const G = {
   def: carById(P.equipped), car: null, dt: null, engine: null,
@@ -1345,11 +1438,12 @@ function updateCamera(dt) {
   const B = BODIES[G.def.body];
   if (state === "ready") {
     // Sit exactly where the drive camera will be, so pressing PLAY / starting does not glide anywhere.
-    const back = 8 + B.L * .35, tall = camera.aspect < 1.1 ? 1.5 : 0;
-    camera.position.set(G.x * .9, 2.7 + B.top * .45 + tall * .3, G.z + back);
-    look.set(G.x, 1.6 + tall * .4, G.z - 30);
+    const cc = camMode === CUSTOM_CAM ? customCam() : null;
+    const back = cc ? cc.dist : 8 + B.L * .35, tall = camera.aspect < 1.1 ? 1.5 : 0;
+    camera.position.set(G.x * .9, cc ? cc.height : 2.7 + B.top * .45 + tall * .3, G.z + back);
+    look.set(G.x, cc ? customLookY(cc) : 1.6 + tall * .4, G.z - 30);
     camera.lookAt(look);
-    camera.fov = 58;
+    camera.fov = cc ? cc.fov : 58;
   } else {
     const far = camMode === 1;
     const hood = camMode === 2 || camMode === 3;
@@ -1361,12 +1455,14 @@ function updateCamera(dt) {
       look.set(G.x + G.vx * .2, bumper ? .5 : B.top * .75, G.z - 30);
     } else {
       const tall = camera.aspect < 1.1 ? 1.5 : 0;
-      const back = (far ? 12 : 8) + tall + B.L * .35 + kmh * .01;
-      target.set(G.x * .9, (far ? 4.4 : 2.7) + B.top * .45 + tall * .3, G.z + back);
+      const cc = camMode === CUSTOM_CAM ? customCam() : null;
+      // a custom camera sits exactly where it was set: no speed pull-back, no per-car offset
+      const back = cc ? cc.dist : (far ? 12 : 8) + tall + B.L * .35 + kmh * .01;
+      target.set(G.x * .9, cc ? cc.height : (far ? 4.4 : 2.7) + B.top * .45 + tall * .3, G.z + back);
       if (G.snapCam) { camera.position.copy(target); G.snapCam = false; }
       else if (state === "drive") camera.position.lerp(target, Math.min(1, dt * 7)); else camera.position.lerp(tmpV.set(G.x * .8, target.y + 2, G.z + back + 4), Math.min(1, dt * 2));
-      camera.position.z = state === "drive" ? Math.min(camera.position.z, G.z + back + 2) : camera.position.z;
-      look.set(G.x, 1.6 + tall * .4, G.z - 30);
+      camera.position.z = state === "drive" ? Math.min(camera.position.z, G.z + back + (cc ? 0 : 2)) : camera.position.z;
+      look.set(G.x, cc ? customLookY(cc) : 1.6 + tall * .4, G.z - 30);
       if (state !== "drive") look.set(G.x, .8, G.z);
     }
     if (G.shake > 0) { G.shake -= dt * 1.4; camera.position.x += (Math.random() - .5) * G.shake * .5; camera.position.y += (Math.random() - .5) * G.shake * .5; }
@@ -1377,12 +1473,14 @@ function updateCamera(dt) {
     const lookBack = state === "drive" && held("Space");
     if (lookBack) {
       const tall = camera.aspect < 1.1 ? 1.5 : 0;
-      const ahead = (camMode === 1 ? 12 : 8) + tall + B.L * .35 + kmh * .01;
-      camera.position.set(G.x * .9, (camMode === 1 ? 4.4 : 2.9) + B.top * .45 + tall * .3, G.z - ahead);
+      const lc = camMode === CUSTOM_CAM ? customCam() : null;
+      const ahead = lc ? lc.dist : (camMode === 1 ? 12 : 8) + tall + B.L * .35 + kmh * .01;
+      camera.position.set(G.x * .9, lc ? lc.height : (camMode === 1 ? 4.4 : 2.9) + B.top * .45 + tall * .3, G.z - ahead);
       look.set(G.x, 1.5 + tall * .4, G.z + 30);
     }
     camera.lookAt(look);
-    camera.fov = lookBack ? 70 : hood ? (camMode === 3 ? 76 : 70) + Math.min(18, kmh * .05) : 58 + Math.min(20, kmh * .065);
+    const fovCc = camMode === CUSTOM_CAM ? customCam() : null;
+    camera.fov = lookBack ? (fovCc ? Math.min(100, fovCc.fov + 8) : 70) : fovCc ? fovCc.fov + Math.min(14, kmh * .045) : hood ? (camMode === 3 ? 76 : 70) + Math.min(18, kmh * .05) : 58 + Math.min(20, kmh * .065);
   }
   camera.updateProjectionMatrix();
   camera.updateMatrixWorld();
@@ -1689,6 +1787,10 @@ const ui = new UI({
   thumbs: {},
   selectCar: (id) => { if (!showOffKey) setShowCar(id); },
   showOff: showOffCar, endShowOff,
+  // custom camera editor
+  renderCamPreview,
+  getCustomCam: () => customCam(),
+  useCustomCam: () => { camMode = CUSTOM_CAM; P.settings.cam = camMode; G.snapCam = true; save(); ui.toast(CAMS[camMode], [], "info"); },
   SOLO_MODES, PARTY_MODES,
   // preview: shown on the garage car only, nothing saved or charged
   previewStyle: (id, style) => { if (showCarId === id) showCar.applyStyle?.(style); },
