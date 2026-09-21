@@ -574,9 +574,6 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 .mode-select:empty{display:none}
 .ms-label{font-size:var(--t-xs);color:var(--ink-3);letter-spacing:1.4px;margin-right:4px}
 .mode-select b{font-family:"Barlow Condensed";font-size:var(--t-lg);color:var(--accent)}
-.mode-select button{background:var(--surface-2);border:1px solid var(--line-2);color:var(--ink-2);border-radius:var(--r2);padding:7px 12px;font-family:"Barlow Condensed";font-size:var(--t-md);font-weight:700;letter-spacing:.6px;backdrop-filter:blur(6px)}
-.mode-select button:hover{color:var(--ink)}
-.mode-select button.on{background:var(--grad-accent);color:var(--accent-ink);border-color:transparent;box-shadow:var(--glow-accent)}
 .spin-btn{position:absolute;left:var(--s4);bottom:var(--s4);z-index:2;background:var(--glass-2);backdrop-filter:blur(12px);border:1px solid var(--hairline);color:var(--ink-3);border-radius:var(--r2);padding:7px 12px;font-family:"Barlow Condensed";font-weight:700;letter-spacing:.8px}
 .spin-btn.on{color:var(--accent);border-color:var(--accent)}
 .party-badge{bottom:64px}
@@ -641,10 +638,8 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 /* ---------- solo mode picker ---------- */
 .ms-row{display:flex;flex-direction:column;gap:5px;width:100%}
 .ms-row .ms-label{margin:0}
-.ms-opts{display:flex;flex-wrap:wrap;gap:5px}
 .ms-note{margin:0;padding-top:var(--s2);border-top:1px solid var(--line);
   font-size:var(--t-xs);color:var(--ink-3);line-height:1.45}
-.mode-select button{padding:5px 10px;font-size:var(--t-sm)}
 
 /* ---------- multiplayer: tabs, server browser, create form ---------- */
 .online-tabs{display:flex;gap:var(--s2);border-bottom:1px solid var(--line);margin:0 0 var(--s4);padding-bottom:var(--s3)}
@@ -721,3 +716,16 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 #customCol{max-height:min(66vh,640px);overflow-y:auto;padding-right:var(--s2)}
 #customCol h3:first-child{margin-top:0}
 #customCol .custom-pick{margin-bottom:var(--s2)}
+
+/* ---------- garage mode picker: dropdowns ---------- */
+.mode-select .ms-row{display:grid;grid-template-columns:64px 1fr;align-items:center;gap:var(--s2);width:100%}
+.mode-select .ms-row .ms-label{margin:0}
+.ms-select{appearance:none;-webkit-appearance:none;width:100%;min-width:0;cursor:pointer;
+  background:var(--surface-2) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23a8b1c4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center;
+  border:1px solid var(--line-2);border-radius:var(--r2);color:var(--ink);
+  padding:7px 28px 7px 12px;font-family:"Barlow Condensed";font-size:var(--t-md);font-weight:700;letter-spacing:.6px;
+  transition:border-color .16s var(--ease),box-shadow .16s var(--ease)}
+.ms-select:hover{border-color:var(--ink-3)}
+.ms-select:focus-visible{outline:none;border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+/* the opened list is drawn by the browser, so give it a dark base it can inherit */
+.ms-select option{background:#181c27;color:var(--ink);font-weight:600}

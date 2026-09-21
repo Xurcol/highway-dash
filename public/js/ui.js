@@ -356,28 +356,36 @@ export class UI {
     if (this.onlineSelected) ms.innerHTML = this.net.room ? `<span class="ms-label">PARTY MODE</span><b>${this.ctx.PARTY_MODES[this.net.room.mode || "crash"]}</b>` : "";
     else {
       const cur = this.ctx.SOLO_MODES[P.settings.soloMode] ? P.settings.soloMode : "classic";
+      // One <select> per setting. Four rows of chips took most of the preview to say four things.
+      const sel = (label, key, options, current) =>
+        `<label class="ms-row"><span class="ms-label">${label}</span><select class="ms-select" data-sel="${key}">` +
+          options.map(([v, text]) => `<option value="${v}"${String(v) === String(current) ? " selected" : ""}>${text}</option>`).join("") +
+        `</select></label>`;
+      const bots = (P.settings.bots | 0);
       const rows = [
-        `<div class="ms-row"><span class="ms-label">MODE</span><div class="ms-opts">` +
-          Object.entries(this.ctx.SOLO_MODES).map(([k, v]) => `<button data-m="${k}" class="${k === cur ? "on" : ""}">${v}</button>`).join("") +
-        `</div></div>`,
-        `<div class="ms-row"><span class="ms-label">BOTS</span><div class="ms-opts"><button data-bots="1">${(P.settings.bots | 0) || "OFF"}</button></div></div>`,
+        sel("MODE", "mode", Object.entries(this.ctx.SOLO_MODES), cur),
+        sel("BOTS", "bots", [0, 1, 2, 3, 4, 5].map((n) => [n, n ? String(n) : "Off"]), bots),
       ];
       // Free Drive is the open-ended mode, so the two things worth changing before you set off get
       // their own row here rather than being buried in Settings.
-      if (cur === "freedrive") rows.push(
-        `<div class="ms-row"><span class="ms-label">TRAFFIC</span><div class="ms-opts">` +
-          Object.keys(TRAFFIC_LEVELS).map((k) => `<button data-traffic="${k}" class="${P.settings.traffic === k ? "on" : ""}">${k}</button>`).join("") +
-        `</div></div>`,
-        `<div class="ms-row"><span class="ms-label">TIME</span><div class="ms-opts">` +
-          Object.entries(TIME_PRESETS).map(([label, h]) => `<button data-hour="${h}" class="${Math.abs(P.settings.hour - h) < .05 ? "on" : ""}">${label}</button>`).join("") +
-        `</div></div>`);
+      if (cur === "freedrive") {
+        // the time is a slider elsewhere, so it can sit between two presets; show that honestly
+        const presets = Object.entries(TIME_PRESETS).map(([label, h]) => [h, label]);
+        const near = presets.find(([h]) => Math.abs(P.settings.hour - h) < .05);
+        if (!near) presets.unshift([P.settings.hour, "Custom"]);
+        rows.push(
+          sel("TRAFFIC", "traffic", Object.keys(TRAFFIC_LEVELS).map((k) => [k, k]), P.settings.traffic),
+          sel("TIME", "hour", presets, near ? near[0] : P.settings.hour));
+      }
       ms.innerHTML = rows.join("") + `<p class="ms-note">${SOLO_BLURB[cur] || ""}</p>`;
-      ms.querySelectorAll("button").forEach((b) => b.onclick = () => {
-        const d = b.dataset;
-        if (d.bots) P.settings.bots = ((P.settings.bots | 0) + 1) % 6;
-        else if (d.traffic) P.settings.traffic = d.traffic;
-        else if (d.hour !== undefined) { P.settings.hour = +d.hour; this.ctx.applySettings?.(); }
-        else P.settings.soloMode = d.m;
+      ms.querySelectorAll("select").forEach((el) => el.onchange = () => {
+        const v = el.value;
+        switch (el.dataset.sel) {
+          case "bots": P.settings.bots = +v; break;
+          case "traffic": P.settings.traffic = v; break;
+          case "hour": P.settings.hour = +v; this.ctx.applySettings?.(); break;
+          default: P.settings.soloMode = v;
+        }
         save(); this.ctx.audio.ui(); this.renderHome();
       });
       
