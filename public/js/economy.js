@@ -63,17 +63,21 @@ export const partPrice = (kind, option) => PART_PRICES[kind]?.[option] ?? 0;
 // ---------------------------------------------------------------- payouts
 // Tuned so a run that scores a few thousand pays for a bolt-on, and a great run pays for a lot more.
 export const REWARDS = {
-  perScore: 0.25,        // coins per point of score
-  perCloseCall: 10,     // threading a gap
-  perKm: 12,            // distance covered
-  comboBonus: 5,       // per close-call streak step
-  newBest: 250,         // beating your personal best
-  medal: 800,          // each new medal on the ladder
-  levelUp: 150,
-  partySurvivor: 250,   // still driving when somebody else ended the round
-  partyWin: 450,       // highest score in a party round
-  minimum: 15,          // even a bad run pays something
+  perScore: 0.34,        // coins per point of score
+  perCloseCall: 14,     // threading a gap
+  perKm: 16,            // distance covered
+  comboBonus: 7,       // per close-call streak step
+  newBest: 350,         // beating your personal best
+  medal: 1000,         // each new medal on the ladder
+  levelUp: 200,
+  partySurvivor: 340,   // still driving when somebody else ended the round
+  partyWin: 600,       // highest score in a party round
+  minimum: 30,          // even a bad run pays something
 };
+// Heavier traffic is harder to drive through, so it pays more. It scales what the driving itself
+// earned - score, close calls, distance, combos - and leaves the milestone bonuses alone, since a
+// medal is worth the same whichever road you earned it on.
+export const TRAFFIC_PAY = { Chill: 1, Normal: 1.25, Heavy: 1.5, Insane: 2 };
 
 // One place that decides what a run was worth. `run` comes straight from the game state.
 export function runReward(run) {
@@ -83,6 +87,12 @@ export function runReward(run) {
     + Math.round((run.distance || 0) / 1000 * r.perKm)
     + (run.bestCombo > 1 ? (run.bestCombo - 1) * r.comboBonus : 0);
   const extras = [];
+  const mult = TRAFFIC_PAY[run.traffic] ?? 1;
+  if (mult > 1) {
+    const bonus = Math.round(coins * (mult - 1));
+    coins += bonus;
+    extras.push({ label: `${run.traffic} traffic x${mult}`, coins: bonus });
+  }
   if (run.newBest) { coins += r.newBest; extras.push({ label: "New personal best", coins: r.newBest }); }
   if (run.newMedals > 0) { coins += run.newMedals * r.medal; extras.push({ label: `${run.newMedals} new medal${run.newMedals > 1 ? "s" : ""}`, coins: run.newMedals * r.medal }); }
   if (run.levelUps > 0) { coins += run.levelUps * r.levelUp; extras.push({ label: "Level up", coins: run.levelUps * r.levelUp }); }

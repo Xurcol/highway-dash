@@ -1263,7 +1263,8 @@ export class UI {
     this.syncTime(s.hour);
     $("timeFlow").checked = s.flow;
     $("volMaster").value = s.volMaster; $("volEngine").value = s.volEngine; $("volFx").value = s.volFx; $("volWind").value = s.volWind; $("optRes").value = s.res;
-    $("optScenery").value = s.scenery ?? 1; $("optView").value = s.viewDist ?? 1;
+    $("optScenery").value = s.scenery ?? 1; $("optView").value = s.viewDist ?? 1; $("optNight").value = s.nightLights ?? 1;
+    $("optNight").onchange = (e) => { s.nightLights = +e.target.value; apply(); };
     $("optManual").checked = s.manual; $("optShadows").checked = s.shadows; $("optBloom").checked = s.bloom !== false; $("optHideNames").checked = !!s.hideNames;
     this.chipSync?.forEach((f) => f());
   }

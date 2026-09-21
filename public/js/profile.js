@@ -22,7 +22,7 @@ export const xpForLevel = (lvl) => 200 + (lvl - 1) * 60;
 
 const DEFAULTS = {
   name: "", colors: {}, styles: {}, tunes: {}, parts: {}, ecu: {}, painted: {}, coins: 500, hearts: 3, owned: ["b330i", "a4", "c43"], equipped: "b330i", best: 0, level: 1, xp: 0, medals: 0, sv: 0,
-  settings: { hour: 18.6, flow: false, sky: "Aurora", weather: "Clear", traffic: "Heavy", volMaster: .8, volEngine: .9, volFx: .9, volWind: .35, driveMode: "sport", manual: false, shadows: true, bloom: true, res: 1, scenery: 1, viewDist: 1, hideNames: false },
+  settings: { hour: 18.6, flow: false, sky: "Aurora", weather: "Clear", traffic: "Heavy", volMaster: .8, volEngine: .9, volFx: .9, volWind: .35, driveMode: "sport", manual: false, shadows: true, bloom: true, res: 1, scenery: 1, viewDist: 1, nightLights: 1, hideNames: false },
 };
 
 // ---------------- persistence ----------------

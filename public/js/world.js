@@ -373,7 +373,7 @@ export class World {
       bush: new Batch(scene, new THREE.DodecahedronGeometry(1, 0), lit({ color: 0x3f8f3a, roughness: .9, flatShading: true }), 500),
       trunk: new Batch(scene, box, lit({ color: 0x6b4a2e, roughness: .9 }), 500),
       crown: new Batch(scene, new THREE.IcosahedronGeometry(1, 0), lit({ color: 0xffffff, roughness: .9, flatShading: true }), 500, { colors: true }),
-      sign: new Batch(scene, box, lit({ color: 0x1f7a3f, roughness: .6 }), 30),
+      sign: new Batch(scene, box, lit({ color: 0x1f7a3f, roughness: .96 }), 30),
       tWall: new Batch(scene, box, lit({ color: 0xd9d4c8, roughness: .65 }), 90),
       tBand: new Batch(scene, box, lit({ color: 0x2c3036, roughness: .5, metalness: .2 }), 90, { shadow: false }),
       tCeil: new Batch(scene, box, lit({ color: 0x6f7176, roughness: .9 }), 45),
@@ -394,8 +394,6 @@ export class World {
       delin: new Batch(scene, box, lit({ color: 0xe8e6df, roughness: .8 }), 700, { shadow: false }),
       // grey posts for everything that needs a leg
       spost: new Batch(scene, box, lit({ color: 0x9aa1a9, roughness: .5, metalness: .5 }), 700, { shadow: false }),
-      // traffic cones, for construction stretches
-      cone: new Batch(scene, new THREE.ConeGeometry(1, 1, 8).translate(0, .5, 0), lit({ color: 0xe2571c, roughness: .8 }), 400, { shadow: false }),
       // chain-link fence panels and their posts
       fence: new Batch(scene, box, lit({ color: 0x7e858c, roughness: .7, metalness: .35, transparent: true, opacity: .45 }), 700, { shadow: false }),
       // transmission pylons and their wires
@@ -408,15 +406,15 @@ export class World {
       deck: new Batch(scene, box, lit({ color: 0xc2beb4, roughness: .9 }), 220),
       pier: new Batch(scene, box, lit({ color: 0xb2aea5, roughness: .92 }), 220),
       // sign faces: one batch per design, each a single draw call
-      sgGuide: new Batch(scene, box, lit({ map: SIGN_ART.guide(), roughness: .55 }), 60, { shadow: false }),
-      sgGuide2: new Batch(scene, box, lit({ map: SIGN_ART.guide2(), roughness: .55 }), 60, { shadow: false }),
-      sgExit: new Batch(scene, box, lit({ map: SIGN_ART.exit(), roughness: .55 }), 60, { shadow: false }),
-      sgSpeed: new Batch(scene, box, lit({ map: SIGN_ART.speed(), roughness: .55 }), 60, { shadow: false }),
-      sgWarn: new Batch(scene, box, lit({ map: SIGN_ART.warn(), roughness: .55 }), 60, { shadow: false }),
-      sgWork: new Batch(scene, box, lit({ map: SIGN_ART.work(), roughness: .55 }), 60, { shadow: false }),
-      sgShield: new Batch(scene, box, lit({ map: SIGN_ART.shield(), roughness: .55 }), 60, { shadow: false }),
-      sgMile: new Batch(scene, box, lit({ map: SIGN_ART.mile(), roughness: .6 }), 80, { shadow: false }),
-      sgBoard: BILLBOARD_ART.map((d, i) => new Batch(scene, box, lit({ map: signCanvas(512, 256, d), roughness: .6 }), 14, { shadow: false })),
+      sgGuide: new Batch(scene, box, lit({ map: SIGN_ART.guide(), roughness: .96 }), 60, { shadow: false }),
+      sgGuide2: new Batch(scene, box, lit({ map: SIGN_ART.guide2(), roughness: .96 }), 60, { shadow: false }),
+      sgExit: new Batch(scene, box, lit({ map: SIGN_ART.exit(), roughness: .96 }), 60, { shadow: false }),
+      sgSpeed: new Batch(scene, box, lit({ map: SIGN_ART.speed(), roughness: .96 }), 60, { shadow: false }),
+      sgWarn: new Batch(scene, box, lit({ map: SIGN_ART.warn(), roughness: .96 }), 60, { shadow: false }),
+      sgWork: new Batch(scene, box, lit({ map: SIGN_ART.work(), roughness: .96 }), 60, { shadow: false }),
+      sgShield: new Batch(scene, box, lit({ map: SIGN_ART.shield(), roughness: .96 }), 60, { shadow: false }),
+      sgMile: new Batch(scene, box, lit({ map: SIGN_ART.mile(), roughness: .96 }), 80, { shadow: false }),
+      sgBoard: BILLBOARD_ART.map((d, i) => new Batch(scene, box, lit({ map: signCanvas(512, 256, d), roughness: .96 }), 14, { shadow: false })),
       // road-surface decals: patches, rubber, repairs - laid flat, offset out of the road's depth
       decal: new Batch(scene, new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2),
         lit({ color: 0xffffff, roughness: .95, transparent: true, opacity: .55, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -6 }),
@@ -427,6 +425,7 @@ export class World {
     // every sign face, so they can be lifted together at night
     this.signMats = ["sgGuide", "sgGuide2", "sgExit", "sgSpeed", "sgWarn", "sgWork", "sgShield", "sgMile"]
       .map((n) => this.b[n].mesh.material).concat(this.b.sgBoard.map((b) => b.mesh.material));
+    for (const m of this.signMats) { m.emissiveMap = m.map; m.emissive.set(0xffffff); m.emissiveIntensity = 0; }
     this.density = 1;            // scenery density multiplier, driven by the graphics setting
     this.viewDist = 1;           // how far back the world is built, as a fraction of the default
     this.lastK = null;
@@ -650,14 +649,10 @@ export class World {
       art.add(bx, 6.2, bz, 9 * sc, 4.5 * sc, .2, undefined, yaw);
     }
 
-    // ---- construction: cones tapering a lane out, with a board to warn you ----
+    // ---- roadworks: a warning board and a barrier at the head of the closure ----
     if (hash(k, 13, 7) < .07 && openK > .9) {
       const side = r(11) < .5 ? 1 : -1;
       const edge = side * (ROAD_HALF - LW * .5);
-      for (let p = 0; p < 14; p++) {
-        const t = p / 13;
-        B.cone.add(edge + side * -t * 2.4, 0, z0 + p * 3.2, .34, .72, .34);
-      }
       B.spost.add(side * 14.5, 0, z0 - 6, .12, 2.2, .12);
       B.sgWork.add(side * 14.5, 3, z0 - 6, 1.5, 1.5, .09, undefined, side > 0 ? Math.PI : 0);
       // a barrier board and a parked works truck at the head of the taper
@@ -848,8 +843,8 @@ export class World {
     this.reflectMat.color.setScalar(.5 + sky.night * 1.9);
     // Highway signs are retroreflective sheeting - at night they come back at you rather than
     // falling dark with everything else, so they get a low emissive lift once the sun is down.
-    const signGlow = sky.night * .34;
-    for (const m of this.signMats) { m.emissive.setScalar(signGlow); m.emissiveIntensity = 1; }
+    const signGlow = sky.night * .55;
+    for (const m of this.signMats) m.emissiveIntensity = signGlow;
     this.neonMat.color.setScalar(.5 + sky.night * 1.8);
 
     this.tunnel = tunnelAmount(focus.z);

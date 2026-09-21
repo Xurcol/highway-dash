@@ -717,8 +717,7 @@ export class DetailedCar {
     const on = [1.8, .9, .08], off = [.18, .1, .02];
     this.sigLMat.color.setRGB(...(left ? on : off));
     this.sigRMat.color.setRGB(...(right ? on : off));
-    // headlamps never light
-    this.headMat.color.setScalar(.22);
+    this.headMat.color.setScalar(.9 + night * 1.6);
   }
   update(dist, steer) {
     this.spin -= dist / this.B.r;

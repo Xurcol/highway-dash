@@ -462,8 +462,8 @@ export class ModelCar {
   }
   setLights(brake, left, right, night) {
     for (const m of this.tails) if (m.emissive) { m.emissive.setRGB(1, .05, .05); m.emissiveIntensity = brake ? 3 : .6 + night; }
-    // headlamps never light
-    for (const m of this.heads) if (m.emissive) { m.emissive.setRGB(0, 0, 0); m.emissiveIntensity = 0; }
+    // headlamps: a soft glow by day, properly lit once it is dark
+    for (const m of this.heads) if (m.emissive) { m.emissive.setRGB(1, .97, .9); m.emissiveIntensity = .6 + night * 2; }
   }
   update(dist, steer) {
     this.spin -= dist / this.B.r;

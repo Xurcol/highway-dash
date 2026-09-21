@@ -3,6 +3,10 @@
 import * as THREE from "three";
 
 export const LAMP_MAX = 32;
+// How many of the nearest lamps actually get uploaded. The loop's cost is linear in this, so it is
+// the knob behind the "night lighting" setting.
+let lampBudget = LAMP_MAX;
+export const setLampBudget = (n) => { lampBudget = Math.max(4, Math.min(LAMP_MAX, n | 0)); };
 const U = {
   lampPos: { value: Array.from({ length: LAMP_MAX }, () => new THREE.Vector3()) },
   lampDir: { value: Array.from({ length: LAMP_MAX }, () => new THREE.Vector3(0, -1, 0)) },
@@ -28,9 +32,11 @@ const APPLY = /* glsl */`
   for (int i = 0; i < LAMP_MAX; i++) {
     if (i >= lampCount) break;
     vec3 Lv = lampPos[i] - fpos;
-    float d = length(Lv);
+    float d2 = dot(Lv, Lv);
+    float rng = lampParams[i].x;
+    if (d2 > rng * rng) continue;              // out of range: no sqrt, no other reads
+    float d = sqrt(d2);
     vec4 pr = lampParams[i];
-    if (d > pr.x) continue;
     vec3 L = Lv / d;
     float att = 1.0 - d / pr.x; att *= att;
     float cone = smoothstep(pr.y, pr.z, dot(-L, lampDir[i]));
@@ -63,7 +69,7 @@ export function uploadLights(lights, camera) {
   const view = camera.matrixWorldInverse;
   const cp = camera.position;
   lights.sort((a, b) => a.pos.distanceToSquared(cp) - b.pos.distanceToSquared(cp));
-  const n = Math.min(LAMP_MAX, lights.length);
+  const n = Math.min(lampBudget, lights.length);
   for (let i = 0; i < n; i++) {
     const l = lights[i];
     U.lampPos.value[i].copy(_v.copy(l.pos).applyMatrix4(view));

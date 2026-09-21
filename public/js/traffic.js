@@ -6,11 +6,15 @@ import { makeTrafficCar, BODIES } from "./cars.js";
 import { hash, laneX, LANES } from "./world.js";
 
 export const TRAFFIC_LEVELS = { Chill: .24, Normal: .38, Heavy: .5, Insane: .64 };
-// Every lane runs at the posted 60 mph. One speed for all lanes keeps the swerve maths simple:
-// a lane change never has to match a different cruise speed.
-export const TRAFFIC_MPH = 60;
-const SAME_V = new Array(5).fill((TRAFFIC_MPH / 0.621371) / 3.6);
-const S = 34;
+// Each lane cruises at its own speed, fastest on the inside (the yellow-line side) and slowest on
+// the outside, 60 to 80 mph. Cars in a lane share their lane's speed, so spacing inside a lane never
+// changes; the difference between lanes is what breaks up a row of cars that spawned side by side.
+export const LANE_MPH = [80, 75, 70, 65, 60];
+const MPH = 0.44704;                       // metres per second per mile per hour
+const SAME_V = LANE_MPH.map((m) => m * MPH);
+// Slot pitch. Slots roll independently, so at 34m and up to 86% full a lane was a near-continuous
+// chain of cars 20-odd metres apart, and five lanes of it read as a wall.
+const S = 42;
 const PALETTE = [0xf2f2f2, 0x1d1f24, 0x9aa1aa, 0xc62828, 0x1e5bd8, 0xf2c230, 0x2e7d4f, 0x6d3fb0, 0xe0701c, 0x7a1f2b, 0x5b6f86, 0xd8cbb0];
 const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "van", "suv", "coupe", "muscle", "sedan", "suv", "hatch", "m340i", "q50", "x5m", "charger", "golfr", "c63", "rs6", "x3m"];
 const SWERVE_TARGET = { 0: 1, 2: 3 }; // each receiving lane has one source lane, so swerves can't collide
@@ -44,7 +48,8 @@ export class Traffic {
     for (const [, m] of this.active) this.release(m);
     this.active.clear(); this.bumped.clear(); this.blocked.clear();
   }
-  density(j) { return this.base + (this.ramp ? Math.min(.22, Math.max(0, -j * S) / 26000) : .08); }
+  // Capped well below full: even on Insane a lane keeps real gaps in it.
+  density(j) { return Math.min(.62, this.base + (this.ramp ? Math.min(.16, Math.max(0, -j * S) / 30000) : .06)); }
 
   // dir is always 1: the road is one carriageway now. It is kept in the key and the signature so the
   // deterministic hash (and therefore every party member) keeps agreeing on which slots spawn.
@@ -52,6 +57,10 @@ export class Traffic {
     const k = dir * 1000 + lane, seed = this.seed;
     if (hash(seed, k, j) > this.density(j)) return null;
     const h = (i) => hash(seed + i * 7919, k, j);
+    // Right behind an occupied slot, only half of them are allowed to fill. This is what stops a run
+    // of three or four cars nose to tail: whether the previous slot is occupied is a plain hash test,
+    // not a recursive call, so it stays deterministic and every party member agrees.
+    if (hash(seed, k, j - 1) <= this.density(j - 1) && h(11) > .5) return null;
     let body;
     if (lane >= 3 && h(4) < .22) body = h(5) < .3 ? "bus" : "truck";
     else body = SMALL[(h(6) * SMALL.length) | 0];

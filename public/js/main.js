@@ -6,7 +6,7 @@ import { Traffic } from "./traffic.js";
 import { CARS, BODIES, specOf, DetailedCar } from "./cars.js";
 import { Drivetrain } from "./vehicle.js";
 import { AudioManager } from "./audio.js";
-import { Glows, uploadLights, lampUniforms } from "./lights.js";
+import { Glows, uploadLights, lampUniforms, setLampBudget } from "./lights.js";
 import { createNet, RemoteView, NET } from "./net.js";
 import { carStyle } from "./profile.js";
 import { P, save, carById, carColor, carSound, carTune, carAudio, earn, walletHooks, MEDALS, addXp, medalCount } from "./profile.js";
@@ -526,6 +526,8 @@ function awardRun(opts = {}) {
     score, closeCalls: G.closeCalls, distance: G.dist, bestCombo: G.bestCombo || 0,
     newBest: score > prevBest && score > 0, newMedals: nowMedals - prevMedals, levelUps,
     survivor: !!opts.survivor,
+    // party rooms fix their own traffic level; a solo run uses the one in settings
+    traffic: (mode === "online" && net.room ? net.room.traffic : P.settings.traffic) || "Heavy",
     partyWin: mode === "online" && partyRound > 0 && best.length > 0 && best.every((s) => score >= s),
   });
   // Held, not paid. Crashing used to credit the coins immediately, which meant a run could buy its
@@ -946,6 +948,7 @@ function updateRemotes(T, dt) {
       for (const k of [-1, 1]) {
         const tp = carPt(s.x, s.z, s.ry || 0, k * (B.W / 2 - .35), B.L / 2), hp = carPt(s.x, s.z, s.ry || 0, k * (B.W / 2 - .35), -B.L / 2);
         glows.add(tp[0], B.tl[1], tp[1], 1, s.brk ? .15 : .05, .05, s.brk ? 1.4 : .8);
+        glows.add(hp[0], B.hl[1], hp[1], 1, .95, .85, 1.5);
         if ((k < 0 && s.sl) || (k > 0 && s.sr)) { glows.add(tp[0], B.tl[1], tp[1], 1, .55, .05, 1.1); glows.add(hp[0], B.hl[1], hp[1], 1, .55, .05, 1.1); }
       }
     }
@@ -1471,6 +1474,8 @@ function updateHud() {
 
 // ---------------- main loop ----------------
 let last = performance.now(), thumbsReady = false;
+const playerLight = { pos: new THREE.Vector3(), dir: new THREE.Vector3(), color: new THREE.Color(1, .97, .9), intensity: 7, range: 70, cosOuter: Math.cos(.42), cosInner: Math.cos(.16) };
+
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(.05, (now - last) / 1000);
@@ -1537,11 +1542,15 @@ function frame(now) {
     if (state === "drive" || state === "ready") {
       const cos = Math.cos(G.yaw), sin = Math.sin(G.yaw);
       const fwd = tmpV.set(-sin, 0, -cos);
-      // Headlamps are off, so there is no beam either - the road is lit by the street lighting and
-      // by whatever the sky is doing, not by the car.
+      if (night) {
+        playerLight.pos.set(G.x, B.hl[1] + .15, G.z).addScaledVector(fwd, B.L / 2 + .2);
+        playerLight.dir.copy(fwd).setY(-.1).normalize();
+        lights.push(playerLight);
+      }
       for (const k of [-1, 1]) {
         const tp = carPt(G.x, G.z, G.yaw, k * (B.W / 2 - .35), B.L / 2), hp = carPt(G.x, G.z, G.yaw, k * (B.W / 2 - .35), -B.L / 2);
         if (night || braking) glows.add(tp[0], B.tl[1], tp[1], 1, braking ? .12 : .04, .04, braking ? 1.6 : .7);
+        if (night) glows.add(hp[0], B.hl[1], hp[1], 1, .96, .85, 1.6);
         if (G.sigOn && ((k < 0 && G.sigL) || (k > 0 && G.sigR))) { glows.add(tp[0], B.tl[1], tp[1] + .02, 1, .55, .05, 1.1); glows.add(hp[0], B.hl[1], hp[1], 1, .55, .05, 1.1); }
       }
     }
@@ -1600,8 +1609,13 @@ function frame(now) {
 }
 
 // ---------------- settings ----------------
+// How many lamps the per-pixel lighting loop sees at night. It is the loop that costs, not the
+// lamps: measured, 32 lamps cost 13.1ms a frame against 10.3 for the nearest 20, and the dropped
+// ones are the farthest and dimmest. The default is the middle option.
+const LAMP_BUDGETS = [10, 20, 32];
 function applySettings() {
   const s = P.settings;
+  setLampBudget(LAMP_BUDGETS[s.nightLights ?? 1] ?? 20);
   // scenery density and view distance rebuild the world, so nudge it to notice
   world.density = s.scenery ?? 1;
   world.viewDist = s.viewDist ?? 1;
