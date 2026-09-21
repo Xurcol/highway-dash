@@ -440,6 +440,11 @@
         "color": "#23262b",
         "metalness": 0.8,
         "roughness": 0.35
+      },
+      "^Material[.]007$": {
+        "color": "#1a1c20",
+        "metalness": 0.35,
+        "roughness": 0.45
       }
     },
     "wheelMats": [
@@ -480,7 +485,7 @@
     "carrera": "Free-to-use download (free_porsche_911_carrera_4s.glb) — author not recorded",
     "m240i": "Free-to-use download (2022_bmw_m240i_coupe.glb) — author not recorded"
   },
-  "rev": 31,
+  "rev": 32,
   "supra": {
     "paint": [
       "^carpaint$"

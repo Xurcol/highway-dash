@@ -121,9 +121,19 @@ const showCam = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
 {
   const pm = new THREE.PMREMGenerator(renderer);
   show.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
-  show.environmentIntensity = 0.62;
-  show.add(new THREE.HemisphereLight(0xdfe8ff, 0x303030, 0.72));
-  const key = new THREE.DirectionalLight(0xffffff, 1.55); key.position.set(4, 8, 5); key.castShadow = true;
+  show.environmentIntensity = 0.42;
+  show.add(new THREE.HemisphereLight(0xc8d6ff, 0x14171c, 0.3));
+  const key = new THREE.DirectionalLight(0xfff2e0, 1.15); key.position.set(4, 8, 5); key.castShadow = true;
+  const rim = new THREE.DirectionalLight(0x8fb4ff, .55); rim.position.set(-6, 4.5, -7);
+  const fill = new THREE.DirectionalLight(0xffd9b0, .16); fill.position.set(-3, .8, 6);
+  show.add(rim, fill);
+  show.background = (() => {
+    const c = document.createElement("canvas"); c.width = 4; c.height = 256;
+    const g = c.getContext("2d"), grd = g.createLinearGradient(0, 0, 0, 256);
+    grd.addColorStop(0, "#212734"); grd.addColorStop(.55, "#161a22"); grd.addColorStop(1, "#0d0f14");
+    g.fillStyle = grd; g.fillRect(0, 0, 4, 256);
+    const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+  })();
   key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0004; key.shadow.normalBias = .02; Object.assign(key.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5 });
   show.add(key);
 }
@@ -131,21 +141,22 @@ const showDeco = new THREE.Group();
 show.add(showDeco);
 {
   const M = (c, r = .8, m = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2), M(0x23272e, .92)); floor.receiveShadow = true;
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.5, .08, 64), M(0x8d939b, .4, .55)); disc.position.y = .04; disc.receiveShadow = true;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2), M(0x15181d, .95)); floor.receiveShadow = true;
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.5, .08, 64), M(0x5c6169, .45, .5)); disc.position.y = .04; disc.receiveShadow = true;
   const ring = new THREE.Mesh(new THREE.TorusGeometry(3.45, .05, 8, 64).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffb020 })); ring.position.y = .09;
-  const wall = new THREE.Mesh(new THREE.BoxGeometry(40, 10, .5), M(0x4a4f58, .9)); wall.position.set(0, 5, -9);
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(40, 10, .5), M(0x1a1e25, .96)); wall.position.set(0, 5, -9);
   const wall2 = wall.clone(); wall2.rotation.y = Math.PI / 2; wall2.position.set(-9, 5, 0);
   const stripeTex = (() => { const c = document.createElement("canvas"); c.width = 256; c.height = 32; const g = c.getContext("2d");
     for (let i = -2; i < 20; i++) { g.fillStyle = i % 2 ? "#1b1b1b" : "#f0c020"; g.beginPath(); g.moveTo(i * 20, 32); g.lineTo(i * 20 + 20, 32); g.lineTo(i * 20 + 36, 0); g.lineTo(i * 20 + 16, 0); g.fill(); }
     const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.wrapS = THREE.RepeatWrapping; t.repeat.x = 8; return t; })();
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(40, .8, .1), new THREE.MeshStandardMaterial({ map: stripeTex })); stripe.position.set(0, 8.6, -8.7);
   showDeco.add(floor, disc, ring, wall, wall2, stripe);
-  const crateM = M(0x8a6a44, .9);
+  const crateM = M(0x3c3a36, .95);
   [[-5.5, 0, -6.5, 1.6], [-4, 0, -7, 1.2], [-5.2, 1.6, -6.6, 1.1], [5.5, 0, -7, 1.5], [6.5, 0, -5.5, 1.1], [-7, 0, -3, 1.4]].forEach(([x, y, z, s]) => {
     const c = new THREE.Mesh(new THREE.BoxGeometry(s, s, s), crateM); c.position.set(x, y + s / 2, z); c.rotation.y = x * .3; c.castShadow = c.receiveShadow = true; showDeco.add(c);
   });
 }
+const DISC_TOP = .085;   // top face of the turntable: cars stand on this, not on y = 0
 let showCar = null, showCarId = null, showSpin = -0.6, dragging = false;
 function setShowCar(id) {
   if (showCarId === id) return;
@@ -154,6 +165,7 @@ function setShowCar(id) {
   showCar = makeCar(def.id, carColor(id));
   showCar.applyStyle?.(carStyle(id));
   showCar.group.traverse((o) => (o.castShadow = true));
+  showCar.group.position.y = DISC_TOP;
   show.add(showCar.group);
   showCarId = id;
   if (hasModel(id) && !MODELS[id]) ensureModel(id).then((ok) => {
@@ -783,6 +795,42 @@ function leaveServer() {
 // a point on the car (lx sideways, lz along it; +z is the rear) in world space, for any heading
 const carPt = (x, z, yaw, lx, lz) => { const c = Math.cos(yaw), s = Math.sin(yaw); return [x + lx * c + lz * s, z - lx * s + lz * c]; };
 
+// ---------------- collision shape ----------------
+// A car is not a box. Laying a row of circles down its centre line gives it the rounded corners a
+// car actually has, and - because the row turns with the car - an angled car presents its real
+// width instead of the width of the box around it. That is the difference between threading a
+// closing gap and being killed by a corner that was never there.
+// Circles are spaced so consecutive ones always overlap, so nothing can slip between them.
+const HIT_R = .43;          // circle radius as a fraction of width: a touch inside the bodywork
+// The body leans into a swerve by up to ~16 degrees, which is a lean for looks more than a change
+// of heading - the car is still travelling roughly down the lane. Turning the collision shape by
+// the full render angle would make you widest exactly when you are threading a closing gap, so it
+// follows a fraction of it: rounded corners and real width, without punishing the swerve itself.
+const HIT_YAW = .45;
+const hitScratch = [];
+function hitShape(x, z, yaw, L, W, out) {
+  out.length = 0;
+  const r = W * HIT_R;
+  const span = Math.max(0, L / 2 - r);
+  const n = Math.max(2, Math.ceil(span / (r * .85)) + 1);
+  const c = Math.cos(yaw), sn = Math.sin(yaw);
+  for (let i = 0; i < n; i++) {
+    const t = (i / (n - 1) * 2 - 1) * span;      // -span (tail) .. +span (nose), along the car
+    out.push(x - sn * t, z - c * t);
+  }
+  return r;
+}
+// do two circle rows touch? squared distances only, no roots
+function hitOverlap(a, ra, b, rb, slack) {
+  const rr = (ra + rb - slack) ** 2;
+  for (let i = 0; i < a.length; i += 2) for (let j = 0; j < b.length; j += 2) {
+    const dx = a[i] - b[j], dz = a[i + 1] - b[j + 1];
+    if (dx * dx + dz * dz < rr) return true;
+  }
+  return false;
+}
+const hitA = [], hitB = [];
+
 // ---------------- remote players ----------------
 const remotes = new Map();
 const PLAYER_COLORS = ["#3dd6ff", "#ff5ad1", "#e8f04a", "#7dff5a", "#5b8cff", "#b27dff", "#ff4a55", "#4dffc3"];
@@ -1201,7 +1249,12 @@ function updateDrive(dt, T) {
       G.shield.delete(c.key);
     }
     const dx = c.x - G.x, dz = c.z - G.z;
-    if (G.ghostT <= 0 && Math.abs(dx) < (c.W + B.W) / 2 - .12 && Math.abs(dz) < (c.L + B.L) / 2 - .2) return crash(c);
+    // cheap reject first: nothing this far away can touch, whatever the angles
+    if (G.ghostT <= 0 && Math.abs(dx) < (c.W + B.W) / 2 + 1 && Math.abs(dz) < (c.L + B.L) / 2 + 1) {
+      const ra = hitShape(G.x, G.z, G.yaw * HIT_YAW, B.L, B.W, hitA);
+      const rb = hitShape(c.x, c.z, 0, c.L, c.W, hitB);   // traffic runs straight down the lane
+      if (hitOverlap(hitA, ra, hitB, rb, .15)) return crash(c);
+    }
     const prev = G.prevDz.get(c.key);
     G.prevDz.set(c.key, dz);
     if (prev !== undefined && prev < 0 && dz >= 0) {
@@ -1551,6 +1604,7 @@ function showOffCar(b) {
   showCar = makeCar(b.car, b.col ?? carById(b.car).color);
   if (b.st) showCar.applyStyle?.(b.st);
   showCar.group.traverse((o) => (o.castShadow = true));
+  showCar.group.position.y = DISC_TOP;
   show.add(showCar.group);
   showCarId = b.car; showOffKey = JSON.stringify(b);
   return true;
