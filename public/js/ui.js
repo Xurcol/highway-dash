@@ -830,7 +830,6 @@ export class UI {
       { key: "gearing", label: "Gear spread", fmt: (v) => v.toFixed(2) + "x " + (v > 1.005 ? "shorter" : v < .995 ? "taller" : "stock"), hint: "Scales every gear. Above 1 = shorter: more wheel torque and revs, less speed per 1000 rpm." },
     ];
     this.AID_CONTROLS = [
-      { key: "tc", label: "Traction control", fmt: (v) => ["Off", "Low", "Medium", "High"][Math.round(v)] },
       { key: "launchRpm", label: "Launch RPM", fmt: (v) => Math.round(v * 100) + "% of limit" },
     ];
     this.EXHAUST_CONTROLS = [

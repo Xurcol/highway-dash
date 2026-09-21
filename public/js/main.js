@@ -10,6 +10,7 @@ import { Glows, uploadLights, lampUniforms } from "./lights.js";
 import { createNet, RemoteView, NET } from "./net.js";
 import { carStyle } from "./profile.js";
 import { P, save, carById, carColor, carSound, carTune, carAudio, earn, walletHooks, MEDALS, addXp, medalCount } from "./profile.js";
+import { burbleIntensity } from "./engine-dsp.js";
 import { runReward } from "./economy.js";
 import { tunedSpec, peakHp, PARTS } from "./tuning.js";
 import { UI } from "./ui.js";
@@ -390,6 +391,7 @@ function makeDrivetrain() {
 // A tune change rebuilds the physics view of the car (torque curve, boost curve, gearing, limiter)
 // and hands the audio side the derived character - never an unrelated engine.
 function applyTune() {
+  G.audioCfg = null;   // the burble model reads this, so drop it when the tune changes
   const tune = carTune(G.def.id);
   G.engine?.tune(carAudio(G.def.id), P.settings.driveMode);
   if (G.dt) {
@@ -1169,14 +1171,26 @@ function updateDrive(dt, T) {
   G.thr += (thrIn - G.thr) * Math.min(1, dt * (thrIn > G.thr ? 14 : 12));
   // everything the burble model needs: how hard it was pulling, how fast the pedal came up, boost
   const evInfo = () => ({ rpm: d.rpm, load: G.liftLoad ?? d.load, boost: d.s.boostMax ? d.boost / d.s.boostMax : 0, gear: Math.max(1, d.gear), release: G.release || 0 });
+  // how hard the exhaust is burbling right now, on the same terms the engine voice uses
+  const burbleNow = (release) => {
+    const ac = G.audioCfg || (G.audioCfg = carAudio(G.def.id));
+    return burbleIntensity({
+      rpm: d.rpm, load: G.liftLoad ?? d.load, release,
+      boost: d.s.boostMax ? d.boost / d.s.boostMax : 0, gear: Math.max(1, d.gear),
+      warmth: d.warmth, redline: ac.redline || d.s.redline, burbleRpm: ac.burbleRpm || 3000,
+      burble: ac.burble ?? .75, crackle: 1, sport: true,
+    });
+  };
   if (thrIn) { G.release = 0; G.liftLoad = d.load; }
   else { G.liftLoad = Math.max(d.load, (G.liftLoad || 0) * Math.exp(-dt * .7)); G.release = (G.release || 0) * Math.exp(-dt * 1.2); }
   if (G.prevThrIn && !thrIn) {
     G.release = 10; G.engine?.event("lift", evInfo());
     // a single-bang tune spits one short, fat flame; a long burble trails a smaller one
     const oneShot = (d.s.decay ?? 1.1) <= .12;
-    G.flameSize = oneShot ? 2 : 1;
-    if (d.rpm > d.s.redline * .55) G.flameT = (oneShot ? .3 : .6) + (d.s.antiLag ? .8 : 0);
+    const I = burbleNow(10);
+    G.flameSize = (oneShot ? 2 : 1) * Math.min(1.4, .55 + I);
+    // no burble, no flame - and a weak burble only throws a short one
+    if (I > .18) G.flameT = (oneShot ? .3 : .6) * Math.min(1.5, .5 + I) + (d.s.antiLag ? .8 : 0);
   } // snap lift: flutter + overrun burble
   G.prevThrIn = thrIn;
   G.brk += (brkIn - G.brk) * Math.min(1, dt * 12);
@@ -1184,7 +1198,9 @@ function updateDrive(dt, T) {
   for (const ev of events) {
     if (ev === "upshift" || ev === "autoUp") {
       G.engine?.event(G.thr > .3 ? "upshift" : "limiter", evInfo()); if (ev === "upshift") audio.shiftClunk(true);
-      if ((d.s.eth || 0) >= .3 && G.thr > .3) { G.flameT = Math.max(G.flameT || 0, .25 + d.s.eth * .45); G.engine?.event("pop", { v: .6 + d.s.eth }); }
+      // the shift fart only lights up when the exhaust is actually cracking off
+      const Iu = burbleNow(9);
+      if ((d.s.eth || 0) >= .3 && G.thr > .3 && Iu > .18) { G.flameT = Math.max(G.flameT || 0, .25 + d.s.eth * .45); G.engine?.event("pop", { v: .6 + d.s.eth }); }
     }
     else if (ev === "downshift" || ev === "autoDown") { G.engine?.event("downshift", evInfo()); if (ev === "downshift") audio.shiftClunk(false); }
     else if (ev === "limiter" || ev === "lift") G.engine?.event(ev, evInfo());
