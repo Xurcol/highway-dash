@@ -93,6 +93,7 @@ function evict() {
   }
 }
 
+let cfgPolygonOffset = false;
 function upgrade(m, cache) {
   const role = m.userData.role;
   if (role !== "paint" && role !== "glass") return m;
@@ -101,6 +102,11 @@ function upgrade(m, cache) {
     ? new THREE.MeshPhysicalMaterial({ color: m.color?.clone() || new THREE.Color(0xffffff), map: m.map || null, normalMap: m.normalMap || null, metalness: .55, roughness: .3, clearcoat: 1, clearcoatRoughness: .04, envMapIntensity: 1.4, sheenColor: new THREE.Color(0xffffff), sheenRoughness: .35 })
     : new THREE.MeshPhysicalMaterial({ color: 0x080b10, metalness: .3, roughness: .03, clearcoat: 1, clearcoatRoughness: 0, envMapIntensity: 2.2, transparent: true, opacity: .9 });
   n.name = m.name; n.userData.role = role; n.side = m.side;
+  if (m.vertexColors) n.vertexColors = true;   // models that bake their colour into COLOR_0
+  // A model built from overlapping shells puts its paint at the same depth as the layer beneath,
+  // which z-fights into black speckles along every crease. Nudging the paint forward in depth
+  // settles it without moving a single vertex.
+  if (role === "paint" && cfgPolygonOffset) { n.polygonOffset = true; n.polygonOffsetFactor = -2; n.polygonOffsetUnits = -4; }
   patchLit(n);
   cache.set(m, n);
   return n;
@@ -214,6 +220,18 @@ function prepare(scene, car, cfg) {
   const rimRe = re(cfg.rim, "rim|jante|alloy");
   const caliperRe = re(cfg.caliper, "caliper|frein|brake(?!.?light)");
   const hideRe = cfg.hide ? re(cfg.hide) : null;
+  // Some downloads ship trim in the wrong colour - a white mirror where the car has gloss black
+  // Shadowline, say. "tint" recolours named materials in place: { "<name regex>": "#16181c" } or
+  // { "<name regex>": { color, metalness, roughness } }. It runs before roles are assigned, so a
+  // tinted material can still be picked up as paint, glass, a rim and so on.
+  cfgPolygonOffset = !!cfg.depthFix;
+  // Some exports mark every material double-sided. On a car body - a closed shell, often with an
+  // inner skin right behind the outer one - that renders the back faces too, and the two sets land
+  // on the same depth and fight, which is what speckles the panels. A closed body only ever needs
+  // its front faces; glass is left alone so you can still see through it from inside.
+  const singleSide = !!cfg.singleSide;
+  const autoDark = !!cfg.autoDark;
+  const tints = Object.entries(cfg.tint || {}).map(([k, v]) => [new RegExp(k, "i"), typeof v === "string" ? { color: v } : v]);
   const wheelMatRe = cfg.wheelMats ? re(cfg.wheelMats) : null;
   const upgraded = new Map();
   inner.traverse((o) => {
@@ -225,6 +243,17 @@ function prepare(scene, car, cfg) {
     for (const m of mats) {
       // with an explicit config, match material names only (node names are unreliable)
       const name = cfg.paint ? (m.name || "") : `${m.name} ${o.name}`;
+      if (singleSide && m.side === THREE.DoubleSide && !glassRe.test(m.name || "")) m.side = THREE.FrontSide;
+      if (tints.length && !m.userData.tinted) {
+        for (const [rx, t] of tints) if (rx.test(m.name || "")) {
+          m.userData.tinted = true;
+          if (t.color != null) m.color?.set(t.color);
+          if (t.metalness != null) m.metalness = t.metalness;
+          if (t.roughness != null) m.roughness = t.roughness;
+          if (t.opacity != null) { m.opacity = t.opacity; m.transparent = t.opacity < 1; }
+          break;
+        }
+      }
       if (m.isMeshStandardMaterial) patchLit(m);
       if (paintRe.test(name) && (cfg.paint || !notPaint.test(name))) m.userData.role = "paint";
       else if (tailRe?.test(name)) m.userData.role = "tail";
@@ -232,6 +261,19 @@ function prepare(scene, car, cfg) {
       else if (glassRe.test(name) && !/light|lamp|signal/i.test(name)) m.userData.role = "glass";
       else if (rimRe.test(name)) m.userData.role = "rim";
       else if (caliperRe.test(name)) m.userData.role = "caliper";
+      // Brightwork the model never described. A lot of these downloads ship their grilles, vents and
+      // carbon panels as a bare near-white material with no texture behind it, which renders as
+      // white chrome - hence grilles and "carbon" parts coming out pale. Anything left without a
+      // role, without a texture and near white is that, so it goes gloss black.
+      if (autoDark && !m.userData.role && !m.map && !m.userData.tinted && m.color) {
+        const lum = m.color.r * .3 + m.color.g * .59 + m.color.b * .11;
+        if (lum > .5 && !m.transparent) {
+          m.color.setHex(0x17191d);
+          if (m.metalness != null) m.metalness = Math.min(.85, (m.metalness || 0) + .25);
+          if (m.roughness != null) m.roughness = .32;
+          m.userData.tinted = true;
+        }
+      }
     }
     if (hideRe && mats.some((m) => hideRe.test(`${m.name} ${o.name}`))) o.visible = false;
     // wheel parts identified by material: each becomes its own spinning piece
@@ -242,7 +284,7 @@ function prepare(scene, car, cfg) {
     // out of the tint so headlights and taillights never get tinted
     if (!Array.isArray(o.material) && o.material.userData.role === "glass" && new THREE.Box3().setFromObject(o).max.y < carH * .6) {
       const g = o.material;
-      if (!lens.has(g)) { const l = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, transparent: true, opacity: .22, envMapIntensity: 2 }); l.name = g.name + "_lens"; l.userData.role = "lens"; patchLit(l); lens.set(g, l); }
+      if (!lens.has(g)) { const l = new THREE.MeshPhysicalMaterial({ color: 0x20242c, metalness: .1, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, transparent: true, opacity: .42, envMapIntensity: 2.4 }); l.name = g.name + "_lens"; l.userData.role = "lens"; patchLit(l); lens.set(g, l); }
       o.material = lens.get(g);
     }
   });
@@ -264,7 +306,7 @@ function prepare(scene, car, cfg) {
   inner.traverse((o) => { if (o.isMesh && !Array.isArray(o.material) && o.material.userData.role === "glass") glassMeshes.push(o); });
   for (const o of glassMeshes) {
     const g = o.material;
-    if (!lens.has(g)) { const l = new THREE.MeshPhysicalMaterial({ color: 0xffffff, metalness: 0, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, transparent: true, opacity: .22, envMapIntensity: 2 }); l.name = g.name + "_lens"; l.userData.role = "lens"; patchLit(l); lens.set(g, l); }
+    if (!lens.has(g)) { const l = new THREE.MeshPhysicalMaterial({ color: 0x20242c, metalness: .1, roughness: .02, clearcoat: 1, clearcoatRoughness: 0, transparent: true, opacity: .42, envMapIntensity: 2.4 }); l.name = g.name + "_lens"; l.userData.role = "lens"; patchLit(l); lens.set(g, l); }
     for (const p of splitMesh(o, (v) => (Math.abs(v.z) > carL / 2 - .8 && v.y < carH * .72 ? 1 : 0))) if (p.bucket === 1) p.mesh.material = lens.get(g);
   }
   // ---- draw-call diet ----
@@ -417,11 +459,11 @@ export class ModelCar {
     }
     this.glow.visible = st.glow != null;
     if (st.glow != null) { this.glow.material.color.set(st.glow); this.glow.material.opacity = .9; }
-    this.drl = st.drl != null ? new THREE.Color(st.drl) : null;
   }
   setLights(brake, left, right, night) {
     for (const m of this.tails) if (m.emissive) { m.emissive.setRGB(1, .05, .05); m.emissiveIntensity = brake ? 3 : .6 + night; }
-    for (const m of this.heads) if (m.emissive) { if (this.drl) m.emissive.copy(this.drl); else m.emissive.setRGB(1, .97, .9); m.emissiveIntensity = (this.drl ? 1.4 : .6) + night * 2; }
+    // headlamps never light
+    for (const m of this.heads) if (m.emissive) { m.emissive.setRGB(0, 0, 0); m.emissiveIntensity = 0; }
   }
   update(dist, steer) {
     this.spin -= dist / this.B.r;

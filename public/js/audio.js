@@ -131,24 +131,36 @@ class SampleVoice {
       burble: T.burble, crackle: 1, sport: this.mode === "sport",
     });
   }
-  // A pop built from noise when the bank has none to play: a band-passed crack over a short
-  // low thump, shaped like the synth's addPop so a sample-backed car still burbles.
+  // An afterfire built from scratch, for a bank that ships loops but no one-shots (the 458 set).
+  // A real pop is three things at once: a sharp crack of burning gas, the pipe ringing at its own
+  // pitch, and a low thump of pressure leaving the tail. One noise blip does not read as any of
+  // them, which is what made this sound wrong on the C8.
   synthPop(gain, delay = 0) {
-    const ctx = this.ctx, t0 = ctx.currentTime + delay;
-    const dur = .05 + Math.random() * .07;
-    const n = Math.floor(ctx.sampleRate * dur), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
-    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (n * .18));
+    const ctx = this.ctx, t0 = ctx.currentTime + delay + Math.random() * .004;
+    const g = gain * (.75 + Math.random() * .5);
+    // 1. the crack: a very short noise burst, bright and band-limited
+    const n = Math.floor(ctx.sampleRate * .18), buf = ctx.createBuffer(1, n, ctx.sampleRate), d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * Math.exp(-i / (n * .07));
     const src = ctx.createBufferSource(); src.buffer = buf;
-    const bp = ctx.createBiquadFilter(); bp.type = "bandpass";
-    bp.frequency.value = 340 + Math.random() * 520; bp.Q.value = 1.1;
-    const g = ctx.createGain(); g.gain.value = gain * 1.5;
-    src.connect(bp).connect(g).connect(this.out);
-    // the thump underneath, which is what makes it read as a bang rather than a click
+    const crack = ctx.createBiquadFilter(); crack.type = "bandpass";
+    crack.frequency.value = 900 + Math.random() * 1400; crack.Q.value = .9;
+    const cg = ctx.createGain(); cg.gain.value = g * .9;
+    src.connect(crack).connect(cg).connect(this.out);
+    // 2. the pipe ringing: the same burst through a high-Q peak, which gives the pop its pitch
+    const ring = ctx.createBiquadFilter(); ring.type = "bandpass";
+    ring.frequency.value = 160 + Math.random() * 120; ring.Q.value = 7;
+    const rg = ctx.createGain(); rg.gain.value = g * 1.5;
+    src.connect(ring).connect(rg).connect(this.out);
+    // 3. the thump: a short falling sine, the pressure wave itself
     const o = ctx.createOscillator(), og = ctx.createGain();
-    o.frequency.setValueAtTime(58 + Math.random() * 26, t0);
-    og.gain.setValueAtTime(gain * .9, t0); og.gain.exponentialRampToValueAtTime(.0001, t0 + .09);
+    const f0 = 72 + Math.random() * 30;
+    o.frequency.setValueAtTime(f0, t0);
+    o.frequency.exponentialRampToValueAtTime(f0 * .45, t0 + .11);
+    og.gain.setValueAtTime(0, t0);
+    og.gain.linearRampToValueAtTime(g * 1.1, t0 + .004);
+    og.gain.exponentialRampToValueAtTime(.0001, t0 + .13);
     o.connect(og).connect(this.out);
-    src.start(t0); o.start(t0); o.stop(t0 + .1);
+    src.start(t0); o.start(t0); o.stop(t0 + .14);
   }
   shot(list, gain, delay = 0) {
     if (!list || !list.length) return this.synthPop(gain, delay);

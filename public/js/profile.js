@@ -16,7 +16,7 @@ export const MEDALS = [
   { at: 35000, name: "Diamond", icon: "💎", color: "#7fe8ff" },
 ];
 export const HEART_PACKS = [
-  { n: 1, price: 150 }, { n: 5, price: 650 }, { n: 15, price: 1800 }, { n: 50, price: 5500 },
+  { n: 1, price: 600 }, { n: 5, price: 2600 }, { n: 15, price: 7000 }, { n: 50, price: 20000 },
 ];
 export const xpForLevel = (lvl) => 200 + (lvl - 1) * 60;
 
@@ -134,7 +134,7 @@ export function payPaint(carId) {
   return { ok: true, price: COSMETIC_PRICES.paint };
 }
 
-export const carStyle = (id) => ({ finish: "gloss", tint: "dark", lightTint: false, stance: "stock", rim: null, caliper: null, glow: null, drl: null, drop: null, offset: 0, camber: 0, wsize: 1, ...(P.styles?.[id] || {}) });
+export const carStyle = (id) => ({ finish: "gloss", tint: "dark", lightTint: false, stance: "stock", rim: null, caliper: null, glow: null, drop: null, offset: 0, camber: 0, wsize: 1, ...(P.styles?.[id] || {}) });
 // A style option is paid for once per car; after that it can be switched back to for free.
 // Whatever a car is already wearing counts as paid for.
 export function ownsStyle(id, key, val) {

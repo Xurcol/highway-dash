@@ -24,7 +24,8 @@
     "c43",
     "charger",
     "carrera",
-    "e63"
+    "e63",
+    "m240i"
   ],
   "a4": {
     "paint": [
@@ -97,7 +98,15 @@
     ],
     "wheels": [
       "no-wheel-nodes"
-    ]
+    ],
+    "autoDark": true,
+    "tint": {
+      "mm_misc": {
+        "color": "#1b1e22",
+        "metalness": 0.55,
+        "roughness": 0.4
+      }
+    }
   },
   "c8": {
     "front": "-z",
@@ -306,7 +315,8 @@
     ],
     "wheels": [
       "no-wheel-nodes"
-    ]
+    ],
+    "autoDark": true
   },
   "gt3rs": {
     "paint": [
@@ -379,12 +389,69 @@
     "paint": [
       "^Material[.]001$"
     ],
+    "glass": [
+      "^Material[.]018$",
+      "^Material[.]026$"
+    ],
+    "rim": [
+      "^Material[.]003$"
+    ],
+    "caliper": [
+      "^Material[.]009$"
+    ],
+    "head": [
+      "^Material[.]027$"
+    ],
     "tail": [
       "^Material[.]022$"
     ],
+    "tint": {
+      "^Material[.]014$": {
+        "color": "#15171b",
+        "metalness": 0.85,
+        "roughness": 0.22
+      },
+      "^Material[.]004$": {
+        "color": "#15171b",
+        "metalness": 0.85,
+        "roughness": 0.22
+      },
+      "^Material[.]003$": {
+        "color": "#4a4e55",
+        "metalness": 0.9,
+        "roughness": 0.3
+      },
+      "^Material[.]016$": {
+        "color": "#15171b",
+        "metalness": 0.85,
+        "roughness": 0.22
+      },
+      "^Material[.]010$": {
+        "color": "#15171b",
+        "metalness": 0.85,
+        "roughness": 0.22
+      },
+      "^Material[.]002$": {
+        "color": "#2a2d33",
+        "metalness": 0.8,
+        "roughness": 0.35
+      },
+      "^Material[.]017$": {
+        "color": "#23262b",
+        "metalness": 0.8,
+        "roughness": 0.35
+      }
+    },
+    "wheelMats": [
+      "^Material[.]003$",
+      "^Material[.]009$"
+    ],
     "wheels": [
       "no-wheel-nodes"
-    ]
+    ],
+    "depthFix": true,
+    "singleSide": true,
+    "autoDark": true
   },
   "credits": {
     "a4": "Audi A4 B9 by Nieve5677 (sketchfab.com/niev), CC-BY-4.0",
@@ -410,9 +477,10 @@
     "q60": "Free-to-use download (2020_infiniti_q60_coupe_3.0t_pure_awd.glb) — author not recorded",
     "c43": "Free-to-use download (mercedes_benz_c43_amg.glb) — author not recorded",
     "charger": "Free-to-use download (2015_dodge_charger_srt_hellcat.glb) — author not recorded",
-    "carrera": "Free-to-use download (free_porsche_911_carrera_4s.glb) — author not recorded"
+    "carrera": "Free-to-use download (free_porsche_911_carrera_4s.glb) — author not recorded",
+    "m240i": "Free-to-use download (2022_bmw_m240i_coupe.glb) — author not recorded"
   },
-  "rev": 21,
+  "rev": 31,
   "supra": {
     "paint": [
       "^carpaint$"
@@ -457,7 +525,15 @@
     ],
     "wheels": [
       "no-wheel-nodes"
-    ]
+    ],
+    "tint": {
+      "Grille[0-9]*A?_Material": {
+        "color": "#141619",
+        "metalness": 0.55,
+        "roughness": 0.6
+      }
+    },
+    "autoDark": true
   },
   "laferrari": {
     "paint": [
@@ -671,6 +747,14 @@
     ]
   },
   "e63": {
+    "paint": [
+      "Scene_-_Root"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "m240i": {
     "paint": [
       "Scene_-_Root"
     ],

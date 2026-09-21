@@ -709,7 +709,6 @@ export class DetailedCar {
       wh.holder.rotation.z = wh.side * cam;       // top of the wheel leans in: negative camber
       wh.w.scale.setScalar(ws);
     }
-    this.drl = st.drl != null ? new THREE.Color(st.drl) : null;
     this.glow.visible = st.glow != null;
     if (st.glow != null) { this.glow.material.color.set(st.glow); this.glow.material.opacity = .9; }
   }
@@ -718,8 +717,8 @@ export class DetailedCar {
     const on = [1.8, .9, .08], off = [.18, .1, .02];
     this.sigLMat.color.setRGB(...(left ? on : off));
     this.sigRMat.color.setRGB(...(right ? on : off));
-    if (this.drl) this.headMat.color.copy(this.drl).multiplyScalar(1.5 + night * 1.2);
-    else this.headMat.color.setScalar(.9 + night * 1.6);
+    // headlamps never light
+    this.headMat.color.setScalar(.22);
   }
   update(dist, steer) {
     this.spin -= dist / this.B.r;

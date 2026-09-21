@@ -49,10 +49,10 @@ export const ENGINE_PROFILES = {
   v8x:     { label: "Muscle 5.0 V8", cyl: 8, fire: even(8), amps: V8X, var: .08, jitter: .02, header: 380, pipe: 80, fb: .58, muffler: 1100, body: [80, .8, 1.3], bark: [240, 1.1, .9], top: 1.25, intake: [180, .65], rough: .14, sub: .6, drive: 1.8, crackle: .9, gain: .92 },
   f6:      { label: "Flat-6", cyl: 6, fire: even(6), amps: [1, .95, .98, .93, 1, .96], var: .04, header: 600, pipe: 150, fb: .5, muffler: 2600, body: [150, .9, .8], bark: [560, 1.4, .9], top: 1.6, intake: [300, .95], rough: .12, sub: .15, drive: 1.7, crackle: .5, gain: .95 },
   v10:     { label: "V10", cyl: 10, fire: even(10), amps: [1, .9, .95, .88, 1, .92, .97, .9, 1, .9], var: .04, header: 620, pipe: 160, fb: .5, muffler: 3000, body: [160, .9, .8], bark: [620, 1.5, 1], top: 1.7, intake: [320, 1], rough: .1, sub: .12, drive: 1.7, crackle: .7, gain: .92 },
-  svj:     { label: "Lamborghini 6.5 V12 (SVJ)", cyl: 12, fire: even(12), amps: [1, .95, .98, .94, 1, .96, .99, .93, 1, .95, .97, .94], var: .035, header: 820, pipe: 205, fb: .5, muffler: 4000, body: [190, .9, .75], bark: [780, 1.6, 1.2], top: 2.3, intake: [380, 1.2], rough: .16, sub: .12, drive: 2.1, crackle: 1.6, gain: .88, scream: [1, .9, 1.4] },
+  svj:     { label: "Lamborghini 6.5 V12 (SVJ)", cyl: 12, fire: even(12), amps: [1, .95, .98, .94, 1, .96, .99, .93, 1, .95, .97, .94], var: .035, header: 820, pipe: 205, fb: .5, muffler: 4000, body: [190, .9, .75], bark: [820, 1.7, 1.35], top: 2.5, intake: [380, 1.3], rough: .16, sub: .1, drive: 2.15, crackle: 1.6, gain: .88, scream: [1, .9, 1.75], mech: .6 },
   gt3:     { label: "Porsche 4.0 flat-six (GT3 RS)", cyl: 6, fire: even(6), amps: [1, .96, .99, .95, 1, .97], var: .03, header: 660, pipe: 172, fb: .48, muffler: 3400, body: [165, .9, .7], bark: [620, 1.6, 1.05], top: 2.1, intake: [340, 1.5], rough: .1, sub: .1, drive: 1.8, crackle: 1.1, gain: .92, scream: [2, .75, .9], mech: 1 },
   w16:     { label: "Bugatti 8.0 Quad-Turbo W16", cyl: 16, fire: even(16), amps: Array.from({ length: 16 }, (_, i) => [1, .96, .98, .95][i % 4]), var: .03, header: 760, pipe: 200, fb: .5, muffler: 2800, body: [170, .9, .8], bark: [640, 1.4, .9], top: 1.5, intake: [330, 1], rough: .1, sub: .2, drive: 1.8, turbo: 1.1, turboPitch: 3200, crackle: 1.1, gain: .9 },
-  v12:     { label: "V12", cyl: 12, fire: even(12), amps: [1, .96, .98, .95, 1, .97, .99, .95, 1, .96, .98, .95], var: .03, header: 700, pipe: 185, fb: .48, muffler: 3300, body: [180, .9, .7], bark: [700, 1.5, .9], top: 1.7, intake: [340, .95], rough: .08, sub: .1, drive: 1.6, crackle: .5, gain: .92 },
+  v12:     { label: "V12", cyl: 12, fire: even(12), amps: [1, .97, .99, .96, 1, .98, .99, .96, 1, .97, .99, .96], var: .022, header: 700, pipe: 185, fb: .46, muffler: 3800, body: [180, .9, .62], bark: [760, 1.7, 1.25], top: 2.2, intake: [350, 1.25], rough: .11, sub: .08, drive: 1.75, crackle: .8, gain: .92, scream: [1, .85, 1.55], mech: .7 },
 };
 export const SOUND_KEYS = Object.keys(ENGINE_PROFILES);
 export const SOUND_LABELS = { s58real: "BMW S58 (real recording)", f458real: "Ferrari 458 V8 (real recording)", b58real: "BMW B58 (real recording)", ...Object.fromEntries(Object.entries(ENGINE_PROFILES).map(([k, p]) => [k, p.label])) };
@@ -369,8 +369,14 @@ export class EngineDSP {
       // engine-specific harmonic scream that builds with revs (SVJ V12, GT3 flat-six)
       if (p.scream) {
         this.scrPh = (this.scrPh || 0) + fireHz * p.scream[0] * dt;
-        const sw = wTop * wTop * (.25 + .75 * load) * p.scream[2];
-        o += (Math.sin(this.scrPh * 6.2832) * .6 + Math.sin(this.scrPh * 12.566) * .3 * p.scream[1] + Math.sin(this.scrPh * 18.85) * .12) * sw * .09;
+        const ph = this.scrPh * 6.2832;
+        // odd harmonics dominate a high-revving V12's wail; the even ones just thicken it
+        const wail = Math.sin(ph) * .6 + Math.sin(ph * 3) * .26 * p.scream[1] + Math.sin(ph * 5) * .13
+                   + Math.sin(ph * 7) * .07 + Math.sin(ph * 2) * .1;
+        // from about 45% of the rev range, not only at the very top
+        const build = clamp01((revN - .45) / .4);
+        const sw = (wTop * wTop * .65 + build * build * .5) * (.25 + .75 * load) * p.scream[2];
+        o += wail * sw * .085;
       }
       if (p.mech) o += run(this.topF, nz * env) * .06 * revN * p.mech; // valvetrain / gear-driven mechanical rasp
 

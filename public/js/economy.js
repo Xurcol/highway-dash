@@ -48,7 +48,7 @@ export const PART_PRICES = {
 export const TUNING_PRICES = { ecu: 1500, session: 250 };
 export const COSMETIC_PRICES = { paint: 500 };
 // Styling: the price of switching to a non-stock option in each category.
-export const STYLE_PRICES = { finish: { gloss: 0, metallic: 800, pearl: 1500, satin: 1200, matte: 1800, chrome: 6000 }, rim: 600, caliper: 400, tint: 350, stance: 1500, glow: 2500, drl: 700,
+export const STYLE_PRICES = { finish: { gloss: 0, metallic: 800, pearl: 1500, satin: 1200, matte: 1800, chrome: 6000 }, rim: 600, caliper: 400, tint: 350, stance: 1500, glow: 2500,
   // fitment: bought once per car, then the slider is free to move
   drop: 1500, offset: 1200, camber: 900, wsize: 2000 };
 export const FITMENT_KEYS = ["drop", "offset", "camber", "wsize"];

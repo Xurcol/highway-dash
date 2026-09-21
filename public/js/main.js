@@ -428,6 +428,7 @@ async function ensureAudio() {
 
 let joinHint = null;   // where the other drivers were when we entered a running server
 function enterReady(asMode) {
+  cashIn(true);   // whatever the last run banked is paid before this one starts
   mode = asMode;
   buildPlayerCar();
   if (mode === "online" && net.room) {
@@ -503,7 +504,10 @@ function awardRun(opts = {}) {
     survivor: !!opts.survivor,
     partyWin: mode === "online" && partyRound > 0 && best.length > 0 && best.every((s) => score >= s),
   });
-  earn(reward.coins);
+  // Held, not paid. Crashing used to credit the coins immediately, which meant a run could buy its
+  // own revives and never really end. They land when the run is finished and you leave, or when you
+  // start the next one.
+  G.pending = (G.pending || 0) + reward.coins;
   save();
   net.send({ t: "score", score, level: P.level });
   net.send({ t: "runEnd", run: { score, closeCalls: G.closeCalls, distance: G.dist, bestCombo: G.bestCombo || 0, newBest: score > prevBest && score > 0, newMedals: nowMedals - prevMedals, levelUps, survivor: !!opts.survivor } });
@@ -591,7 +595,7 @@ net.addEventListener("roundEnd", (e) => {
 });
 function revive() {
   if (state !== "over" || G.revives >= 3 || P.hearts <= 0) return false;
-  P.hearts--; G.revives++; save();
+  P.hearts--; G.revives++; G.pending = 0; save();   // the extended run is paid for once, at its end
   const T = getT();
   G.x = pickSpawn(T, G.z);
   G.thrown = null; G.vx = 0; G.yaw = 0;
@@ -604,12 +608,23 @@ function revive() {
   ui.show("hud");
   return true;
 }
+function cashIn(quiet) {
+  const c = G.pending || 0;
+  G.pending = 0;
+  if (c > 0) { earn(c); save(); if (!quiet) ui.toast(`🪙 +${c.toLocaleString()} coins banked`, [], "success"); }
+  return c;
+}
 function goHome() {
+  // frame() returns early while we are home, so the tunnel send has to be closed here or it keeps
+  // whatever it had at the moment of the crash - which is why dying in a tunnel left the whole
+  // lobby drenched in reverb.
+  if (audio.ready) { audio.setTunnel(0); audio.setReverb(.05); }
   // leaving a free-drive session cashes in what you earned in it, since it has no results screen
   if (state === "drive" && freeMode() && G.score > 0 && !G.awarded) {
     const res = awardRun();
     ui.toast(`Session paid out +${res.coins.toLocaleString()} coins`, [], "success");
   }
+  cashIn();
   menuOpen = false; ui.setPaused(false);
   sky.hour = P.settings.hour; sky.flow = P.settings.flow; sky.setWeather(P.settings.weather);
   state = "home"; paused = false;
@@ -871,7 +886,6 @@ function updateRemotes(T, dt) {
       for (const k of [-1, 1]) {
         const tp = carPt(s.x, s.z, s.ry || 0, k * (B.W / 2 - .35), B.L / 2), hp = carPt(s.x, s.z, s.ry || 0, k * (B.W / 2 - .35), -B.L / 2);
         glows.add(tp[0], B.tl[1], tp[1], 1, s.brk ? .15 : .05, .05, s.brk ? 1.4 : .8);
-        glows.add(hp[0], B.hl[1], hp[1], 1, .95, .85, 1.5);
         if ((k < 0 && s.sl) || (k > 0 && s.sr)) { glows.add(tp[0], B.tl[1], tp[1], 1, .55, .05, 1.1); glows.add(hp[0], B.hl[1], hp[1], 1, .55, .05, 1.1); }
       }
     }
@@ -1446,7 +1460,6 @@ function frame(now) {
       for (const k of [-1, 1]) {
         const tp = carPt(G.x, G.z, G.yaw, k * (B.W / 2 - .35), B.L / 2), hp = carPt(G.x, G.z, G.yaw, k * (B.W / 2 - .35), -B.L / 2);
         if (night || braking) glows.add(tp[0], B.tl[1], tp[1], 1, braking ? .12 : .04, .04, braking ? 1.6 : .7);
-        if (night) glows.add(hp[0], B.hl[1], hp[1], 1, .96, .85, 1.6);
         if (G.sigOn && ((k < 0 && G.sigL) || (k > 0 && G.sigR))) { glows.add(tp[0], B.tl[1], tp[1] + .02, 1, .55, .05, 1.1); glows.add(hp[0], B.hl[1], hp[1], 1, .55, .05, 1.1); }
       }
     }
@@ -1646,6 +1659,7 @@ window.__ui = ui;
 window.__game = {
   G, sky, traffic, net, world, renderer, scene, camera, glows, frame, remotes, NET, CATCHUP,
   get composer() { return composer; }, get bloomPass() { return bloomPass; },
+  audio, get pending() { return G.pending || 0; },
   get state() { return state; }, get mode() { return mode; },
   // quick sync check: two clients in the same party must print the same numbers
   trafficHash: () => traffic.stateHash(getT(), G.z),

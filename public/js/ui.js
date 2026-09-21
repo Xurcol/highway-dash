@@ -394,7 +394,7 @@ export class UI {
     const bits = [
       st.finish && st.finish !== "gloss" ? FINISHES[st.finish]?.label : null,
       st.drop ? "-" + Math.round(st.drop * 100) + " cm" : null, st.offset ? "+" + Math.round(st.offset * 100) + " cm poke" : null,
-      st.camber ? "-" + st.camber + "° camber" : null, st.glow != null ? "underglow" : null, st.drl != null ? "custom DRLs" : null,
+      st.camber ? "-" + st.camber + "° camber" : null, st.glow != null ? "underglow" : null,
     ].filter(Boolean);
     const el = $("showOff");
     el.innerHTML = `<div><b>${esc(p.name)}'s ${esc(car.name)}</b><small>${b.hp} hp${bits.length ? " · " + bits.join(" · ") : ""}</small>
@@ -422,7 +422,6 @@ export class UI {
       ["caliper", "Calipers", [{ v: null, label: "Stock" }, ...sw([0xd41f1f, 0xf2c230, 0x1f5fd6, 0x22b573, 0xff6a1a, 0x16181c])]],
       ["tint", "Window tint", Object.entries(TINTS).map(([k, v]) => ({ v: k, label: v.label }))],
       ["lightTint", "Tint lights", [{ v: false, label: "Off" }, { v: true, label: "On" }]],
-      ["drl", "DRLs", [{ v: null, label: "Stock" }, ...sw([0xffffff, 0x9fdcff, 0x3d8bff, 0xffd84a, 0xff9a2a, 0x7cff5a, 0xb27dff, 0xff5ad1, 0xff3040])]],
       ["glow", "Underglow", [{ v: null, label: "Off" }, ...sw([0x3dd6ff, 0xff2d95, 0x7cff5a, 0xb27dff, 0xffd12a, 0xff4a55])]],
     ];
   }
