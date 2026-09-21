@@ -301,6 +301,161 @@
   <div class="panel modal-box settings-box">
     <button class="close" data-close>✕</button>
     <h2>⚙️ SETTINGS</h2>
+    <div class="set-tabs" role="tablist"><button class="set-tab on" data-stab="world">WORLD</button><button class="set-tab" data-stab="audio">AUDIO</button><button class="set-tab" data-stab="drive">DRIVING</button><button class="set-tab" data-stab="gfx">GRAPHICS</button><button class="set-tab" data-stab="acct">ACCOUNT</button></div>
+    <div class="set-pane on" data-spane="world">
+        <h3>TIME OF DAY <b id="timeLabel">18:36</b></h3>
+        <input type="range" id="timeSlider" min="0" max="24" step="0.05">
+        <div class="chips" id="timePresets"></div>
+        <label class="toggle"><input type="checkbox" id="timeFlow"> Time passes (1 hour / minute)</label>
+        <h3>SKY <small>[V]</small></h3>
+        <div class="chips" id="skyStyles"></div>
+        <h3>WEATHER <small>[B]</small></h3>
+        <div class="chips" id="weathers"></div>
+    </div>
+    <div class="set-pane" data-spane="audio">
+        <h3>AUDIO</h3>
+        <label class="slider">Master <input type="range" id="volMaster" min="0" max="1" step="0.01"></label>
+        <label class="slider">Engine <input type="range" id="volEngine" min="0" max="1.5" step="0.01"></label>
+        <label class="slider">Effects <input type="range" id="volFx" min="0" max="1.5" step="0.01"></label>
+        <label class="slider">Wind/road <input type="range" id="volWind" min="0" max="1" step="0.01"></label>
+    </div>
+    <div class="set-pane" data-spane="drive">
+        <h3>TRAFFIC <small>(solo &amp; parties you create)</small></h3>
+        <div class="chips" id="trafficLevels"></div>
+        <h3>DRIVING</h3>
+        <div class="keys">
+          <span>W / ↑</span>Throttle<span>S / ↓</span>Brake<span>A D / ← →</span>Steer
+          <span>S + W</span>Launch control (at a stop)<span>H</span>Horn
+        </div>
+        <h3>GEARBOX</h3>
+        <div class="keys">
+          <span>M</span>Automatic / manual<span>E</span>Shift up (N → 1 → 2…)<span>Q</span>Shift down (1 → N → R)
+        </div>
+      </div>
+      <div>
+        <h3>VIEW</h3>
+        <div class="keys">
+          <span>C</span>Camera: chase, far, hood, bumper, custom<span>Space</span>Look back (hold)<span>T</span>Next time of day
+        </div>
+        <h3>GAME</h3>
+        <div class="keys">
+          <span>P</span>Pause<span>R</span>Restart<span>Z / X</span>Left / right signal
+          <span>L</span>Leaderboard<span>Enter</span>Chat (online)
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============ GAME OVER ============ -->
+<section id="over" class="screen dim" hidden>
+  <div class="over-grid">
+    <div class="over-left">
+      <div class="panel go-main pop" style="--d:0ms">
+        <h1 class="go-title">GAME OVER</h1>
+        <div id="goScore" class="go-score">0</div>
+        <div id="goBest" class="go-best">BEST 0</div>
+        <div id="goNewBest" class="go-newbest" hidden>NEW BEST!</div>
+        <div class="go-coins"><span class="coin-ico">🪙</span><div class="coinbar"><i id="goCoinFill"></i><b id="goCoins">0</b></div></div>
+        <div id="goRewards" class="reward-list"></div>
+        <div class="medal-title">MEDAL LADDER</div>
+        <div id="medals" class="medals"></div>
+        <div id="medalNext" class="medal-next"></div>
+        <button class="btn gold xl" id="reviveBtn">REVIVE 0/3 — 1 ❤️</button>
+        <button class="btn blue xl" id="restartBtn">RESTART [R]</button>
+        <button class="btn red xl" id="homeBtn">HOME</button>
+      </div>
+      <div class="panel go-level pop" style="--d:120ms">
+        <div class="star"><b id="goLevel">1</b></div>
+        <div class="xpbar big"><i id="goXp"></i><span id="goXpText">0/200</span></div>
+      </div>
+    </div>
+    <div class="over-shop pop" style="--d:80ms">
+      <h2 class="shop-title">GAME SHOP</h2>
+      <div id="goShop" class="panel shop-list"></div>
+    </div>
+    <div class="over-hearts pop" style="--d:160ms">
+      <div class="heart-head">❤️ REVIVES <b id="goHearts">0</b></div>
+      <div id="heartShop" class="heart-shop"></div>
+    </div>
+    <div class="over-board pop" style="--d:220ms">
+      <div class="panel board" id="goBoard"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MODALS ============ -->
+<section id="leader" class="modal" hidden>
+  <div class="panel modal-box board-modal">
+    <button class="close" data-close>✕</button>
+    <div class="board" id="leaderBoard"></div>
+  </div>
+</section>
+
+<section id="online" class="modal" hidden>
+  <div class="panel modal-box online-box">
+    <button class="close" data-close>✕</button>
+    <h2>MULTIPLAYER</h2>
+    <div id="relayStatus" class="muted small" style="margin-bottom:8px"></div>
+    <div id="offlineNote" class="note" hidden>Can't reach the multiplayer network. Check your internet connection. Some school or work networks block these connections.</div>
+    <!-- the server you are in stays visible on every tab, with the two things you can do about it -->
+    <div id="currentServer" class="current-server" hidden></div>
+    <div class="online-tabs" id="onlineTabs">
+      <button class="tab on" data-otab="public">PUBLIC SERVERS</button>
+      <button class="tab" data-otab="create">CREATE SERVER</button>
+      <button class="tab" data-otab="private">PRIVATE &amp; FRIENDS</button>
+    </div>
+    <div class="opane" data-pane="public">
+      <div class="srv-head">
+        <span id="srvStatus" class="muted small">Searching…</span>
+        <span id="srvPing" class="muted small"></span>
+        <div class="spacer"></div>
+        <button class="btn ghost" id="srvRefresh">REFRESH</button>
+      </div>
+      <div class="srv-cols" aria-hidden="true"><span>SERVER</span><span>MODE</span><span>TRAFFIC</span><span>PLAYERS</span><span></span></div>
+      <div id="srvList" class="srv-list"></div>
+    </div>
+    <div class="opane" data-pane="create" hidden>
+      <div class="create-form" id="createForm"></div>
+    </div>
+    <div class="opane" data-pane="private" hidden>
+    <div class="online-cols">
+      <div class="col">
+        <h3>YOU</h3>
+        <div class="row"><input id="nameInput" maxlength="16" placeholder="Driver name"><button class="btn blue" id="nameSave">SAVE</button></div>
+        <div class="row code">Friend code <b id="myCode">------</b><button class="btn gray" id="copyCode">COPY</button></div>
+        <h3>ADD FRIEND</h3>
+        <div class="row"><input id="friendCode" maxlength="6" placeholder="ABC123"><button class="btn green" id="addFriend">ADD</button></div>
+        <div id="requests"></div>
+        <h3>FRIENDS</h3>
+        <div id="friendList" class="friendlist"><div class="muted">No friends yet — share your code!</div></div>
+      </div>
+      <div class="col">
+        <h3>PARTY</h3>
+        <div id="partyNone">
+          <button class="btn green wide" id="createParty">CREATE PARTY</button>
+          <button class="btn blue wide" id="quickPlay">QUICK PLAY (PUBLIC)</button>
+          <div class="row"><input id="joinCode" maxlength="6" placeholder="Party code"><button class="btn gold" id="joinParty">JOIN</button></div>
+        </div>
+        <div id="partyIn" hidden>
+          <div class="row code">Party code <b id="partyCode">000000</b><button class="btn gray" id="copyParty">COPY</button></div>
+          <div id="partySettings" class="party-settings"></div>
+          <div id="partyMembers" class="members"></div>
+          <button class="btn green wide big2" id="driveParty">DRIVE WITH PARTY</button>
+          <button class="btn red wide" id="leaveParty">LEAVE PARTY</button>
+        </div>
+        <p class="muted small">Private parties are for friends: share the party code or invite them. Everyone drives the same traffic. The host picks the mode: Free Drive, Last One Standing, First To Score, or Timed Battle.</p>
+      </div>
+    </div>
+    </div>
+  </div>
+</section>
+
+<section id="settings" class="modal" hidden>
+  <div class="panel modal-box settings-box">
+    <button class="close" data-close>✕</button>
+    <h2>⚙️ SETTINGS</h2>
     <div class="settings-grid">
       <div>
         <h3>TIME OF DAY <b id="timeLabel">18:36</b></h3>
@@ -325,6 +480,8 @@
         <label class="toggle"><input type="checkbox" id="optHideNames"> Hide other players' names</label>
         <h3>CAMERA <small>[C]</small></h3>
         <button class="btn ghost wide" data-open="camEdit">CUSTOMIZE CAMERA...</button>
+    </div>
+    <div class="set-pane" data-spane="gfx">
         <h3>GRAPHICS</h3>
         <label class="toggle"><input type="checkbox" id="optShadows"> Shadows</label>
         <label class="toggle"><input type="checkbox" id="optBloom"> Bloom <span class="muted small">(light bleed at night)</span></label>
@@ -333,6 +490,8 @@
         <label class="slider">View distance <input type="range" id="optView" min="0.5" max="1.25" step="0.25"></label>
         <label class="slider">Night lighting <select id="optNight" class="ms-select">
           <option value="0">Low</option><option value="1">Medium</option><option value="2">High</option></select></label>
+    </div>
+    <div class="set-pane" data-spane="acct">
         <h3>ADMIN</h3>
         <div id="adminLocked" class="row">
           <input type="password" id="adminCode" placeholder="Access code" autocomplete="off">
@@ -357,7 +516,6 @@
         <p class="muted small">Erases your level, coins, cars, tunes and settings on this device.</p>
         <h3>CONTROLS</h3>
         <button class="btn ghost wide" data-open="controls">VIEW ALL CONTROLS</button>
-      </div>
     </div>
   </div>
 </section>

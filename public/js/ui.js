@@ -26,7 +26,7 @@ const SOLO_BLURB = {
 const TOAST_KINDS = ["info", "success", "warn", "error"];
 export class UI {
   constructor(ctx) {
-    this.ctx = ctx;
+    this.ctx = ctx; this.initSettingsTabs();
     this.net = ctx.net;
     this.thumbs = {};
     this.view = P.equipped;
@@ -102,6 +102,14 @@ export class UI {
     this.ctx.audio.ui();
   }
   toggleModal(id) { if (!$(id).hidden) this.closeModals(); else this.openModal(id); }
+  // settings tabs
+  initSettingsTabs() {
+    document.addEventListener("click", (e) => {
+      const b = e.target.closest?.("[data-stab]"); if (!b) return;
+      document.querySelectorAll("[data-stab]").forEach((x) => x.classList.toggle("on", x === b));
+      document.querySelectorAll("[data-spane]").forEach((x) => x.classList.toggle("on", x.dataset.spane === b.dataset.stab));
+    });
+  }
   closeModals() { document.querySelectorAll(".modal").forEach((m) => (m.hidden = true)); clearInterval(this.camTimer); this.camTimer = null; }
   // ---------- custom camera editor ----------
   // Four sliders and a live picture of what they do. The picture is drawn by the game (it owns the
