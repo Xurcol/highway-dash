@@ -121,9 +121,9 @@ const showCam = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
 {
   const pm = new THREE.PMREMGenerator(renderer);
   show.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
-  show.environmentIntensity = 0.9;
-  show.add(new THREE.HemisphereLight(0xdfe8ff, 0x303030, 1.2));
-  const key = new THREE.DirectionalLight(0xffffff, 2.5); key.position.set(4, 8, 5); key.castShadow = true;
+  show.environmentIntensity = 0.62;
+  show.add(new THREE.HemisphereLight(0xdfe8ff, 0x303030, 0.72));
+  const key = new THREE.DirectionalLight(0xffffff, 1.55); key.position.set(4, 8, 5); key.castShadow = true;
   key.shadow.mapSize.set(2048, 2048); key.shadow.bias = -0.0004; key.shadow.normalBias = .02; Object.assign(key.shadow.camera, { left: -5, right: 5, top: 5, bottom: -5 });
   show.add(key);
 }
@@ -131,8 +131,8 @@ const showDeco = new THREE.Group();
 show.add(showDeco);
 {
   const M = (c, r = .8, m = 0) => new THREE.MeshStandardMaterial({ color: c, roughness: r, metalness: m });
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2), M(0x3a3f47, .9)); floor.receiveShadow = true;
-  const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.5, .08, 64), M(0xcfd3d8, .35, .6)); disc.position.y = .04; disc.receiveShadow = true;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(60, 60).rotateX(-Math.PI / 2), M(0x23272e, .92)); floor.receiveShadow = true;
+  const disc = new THREE.Mesh(new THREE.CylinderGeometry(3.4, 3.5, .08, 64), M(0x8d939b, .4, .55)); disc.position.y = .04; disc.receiveShadow = true;
   const ring = new THREE.Mesh(new THREE.TorusGeometry(3.45, .05, 8, 64).rotateX(Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0xffb020 })); ring.position.y = .09;
   const wall = new THREE.Mesh(new THREE.BoxGeometry(40, 10, .5), M(0x4a4f58, .9)); wall.position.set(0, 5, -9);
   const wall2 = wall.clone(); wall2.rotation.y = Math.PI / 2; wall2.position.set(-9, 5, 0);
@@ -179,19 +179,23 @@ function frameShowCam(body, aspect, turn = 0) {
   showCam.lookAt(target.addScaledVector(right, aspect > 1.6 ? 1.1 : .2));
   showCam.updateProjectionMatrix();
 }
+const SHOW_EXPOSURE = 1.0;
 function renderShowroom(rect) {
   const saved = lampUniforms.lampCount.value;
+  const savedExposure = renderer.toneMappingExposure;
+  renderer.toneMappingExposure = SHOW_EXPOSURE;
   lampUniforms.lampCount.value = 0;
   renderer.setScissorTest(true);
   const y = innerHeight - rect.bottom;
   renderer.setViewport(rect.left, y, rect.width, rect.height);
   renderer.setScissor(rect.left, y, rect.width, rect.height);
-  renderer.setClearColor(0x2b3038, 1);
+  renderer.setClearColor(0x181c22, 1);
   renderer.clear();
   renderer.render(show, showCam);
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   lampUniforms.lampCount.value = saved;
+  renderer.toneMappingExposure = savedExposure;
 }
 function makeThumbs(ids = CARS.map((c) => c.id)) {
   const out = {}, w = 240, h = 130, pr = renderer.getPixelRatio();
