@@ -16,7 +16,7 @@ const KEYS = [ // hour, zenith, horizon, sun color, sun intensity, ambient
   [24, 0x02040c, 0x0a1226, 0x8aa0ff, 0, .05],
 ];
 export const TIME_PRESETS = { Sunrise: 6.3, Noon: 12, Sunset: 18.6, Dusk: 19.5, Night: 23 };
-export const SKY_STYLES = ["Natural", "Aurora", "Galaxy", "Synthwave"];
+export const SKY_STYLES = ["Natural", "Aurora", "Galaxy", "Synthwave", "Nebula", "Blood Moon", "Eclipse", "Meteor", "Vaporwave", "Overcast"];
 export const WEATHERS = {
   Clear: { cloud: .15, rain: 0, snow: 0, fog: 1, dark: 0, wet: 0 },
   Cloudy: { cloud: .65, rain: 0, snow: 0, fog: .8, dark: .25, wet: 0 },
@@ -36,6 +36,7 @@ float h31(vec3 p){ p = fract(p*vec3(.1031,.1030,.0973)); p += dot(p,p.yxz+33.33)
 float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
   return mix(mix(h21(i),h21(i+vec2(1,0)),f.x), mix(h21(i+vec2(0,1)),h21(i+vec2(1,1)),f.x), f.y); }
 float fbm(vec2 p){ float s=0., a=.5; for(int i=0;i<5;i++){ s+=a*vnoise(p); p=p*2.03+vec2(1.7,9.2); a*=.5; } return s; }
+#define IS(n) (style > float(n) - .5 && style < float(n) + .5)
 float fbm3(vec2 p){ float s=0., a=.5; for(int i=0;i<3;i++){ s+=a*vnoise(p); p=p*2.1+vec2(3.1,1.7); a*=.5; } return s; }
 
 vec3 stars(vec3 d, float density){
@@ -76,8 +77,18 @@ void main(){
   vec3 d = normalize(vDir);
   float h = d.y;
   vec3 zen = zenith, hor = horizon;
-  if (style > 2.5) { // synthwave
+  if (IS(3)) {          // synthwave: violet overhead, hot pink on the deck
     zen = mix(vec3(.05,.0,.12), zen, .25); hor = mix(vec3(1.,.25,.55), hor, .3);
+  } else if (IS(4)) {   // nebula: deep indigo, barely any daylight tint left
+    zen = mix(vec3(.03,.02,.10), zen, .2); hor = mix(vec3(.16,.06,.26), hor, .3);
+  } else if (IS(5)) {   // blood moon: everything pushed to rust
+    zen = mix(vec3(.10,.02,.02), zen, .3); hor = mix(vec3(.45,.09,.05), hor, .35);
+  } else if (IS(6)) {   // eclipse: the light drains out of the whole dome
+    zen = mix(vec3(.02,.03,.05), zen, .18); hor = mix(vec3(.18,.13,.16), hor, .25);
+  } else if (IS(8)) {   // vaporwave: pastel, and much flatter than synthwave
+    zen = mix(vec3(.30,.20,.55), zen, .3); hor = mix(vec3(1.,.62,.78), hor, .25);
+  } else if (IS(9)) {   // overcast: one flat grey sheet
+    zen = mix(vec3(.42,.45,.50), zen, .25); hor = mix(vec3(.62,.64,.66), hor, .3);
   }
   vec3 col = mix(hor, zen, pow(clamp(h,0.,1.), .45));
   col = mix(col, hor*.55, smoothstep(0., -.2, h));
@@ -86,26 +97,75 @@ void main(){
 
   float sd = max(dot(d, sunDir), 0.);
   col += sunColor * (pow(sd, 900.)*30. + pow(sd, 16.)*.35 + pow(sd, 4.)*.12) * sunVis * (1. - overcast*.85);
-  if (style > 2.5 && h > -.05) { // retro sun stripes
+  if (IS(8)) {   // vaporwave: a big soft pastel sun, banded like a faded poster
+    float sdd = dot(d, sunDir);
+    float disc = smoothstep(.9955, .9975, sdd);
+    float band = step(.35, fract((d.y - sunDir.y) * 34.));
+    vec3 hot = mix(vec3(1., .55, .78), vec3(1., .88, .62), clamp((d.y - sunDir.y) * 10. + .5, 0., 1.));
+    col += hot * disc * mix(.55, 1., band) * 1.4;
+    col += vec3(1., .6, .85) * pow(max(sdd, 0.), 120.) * .5;   // the haze around it
+  }
+  if (IS(3) && h > -.05) { // retro sun stripes
     float sdd = dot(d, sunDir);
     float stripes = step(.5, fract((d.y - sunDir.y)*60.)) + step(0., d.y - sunDir.y);
     col += mix(vec3(1.,.2,.5), vec3(1.,.85,.2), clamp((d.y-sunDir.y)*8.+.5,0.,1.)) * smoothstep(.985,.987,sdd) * min(stripes,1.) * .9;
   }
+  if (IS(6)) {          // eclipse: the disc is black, with a corona burning round its edge
+    float sdd = dot(d, sunDir);
+    col *= .45;
+    col += vec3(1.,.93,.78) * smoothstep(.99965, .99975, sdd) * 6. * sunVis;   // the ring
+    col -= col * smoothstep(.99978, .99982, sdd);                              // the moon in front
+    col += vec3(.7,.75,1.) * pow(max(sdd,0.), 2200.) * .8 * sunVis;            // outer glow
+  }
   float md = dot(d, moonDir);
-  col += vec3(.95,.95,1.) * smoothstep(.99955, .9997, md) * night * (1. - overcast);
-  col += vec3(.3,.35,.5) * pow(max(md,0.), 80.) * .35 * night;
+  // blood moon hangs bigger and redder than the usual one
+  if (IS(5)) {
+    col += vec3(1.,.34,.16) * smoothstep(.9988, .9992, md) * (.6 + night * 1.6);
+    col += vec3(.8,.22,.10) * pow(max(md,0.), 36.) * .5 * (.3 + night);
+  } else {
+    col += vec3(.95,.95,1.) * smoothstep(.99955, .9997, md) * night * (1. - overcast);
+    col += vec3(.3,.35,.5) * pow(max(md,0.), 80.) * .35 * night;
+  }
 
 #ifndef ENV
   if (h > 0.) {
-    float sDen = style > 1.5 && style < 2.5 ? 2.5 : 1.;
+    float sDen = IS(2) ? 2.5 : IS(4) ? 2.2 : IS(7) ? 1.8 : IS(9) ? .2 : 1.;
     if (night > .01) col += stars(d, sDen) * night * smoothstep(0., .15, h) * (1. - cloud*.9);
-    if (night > .01 && style > 1.5 && style < 2.5) { // milky way
+    if (night > .01 && IS(2)) { // milky way
       vec3 axis = normalize(vec3(.4, .2, -1.));
       float band = exp(-pow(dot(d, normalize(cross(axis, vec3(0,1,0)))) * 4., 2.));
       float neb = fbm(d.xz/(d.y+.3)*3.);
       col += (vec3(.35,.3,.6)*neb + vec3(.9,.5,.8)*pow(neb,4.)*.8) * band * night * .55;
     }
+    if (night > .01 && IS(4)) { // nebula: two drifting clouds of gas in different colours
+      vec2 q = d.xz / (d.y + .25) * 1.6;
+      float a = fbm(q + vec2(time * .006, 0.));
+      float b = fbm(q * .7 + vec2(-time * .004, 11.3));
+      vec3 gas = vec3(.85,.20,.55) * pow(a, 2.2) + vec3(.18,.45,1.) * pow(b, 2.6);
+      gas += vec3(1.,.85,.5) * pow(a * b, 4.) * 1.6;        // the hot cores where they overlap
+      col += gas * night * smoothstep(0., .22, h) * .8;
+    }
+    if (night > .01 && IS(7)) { // meteors: a handful of streaks, each on its own clock
+      for (int i = 0; i < 5; i++) {
+        float fi = float(i);
+        float t = fract(time * (.06 + fi * .013) + fi * .37);   // 0..1 across its flight
+        vec2 seed = vec2(h21(vec2(fi, floor(time * (.06 + fi * .013) + fi * .37))),
+                         h21(vec2(fi + 9., floor(time * (.06 + fi * .013) + fi * .37))));
+        vec2 from = vec2(-.8 + seed.x * 1.6, .95);
+        vec2 to = from + vec2(.55, -.75);
+        vec2 p = mix(from, to, t);
+        vec2 dir = normalize(to - from);
+        vec2 sp = vec2(d.x / max(d.y, .05), d.z / max(d.y, .05)) * .35;
+        vec2 rel = sp - p;
+        float along = dot(rel, dir);                            // distance along the trail
+        float across = length(rel - dir * along);               // distance from the line
+        float trail = smoothstep(.055, 0., across) * smoothstep(0., -.5, along) * smoothstep(1., .55, t);
+        col += vec3(1., .95, .85) * trail * night * 1.5;
+      }
+    }
     if (aurora > 0. && night > .01) col += auroraCol(d) * aurora * night * (1. - cloud*.8);
+  }
+  if (h > 0.) {
     // clouds
     vec2 cp = d.xz / (h + .08) * .9 + vec2(time*.004, time*.002);
     float n = fbm(cp);
@@ -222,7 +282,8 @@ export class SkySystem {
     const style = SKY_STYLES.indexOf(this.style);
     U.zenith.value.copy(this.c.zen); U.horizon.value.copy(this.c.hor); U.sunColor.value.copy(this.c.sun);
     U.time.value += dt; U.night.value = this.night; U.cloud.value = W.cloud; U.dark.value = W.dark;
-    U.style.value = style; U.aurora.value = this.style === "Aurora" ? 1 : this.style === "Galaxy" ? .25 : 0;
+    U.style.value = style;
+    U.aurora.value = this.style === "Aurora" ? 1 : this.style === "Galaxy" ? .25 : this.style === "Nebula" ? .3 : 0;
     U.sunVis.value = THREE.MathUtils.smoothstep(elev, -.08, .05);
 
     // lightning
@@ -248,11 +309,21 @@ export class SkySystem {
     this.hemi.color.copy(this.c.zen).lerp(new THREE.Color(0xffffff), .5);
     this.hemi.groundColor.copy(this.c.hor).multiplyScalar(.35);
     this.hemi.intensity = ((amb * 1.6 + .12) * (1 - W.dark * .35) + this.flashV) * (1 - .82 * tun);
-    if (style === 3) this.hemi.color.lerp(new THREE.Color(0xff4fa0), .35);
+    if (style === 3) this.hemi.color.lerp(new THREE.Color(0xff4fa0), .35);          // synthwave
+    else if (style === 4) this.hemi.color.lerp(new THREE.Color(0x7b5cff), .3);      // nebula
+    else if (style === 5) this.hemi.color.lerp(new THREE.Color(0xff4a2a), .42);     // blood moon
+    else if (style === 6) this.hemi.color.lerp(new THREE.Color(0x5a6a8c), .4);      // eclipse
+    else if (style === 8) this.hemi.color.lerp(new THREE.Color(0xff8ad0), .32);     // vaporwave
+    else if (style === 9) this.hemi.color.lerp(new THREE.Color(0x9aa2ab), .35);     // overcast
 
     const fogCol = this.c.hor.clone().lerp(this.c.zen, .15);
     fogCol.lerp(new THREE.Color(fogCol.getHex()).multiplyScalar(.6).add(new THREE.Color(.25, .26, .28).multiplyScalar(1 - this.night)), W.dark * .6);
     if (style === 3) fogCol.lerp(new THREE.Color(0x3a1050), .5);
+    else if (style === 4) fogCol.lerp(new THREE.Color(0x1a1140), .45);
+    else if (style === 5) fogCol.lerp(new THREE.Color(0x40120a), .5);
+    else if (style === 6) fogCol.lerp(new THREE.Color(0x232a38), .5);
+    else if (style === 8) fogCol.lerp(new THREE.Color(0x5e2a6b), .45);
+    else if (style === 9) fogCol.lerp(new THREE.Color(0x6a6f76), .55);
     this.scene.fog.color.copy(fogCol);
     this.scene.fog.near = 60 * W.fog; this.scene.fog.far = 1100 * W.fog;
     this.lampsOn = Math.max(this.night, W.dark * .8, (1 - W.fog) * .6, tun) > .35 ? 1 : 0;
