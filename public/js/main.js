@@ -83,7 +83,13 @@ function adaptRes(dt) {
 // UnrealBloomPass thresholds the LINEAR HDR buffer, not the tone-mapped picture. A normally
 // exposed sky already sits well above 1.0 there, so the usual sub-1 threshold catches everything:
 // at .82 it was lifting 44% of the frame. 2.0 keeps the glow on things that actually emit.
-const BLOOM = { strength: .6, radius: .7, threshold: 2.0 };
+// Threshold was tuned against a daylit scene. At night the lamp heads, windows and neon are all
+// driven much brighter AND the exposure is lifted, so far more of the frame cleared the old bar and
+// every street light smeared into a blob. Measured on a night city frame, the old settings added
+// 2.8 points of mid-bright pixels over no bloom; these add 1.4, which is where the curve flattens.
+const BLOOM = { strength: .42, radius: .4, threshold: 3.0 };
+// and it comes down further as the sun goes, because that is when the count of bright sources jumps
+const bloomNightFalloff = (night) => 1 - night * .3;
 let composer = null, bloomPass = null;
 async function initPost() {
   const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all([
@@ -255,7 +261,7 @@ const thumbCache = {
 // One screen for the whole boot, not just first-timers: it is already on screen in the markup, so the
 // menu is never visible half-built, and it reports whichever stage is actually running.
 const LOADER_TIPS = [
-  "Hold SPACE to glance out of the back window.",
+  "Hold SPACE to swing the camera round and look back down the road.",
   "Q and E work the gear lever — N and D, even in automatic.",
   "Press M to switch between automatic and manual shifting.",
   "Threading a gap at speed pays a close-call bonus. Chain them for a combo.",
@@ -1155,7 +1161,6 @@ function updateModeHud(T) {
 // ---------------- simulation ----------------
 const tmpV = new THREE.Vector3();
 const lights = [];
-const playerLight = { pos: new THREE.Vector3(), dir: new THREE.Vector3(), color: new THREE.Color(1, .97, .9), intensity: 7, range: 70, cosOuter: Math.cos(.42), cosInner: Math.cos(.16) };
 
 function updateDrive(dt, T) {
   const d = G.dt, def = G.def, B = BODIES[def.body];
@@ -1347,9 +1352,16 @@ function updateCamera(dt) {
     }
     if (G.shake > 0) { G.shake -= dt * 1.4; camera.position.x += (Math.random() - .5) * G.shake * .5; camera.position.y += (Math.random() - .5) * G.shake * .5; }
     if (state === "drive" && kmh > 200) { const s = (kmh - 200) / 6000; camera.position.x += (Math.random() - .5) * s; camera.position.y += (Math.random() - .5) * s; }
-    // hold Space: look out of the back window
+    // Hold Space: the chase camera swings round to the front of the car and looks back down the
+    // road, so you see your own car with the traffic behind it - rather than dropping you into the
+    // cabin, which is a different camera entirely.
     const lookBack = state === "drive" && held("Space");
-    if (lookBack) { camera.position.set(G.x, B.top * .8 + .3, G.z + B.L * .05); look.set(G.x - G.vx * .2, B.top * .75, G.z + 30); }
+    if (lookBack) {
+      const tall = camera.aspect < 1.1 ? 1.5 : 0;
+      const ahead = (camMode === 1 ? 12 : 8) + tall + B.L * .35 + kmh * .01;
+      camera.position.set(G.x * .9, (camMode === 1 ? 4.4 : 2.9) + B.top * .45 + tall * .3, G.z - ahead);
+      look.set(G.x, 1.5 + tall * .4, G.z + 30);
+    }
     camera.lookAt(look);
     camera.fov = lookBack ? 70 : hood ? (camMode === 3 ? 76 : 70) + Math.min(18, kmh * .05) : 58 + Math.min(20, kmh * .065);
   }
@@ -1509,11 +1521,8 @@ function frame(now) {
     if (state === "drive" || state === "ready") {
       const cos = Math.cos(G.yaw), sin = Math.sin(G.yaw);
       const fwd = tmpV.set(-sin, 0, -cos);
-      if (night) {
-        playerLight.pos.set(G.x, B.hl[1] + .15, G.z).addScaledVector(fwd, B.L / 2 + .2);
-        playerLight.dir.copy(fwd).setY(-.1).normalize();
-        lights.push(playerLight);
-      }
+      // Headlamps are off, so there is no beam either - the road is lit by the street lighting and
+      // by whatever the sky is doing, not by the car.
       for (const k of [-1, 1]) {
         const tp = carPt(G.x, G.z, G.yaw, k * (B.W / 2 - .35), B.L / 2), hp = carPt(G.x, G.z, G.yaw, k * (B.W / 2 - .35), -B.L / 2);
         if (night || braking) glows.add(tp[0], B.tl[1], tp[1], 1, braking ? .12 : .04, .04, braking ? 1.6 : .7);
@@ -1570,6 +1579,7 @@ function frame(now) {
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.shadowMap.enabled = P.settings.shadows;
+  if (bloomPass) bloomPass.strength = P.settings.bloom ? BLOOM.strength * bloomNightFalloff(sky.night) : 0;
   if (bloomOn()) composer.render(); else renderer.render(scene, camera);
 }
 
@@ -1580,7 +1590,7 @@ function applySettings() {
   world.density = s.scenery ?? 1;
   world.viewDist = s.viewDist ?? 1;
   world.lastK = null;
-  if (bloomPass) bloomPass.strength = s.bloom ? BLOOM.strength : 0;
+  if (bloomPass) bloomPass.strength = s.bloom ? BLOOM.strength * bloomNightFalloff(sky.night || 0) : 0;
   sky.hour = s.hour; sky.flow = s.flow; sky.setStyle(s.sky); sky.setWeather(s.weather);
   audio.vol = { master: s.volMaster, engine: s.volEngine, fx: s.volFx };
   audio.applyVolumes();
