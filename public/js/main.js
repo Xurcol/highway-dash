@@ -1576,6 +1576,10 @@ function frame(now) {
 // ---------------- settings ----------------
 function applySettings() {
   const s = P.settings;
+  // scenery density and view distance rebuild the world, so nudge it to notice
+  world.density = s.scenery ?? 1;
+  world.viewDist = s.viewDist ?? 1;
+  world.lastK = null;
   if (bloomPass) bloomPass.strength = s.bloom ? BLOOM.strength : 0;
   sky.hour = s.hour; sky.flow = s.flow; sky.setStyle(s.sky); sky.setWeather(s.weather);
   audio.vol = { master: s.volMaster, engine: s.volEngine, fx: s.volFx };

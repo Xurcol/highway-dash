@@ -1241,7 +1241,7 @@ export class UI {
     chips("skyStyles", SKY_STYLES, (n) => s.sky === n, (n) => { s.sky = n; this.ctx.sky.setStyle(n); });
     chips("weathers", Object.keys(WEATHERS), (n) => s.weather === n, (n) => { s.weather = n; this.ctx.sky.setWeather(n); });
     chips("trafficLevels", Object.keys(TRAFFIC_LEVELS), (n) => s.traffic === n, (n) => { s.traffic = n; });
-    for (const [id, key] of [["volMaster", "volMaster"], ["volEngine", "volEngine"], ["volFx", "volFx"], ["volWind", "volWind"], ["optRes", "res"]]) $(id).oninput = (e) => { s[key] = +e.target.value; apply(); };
+    for (const [id, key] of [["volMaster", "volMaster"], ["volEngine", "volEngine"], ["volFx", "volFx"], ["volWind", "volWind"], ["optRes", "res"], ["optScenery", "scenery"], ["optView", "viewDist"]]) $(id).oninput = (e) => { s[key] = +e.target.value; apply(); };
     for (const [id, key] of [["optManual", "manual"], ["optShadows", "shadows"], ["optBloom", "bloom"], ["optHideNames", "hideNames"]]) $(id).onchange = (e) => { s[key] = e.target.checked; apply(); if (this.ctx.state() === "home") this.renderHome(); };
   }
   syncTime(hour) {
@@ -1256,6 +1256,7 @@ export class UI {
     this.syncTime(s.hour);
     $("timeFlow").checked = s.flow;
     $("volMaster").value = s.volMaster; $("volEngine").value = s.volEngine; $("volFx").value = s.volFx; $("volWind").value = s.volWind; $("optRes").value = s.res;
+    $("optScenery").value = s.scenery ?? 1; $("optView").value = s.viewDist ?? 1;
     $("optManual").checked = s.manual; $("optShadows").checked = s.shadows; $("optBloom").checked = s.bloom !== false; $("optHideNames").checked = !!s.hideNames;
     this.chipSync?.forEach((f) => f());
   }
