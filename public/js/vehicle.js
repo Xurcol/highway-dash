@@ -134,14 +134,11 @@ export class Drivetrain {
     const accelShare = Math.max(0, Math.min(.12, this.accel / G * .25));
     const onDriven = this.drive === "awd" ? 1 : this.drive === "fwd" ? .6 - accelShare : .56 + accelShare;
     const limit = s.mass * G * s.grip * onDriven * (this.surface ?? 1) * 1.45;
-    const excess = neutral ? -1 : Math.abs(F) / Math.max(1, limit) - 1;
-    // traction control lets a little slip through (it's fast that way) and cuts progressively beyond
-    // it; launch control holds the tyres right at the optimal slip for the first couple of seconds
-    const allowed = this.launchT > 0 ? .1 : s.tcAllowed ?? .22;
-    const spinWant = Math.max(0, Math.min(1, excess));
-    this.wheelspin += (spinWant - this.wheelspin) * Math.min(1, dt * (spinWant > this.wheelspin ? 6 : 3));
-    this.tcCut = Math.max(0, this.wheelspin - allowed);
-    if (Math.abs(F) > limit) F = Math.sign(F) * limit * (1 - Math.min(.35, Math.max(0, this.wheelspin - allowed) * .6)) * (this.launchT > 0 ? 1.04 : 1);
+    // The tyres never slip: there is no wheelspin, so no smoke, no squeal and nothing for a traction
+    // system to cut. The grip limit still caps how hard the car can pull, it just holds instead of spinning.
+    this.wheelspin = 0;
+    this.tcCut = 0;
+    if (Math.abs(F) > limit) F = Math.sign(F) * limit * (this.launchT > 0 ? 1.04 : 1);
     if (this.launch === 1) F = 0;
     this.load = neutral ? 0 : Math.max(0, Math.min(1.2, (thr * tq) / Math.max(1, this.peak) * (this.shiftT > 0 ? .2 : 1)));
     // engine braking: friction + pumping losses grow with rpm and are multiplied by the gear,

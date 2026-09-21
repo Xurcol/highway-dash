@@ -1329,7 +1329,6 @@ function updateDrive(dt, T) {
   const maxLat = (4.5 + def.handling * .07) * hMul * Math.min(1, v / 14);
   // grip-driven steering, no sliding: the car goes where it is pointed
   G.vx += (G.steer * maxLat - G.vx) * Math.min(1, dt * (3.5 + def.handling * .05) * hMul);
-  const spin = d.wheelspin || 0;
   G.x += G.vx * dt;
   const lim = ROAD_HALF + SHOULDER - B.W / 2 - .1;
   G.scraping = false;
@@ -1341,10 +1340,8 @@ function updateDrive(dt, T) {
   G.z -= v * dt;
   G.dist += Math.max(0, v) * dt;   // reversing does not rack up distance
   G.yaw += (-Math.atan2(G.vx, Math.max(v, 6)) * .9 - G.yaw) * Math.min(1, dt * 10);
-  // tyre smoke, squeal and exhaust flames
-  const smokeAmt = spin > .15 ? spin : 0; // wheelspin only (launches)
-  if (smokeAmt > 0) for (const k of [-1, 1]) smoke.emit(G.x + k * (B.W / 2 - .3), .35, G.z + B.L * .32, smokeAmt, G.vx * .3, -v * .15);
-  audio.tires?.(0, spin, kmh);
+  // exhaust flames (the tyres never slip, so there is no tyre smoke or squeal)
+  audio.tires?.(0, 0, kmh);
   if (G.flameT > 0) {
     G.flameT -= dt;
     // the tailpipes sit at the rear of the car, so the flame position turns with the car
