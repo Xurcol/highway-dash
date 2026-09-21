@@ -12,6 +12,7 @@ fs.rmSync(out, { recursive: true, force: true });
 fs.cpSync(path.join(root, "public"), out, { recursive: true, filter: (src) => withSounds || !src.includes(path.join("public", "sounds")) });
 for (const rel of [
   "build/three.module.js", "build/three.core.js",
+  "examples/jsm/postprocessing", "examples/jsm/shaders",
   "examples/jsm/environments", "examples/jsm/utils", "examples/jsm/loaders/GLTFLoader.js",
   "examples/jsm/loaders/DRACOLoader.js", "examples/jsm/controls/OrbitControls.js", "examples/jsm/libs/draco/gltf",
 ]) fs.cpSync(path.join(three, rel), path.join(out, "vendor", "three", rel), { recursive: true });

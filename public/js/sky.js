@@ -141,9 +141,11 @@ export class SkySystem {
 
     this.sun = new THREE.DirectionalLight(0xffffff, 2);
     this.sun.castShadow = true;
-    this.sun.shadow.mapSize.set(2048, 2048);
-    Object.assign(this.sun.shadow.camera, { left: -40, right: 40, top: 40, bottom: -40, near: 1, far: 300 });
-    this.sun.shadow.bias = -0.0005; this.sun.shadow.normalBias = 0.03;
+    // A tighter frustum over a bigger map: the shadow only needs to cover the car and the road
+    // immediately around it, so the same pixels land on a much smaller patch of world.
+    this.sun.shadow.mapSize.set(3072, 3072);
+    Object.assign(this.sun.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 300 });
+    this.sun.shadow.bias = -0.00035; this.sun.shadow.normalBias = 0.022;
     scene.add(this.sun, this.sun.target);
     this.hemi = new THREE.HemisphereLight(0xffffff, 0x444444, 1);
     scene.add(this.hemi);

@@ -21,6 +21,7 @@ const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true,
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.shadowMap.autoUpdate = true;
 renderer.toneMappingExposure = 1.08;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 
@@ -75,6 +76,32 @@ function adaptRes(dt) {
   if (emaDt > .024 && resScale > .6) { resScale = Math.max(.6, resScale - .1); resize(); }
   else if (emaDt < .0175 && resScale < 1) { resScale = Math.min(1, resScale + .05); resize(); }
 }
+// ---------------- post-processing ----------------
+// One HDR pass with bloom on top. The scene renders linear into a half-float target, bloom picks
+// out anything above the threshold, and OutputPass does the ACES tone map and the sRGB convert at
+// the end - so tone mapping happens once, after the glow is added, not before it.
+// UnrealBloomPass thresholds the LINEAR HDR buffer, not the tone-mapped picture. A normally
+// exposed sky already sits well above 1.0 there, so the usual sub-1 threshold catches everything:
+// at .82 it was lifting 44% of the frame. 2.0 keeps the glow on things that actually emit.
+const BLOOM = { strength: .6, radius: .7, threshold: 2.0 };
+let composer = null, bloomPass = null;
+async function initPost() {
+  const [{ EffectComposer }, { RenderPass }, { UnrealBloomPass }, { OutputPass }] = await Promise.all([
+    import("three/addons/postprocessing/EffectComposer.js"),
+    import("three/addons/postprocessing/RenderPass.js"),
+    import("three/addons/postprocessing/UnrealBloomPass.js"),
+    import("three/addons/postprocessing/OutputPass.js"),
+  ]);
+  composer = new EffectComposer(renderer);
+  composer.addPass(new RenderPass(scene, camera));
+  bloomPass = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), BLOOM.strength, BLOOM.radius, BLOOM.threshold);
+  composer.addPass(bloomPass);
+  composer.addPass(new OutputPass());
+  resize();
+}
+initPost().catch((e) => console.warn("post-processing unavailable, falling back to a direct render", e));
+const bloomOn = () => !!(composer && P.settings.bloom);
+
 function resize() {
   // A tab that is still laying out reports innerWidth 0. Sizing the drawing buffer to that leaves a
   // 0x0 canvas, and anything that later reads pixels out of it (the garage thumbnails) throws.
@@ -83,6 +110,7 @@ function resize() {
   renderer.setSize(w, h, false);
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
+  if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(w, h); }
 }
 addEventListener("resize", resize);
 resize();
@@ -1472,12 +1500,13 @@ function frame(now) {
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
   renderer.shadowMap.enabled = P.settings.shadows;
-  renderer.render(scene, camera);
+  if (bloomOn()) composer.render(); else renderer.render(scene, camera);
 }
 
 // ---------------- settings ----------------
 function applySettings() {
   const s = P.settings;
+  if (bloomPass) bloomPass.strength = s.bloom ? BLOOM.strength : 0;
   sky.hour = s.hour; sky.flow = s.flow; sky.setStyle(s.sky); sky.setWeather(s.weather);
   audio.vol = { master: s.volMaster, engine: s.volEngine, fx: s.volFx };
   audio.applyVolumes();
@@ -1616,6 +1645,7 @@ await loader.finish();
 window.__ui = ui;
 window.__game = {
   G, sky, traffic, net, world, renderer, scene, camera, glows, frame, remotes, NET, CATCHUP,
+  get composer() { return composer; }, get bloomPass() { return bloomPass; },
   get state() { return state; }, get mode() { return mode; },
   // quick sync check: two clients in the same party must print the same numbers
   trafficHash: () => traffic.stateHash(getT(), G.z),
