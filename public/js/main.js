@@ -411,20 +411,34 @@ async function loadCarAssets() {
 // ---------------- input ----------------
 const keys = {};
 const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) && document.activeElement.type !== "range" && document.activeElement.type !== "checkbox";
+// Rebindable keys. The game reads fixed "logical" codes (KeyH, KeyE ...); the player's choices map a
+// physical key onto the logical one, so nothing else in the game has to know about rebinding.
+const KEY_ACTIONS = { KeyH: "Horn", KeyE: "Shift up", KeyQ: "Shift down", KeyM: "Manual / automatic", KeyC: "Camera", Space: "Look back", KeyT: "Next time of day", KeyV: "Next sky", KeyB: "Next weather", KeyP: "Pause", KeyR: "Restart", KeyZ: "Left signal", KeyX: "Right signal", KeyL: "Leaderboard" };
+const keyOf = (act) => P.settings.binds?.[act] || act;
+const logicalKey = (phys) => {
+  const b = P.settings.binds; if (!b) return phys;
+  for (const act in b) if (b[act] === phys) return act;
+  return act_isRebound(phys) ? null : phys;   // a default key that now belongs to another action does nothing
+};
+const act_isRebound = (phys) => !!P.settings.binds?.[phys] && P.settings.binds[phys] !== phys;
 addEventListener("keydown", (e) => {
   if (typing()) {
     if (e.code === "Enter" && document.activeElement.id === "chatInput") sendChat();
     if (e.code === "Escape") { if (document.activeElement.id === "chatInput") closeChat(); else document.activeElement.blur(); }
     return;
   }
-  if (e.repeat) { keys[e.code] = true; return; }
-  keys[e.code] = true;
-  onKey(e.code);
+  const code = logicalKey(e.code);
+  if (!code) return;
+  if (e.repeat) { keys[code] = true; return; }
+  keys[code] = true;
+  onKey(code);
   if (["Space", "ArrowUp", "ArrowDown"].includes(e.code) || (e.code === "Tab" && state !== "home" && !ui.anyModalOpen() && !typing())) e.preventDefault();
 });
 addEventListener("keyup", (e) => {
-  keys[e.code] = false;
-  if (e.code === "KeyH") audio.horn(false);
+  const code = logicalKey(e.code);
+  if (!code) return;
+  keys[code] = false;
+  if (code === "KeyH") audio.horn(false);
 });
 addEventListener("blur", () => { for (const k in keys) keys[k] = false; audio.horn(false); });
 // no browser context menu on the game (text fields keep theirs so paste still works)
@@ -1787,6 +1801,7 @@ const ui = new UI({
   thumbs: {},
   selectCar: (id) => { if (!showOffKey) setShowCar(id); },
   showOff: showOffCar, endShowOff,
+  keyActions: KEY_ACTIONS, keyOf,
   // custom camera editor
   renderCamPreview,
   getCustomCam: () => customCam(),

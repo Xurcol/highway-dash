@@ -53,7 +53,7 @@ export class UI {
 
   // ---------- generic ----------
   show(name) {
-    if (name === "ready") this.setReady("HIGHWAY DASH", "Five lanes. Thread the needle.", "CLICK TO START");
+    if (name === "ready") { this.setReady("HIGHWAY DASH", "Five lanes. Thread the needle.", "CLICK TO START"); this.renderReadyKeys(); }
     for (const id of ["home", "ready", "hud", "over"]) $(id).hidden = id !== name;
     $("pause").hidden = true;
     if (name !== "hud") this.chatInput.hidden = true;
@@ -65,6 +65,15 @@ export class UI {
     $("pausePlayers").hidden = !(p && live);
     $("pauseLeave").hidden = !(p && live);
     $("pauseHome").hidden = !!(p && live);
+  }
+  // the key hints along the bottom of the start screen, showing whatever keys are bound right now
+  renderReadyKeys() {
+    const k = (act) => this.ctx.keyOf(act).replace(/^Key/, "");
+    const hint = [
+      [["W", "S"], "Gas / brake"], [["A", "D"], "Steer"], [[k("KeyQ"), k("KeyE")], "Gears"], [[k("KeyM")], "Manual"],
+      [[k("Space")], "Look back"], [[k("KeyC")], "Camera"], [[k("KeyH")], "Horn"],
+    ];
+    $("readyKeys").innerHTML = hint.map(([ks, label]) => `<span class="rk">${ks.map((x) => `<kbd>${esc(x)}</kbd>`).join("")}<i>${label}</i></span>`).join("");
   }
   setReady(title, sub, click) {
     if (this.readyCache === title + sub + click) return;
@@ -108,7 +117,41 @@ export class UI {
       const b = e.target.closest?.("[data-stab]"); if (!b) return;
       document.querySelectorAll("[data-stab]").forEach((x) => x.classList.toggle("on", x === b));
       document.querySelectorAll("[data-spane]").forEach((x) => x.classList.toggle("on", x.dataset.spane === b.dataset.stab));
+      if (b.dataset.stab === "keys") this.renderBinds();
     });
+  }
+  // keybinds tab: click an action, press its new key
+  renderBinds() {
+    const list = $("bindList"); if (!list) return;
+    const binds = () => (P.settings.binds ||= {});
+    const name = (c) => c.replace(/^Key/, "").replace(/^Digit/, "").replace("Space", "Space");
+    const taken = (code) => Object.entries(this.ctx.keyActions).find(([act]) => this.ctx.keyOf(act) === code)?.[0];
+    const draw = () => {
+      list.innerHTML = "";
+      for (const [act, label] of Object.entries(this.ctx.keyActions)) {
+        const row = document.createElement("div"); row.className = "bind-row";
+        row.innerHTML = "<span></span><button class='bind-key'></button>";
+        row.firstChild.textContent = label;
+        const btn = row.lastChild; btn.textContent = name(this.ctx.keyOf(act));
+        btn.onclick = () => {
+          btn.textContent = "press a key..."; btn.classList.add("wait");
+          const on = (e) => {
+            e.preventDefault(); e.stopPropagation();
+            removeEventListener("keydown", on, true);
+            if (e.code !== "Escape" && !/^(Key[WASD]|Arrow.*)$/.test(e.code) && e.code !== "Enter") {
+              const other = taken(e.code);
+              if (other && other !== act) binds()[other] = this.ctx.keyOf(act);   // swap
+              binds()[act] = e.code; save();
+            }
+            draw();
+          };
+          addEventListener("keydown", on, true);
+        };
+        list.appendChild(row);
+      }
+    };
+    $("bindReset").onclick = () => { P.settings.binds = {}; save(); draw(); };
+    draw();
   }
   closeModals() { document.querySelectorAll(".modal").forEach((m) => (m.hidden = true)); clearInterval(this.camTimer); this.camTimer = null; }
   // ---------- custom camera editor ----------

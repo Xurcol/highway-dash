@@ -215,11 +215,23 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .card .p.poor{background:transparent;color:var(--ink-3);box-shadow:inset 0 0 0 1px var(--line)}
 
 /* ---------- ready ---------- */
-#ready{align-items:center;justify-content:center;pointer-events:none;text-align:center}
-.ready-title{font-size:var(--t-3xl);font-weight:700;letter-spacing:2px;margin-top:-18vh;text-shadow:0 2px 18px rgba(0,0,0,.6)}
-.ready-sub{font-size:var(--t-md);color:var(--ink-2);text-shadow:0 1px 8px rgba(0,0,0,.8)}
-.ready-click{margin-top:26vh;font-size:var(--t-lg);color:var(--accent);animation:pulse 1.6s infinite;text-shadow:0 1px 8px rgba(0,0,0,.8)}
-.ready-keys{margin-top:var(--s3);font-size:var(--t-sm);color:var(--ink-3);text-shadow:0 1px 8px rgba(0,0,0,.9)}
+#ready{align-items:center;justify-content:flex-start;pointer-events:none;text-align:center;padding-top:9vh}
+/* a soft dark wash behind the card and the key strip, so text never fights the buildings */
+#ready::before{content:"";position:absolute;inset:0;z-index:-1;
+  background:radial-gradient(ellipse 60% 38% at 50% 22%,rgba(3,5,10,.66),transparent 72%),linear-gradient(0deg,rgba(3,5,10,.62),transparent 22%)}
+.ready-card{display:flex;flex-direction:column;align-items:center;gap:var(--s2);padding:var(--s5) var(--s7);min-width:min(460px,90vw);
+  background:var(--glass);border:1px solid var(--hairline);border-radius:var(--r3);box-shadow:var(--shadow);
+  backdrop-filter:blur(14px) saturate(1.1);-webkit-backdrop-filter:blur(14px) saturate(1.1)}
+.ready-title{font-size:var(--t-3xl);font-weight:700;letter-spacing:3px;line-height:1;text-shadow:0 0 28px rgba(47,216,245,.35)}
+.ready-sub{font-size:var(--t-md);color:var(--ink-2);letter-spacing:.04em}
+.ready-click{margin-top:var(--s3);padding:10px var(--s6);font-size:var(--t-lg);letter-spacing:.12em;color:var(--accent-ink);background:var(--accent);
+  border-radius:var(--r-pill);box-shadow:0 0 26px rgba(47,216,245,.4);animation:pulse 1.6s infinite}
+.ready-keys{position:absolute;left:0;right:0;bottom:4.5vh;display:flex;flex-wrap:wrap;justify-content:center;gap:var(--s2) var(--s4);padding:0 var(--s5)}
+.rk{display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--r-pill);background:var(--glass-2);border:1px solid var(--hairline);
+  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font-size:var(--t-sm);color:var(--ink-2)}
+.rk kbd{font:700 12px/1 "Barlow Condensed","Barlow",sans-serif;letter-spacing:.04em;color:var(--accent);background:var(--sunken);border:1px solid var(--line-2);
+  border-radius:6px;padding:4px 7px;min-width:22px;text-align:center}
+.rk i{font-style:normal}
 @keyframes pulse{50%{opacity:.55}}
 
 /* ---------- HUD ---------- */
@@ -749,3 +761,8 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 .set-tab.on{background:var(--accent);color:#0b0e12}
 .set-pane{display:none;max-width:520px}
 .set-pane.on{display:block}
+
+.bind-list{display:grid;gap:var(--s2);margin:var(--s3) 0}
+.bind-row{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);color:var(--ink-2)}
+.bind-key{min-width:120px;background:var(--surface-2,#151a22);color:var(--accent);border:1px solid var(--hairline);border-radius:var(--r2);padding:var(--s2) var(--s3);font:inherit;font-weight:700;cursor:pointer}
+.bind-key.wait{color:var(--ink);border-color:var(--accent)}
