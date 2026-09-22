@@ -64,7 +64,10 @@ export class Traffic {
     let body;
     if (lane >= 3 && h(4) < .22) body = h(5) < .3 ? "bus" : "truck";
     else body = SMALL[(h(6) * SMALL.length) | 0];
-    const v = SAME_V[lane];
+    // No two drivers hold a lane's speed exactly: everyone sits within about 8% of it, same as real
+    // traffic never actually being in lockstep. A bus/truck driver is a steadier hand than the rest.
+    const steady = body === "bus" || body === "truck";
+    const v = SAME_V[lane] * (steady ? .97 + h(12) * .06 : .92 + h(12) * .16);
     const z0 = j * S + (h(1) - .5) * (body === "bus" || body === "truck" ? 3 : 10);
     const ph = h(2) * 6.283;
     return { key: `${dir}:${lane}:${j}`, h, body, dir, lane, j, v, z0, ph, L: BODIES[body].L, W: BODIES[body].W, color: PALETTE[(h(7) * PALETTE.length) | 0] };
@@ -104,7 +107,9 @@ export class Traffic {
   resolve(c, T) {
     c.z = this.zAt(c, T);
     const baseX = laneX(c.lane);
-    c.x = baseX + Math.sin(T * .27 + c.ph * 1.7) * .2;
+    // a driver's own hand on the wheel: some track the lane dead straight, others drift a bit more
+    const wobA = .08 + c.h(13) * .18, wobF = .16 + c.h(14) * .22;
+    c.x = baseX + Math.sin(T * wobF + c.ph * 1.7) * wobA;
     c.sig = 0;
     const target = SWERVE_TARGET[c.lane];
     if (target !== undefined && c.h(8) < .45 && c.body !== "bus") {
