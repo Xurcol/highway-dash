@@ -108,7 +108,7 @@ export class EngineDSP {
     this.dc = 0; this.dcIn = 0; this.rumble = 0;
     this.whistle = 0; this.bov = 0;
     this.flutter = 0; this.flutterT = 0; this.nextChirp = 0;
-    this.blowerPh = 0; this.intakePh = 0; this.als = 0; this.alsNext = 0; this.launchHold = 0;
+    this.blowerPh = 0; this.intakePh = 0; this.als = 0; this.alsNext = 0; this.antilagHold = 0;
     this.tune = { ...DEFAULT_TUNE }; this.mode = "sport";
     this.lockSport = true;
     this.setProfile("b58");
@@ -155,8 +155,8 @@ export class EngineDSP {
       case "limiter": this.cut = .03; break;
       case "lift": this.onLift(m); break;
       case "pop": this.addPop(m.v ?? .8, .05); break;
-      case "launchArm": this.launchHold = 1; break;
-      case "launch": this.launchHold = 0; break;
+      case "antilagOn": this.antilagHold = 1; break;
+      case "antilagOff": this.antilagHold = 0; break;
     }
   }
   // all four event handlers share one intensity model, so nothing fires "randomly"
@@ -274,7 +274,7 @@ export class EngineDSP {
       }
       if (this.tThr > .3) this.als = 0;
     }
-    if (this.launchHold) { this.tBoost = Math.max(this.tBoost, .45); if (this.rand() < .15) this.addPop(.5, .02, 0, false, .8); }
+    if (this.antilagHold) { this.tBoost = Math.max(this.tBoost, .5); if (this.rand() < .22) this.addPop(.55, .02, 0, false, .85); }
     const t51 = !!t.t51r;
 
     for (let i = 0; i < n; i++) {

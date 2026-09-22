@@ -29,8 +29,7 @@ export class Drivetrain {
     this.revMatch = 0;     // seconds left of a downshift throttle blip
     this.wheelspin = 0;    // 0 = hooked up, 1 = tyres lit up (smoothed)
     this.tcCut = 0;        // how much torque traction control is taking away right now
-    this.launch = 0;       // 1 while launch control is holding the revs, >0 then counts the launch
-    this.launchT = 0;
+    this.antilag = 0;      // 1 while rolling anti-lag is holding the revs against the brake
     this.drive = spec.drive || "rwd";
   }
   // gear 0 = neutral, 1..n = forward. There is no reverse: the road only runs one way.
@@ -89,8 +88,9 @@ export class Drivetrain {
     const fwd = this.gear >= 1, neutral = this.gear === 0;
     // engine speed (clutch slips in 1st at low speed so launches rev up)
     let rpm = this.rpmFor(this.v);
-    if (neutral) {
-      // Neutral: the engine is disconnected, so it revs on throttle alone and the car just rolls.
+    if (neutral || this.antilag) {
+      // Neutral, or anti-lag: the wheels aren't taking any of the engine's torque, so it revs on
+      // throttle alone exactly like it would sitting in neutral.
       this.freeRpm = (this.freeRpm ?? s.idle) + ((s.idle + throttle * (s.redline * .92 - s.idle)) - (this.freeRpm ?? s.idle)) * Math.min(1, dt * (throttle > .05 ? 3.4 : 1.8));
       rpm = this.freeRpm;
     } else {
@@ -98,17 +98,13 @@ export class Drivetrain {
       if (fwd && this.gear === 1 && this.v < 9) rpm = Math.max(rpm, s.idle + throttle * s.redline * 0.45 * (1 - this.v / 9));
     }
     rpm = Math.max(s.idle * (1 + .18 * (1 - this.warmth)), rpm); // fast idle while cold
-    // ---- launch control: foot on the brake, floor the throttle at a standstill ----
-    const armed = this.v < 1.2 && throttle > .85 && brake > .4 && this.gear === 1;
-    if (armed) {
-      if (!this.launch) this.events.push("launchArm");
-      this.launch = 1;
-      rpm = s.redline * (s.launchFrac || (this.drive === "awd" ? .62 : this.drive === "fwd" ? .45 : .5));
-    } else if (this.launch === 1) {
-      this.launch = 0;
-      if (throttle > .85) { this.launchT = 2.2; this.events.push("launch"); }
-    }
-    if (this.launchT > 0) this.launchT -= dt;
+    // ---- rolling anti-lag: brake held hard against full throttle while under way. Nothing is
+    // driving the wheels (the brake is winning that fight), so the car holds its speed while the
+    // engine revs free and bounces off the limiter, same as a rally car holding boost into a corner.
+    const antilagOn = fwd && this.v > 1.5 && throttle > .85 && brake > .4;
+    if (antilagOn && !this.antilag) this.events.push("antilagOn");
+    else if (!antilagOn && this.antilag) this.events.push("antilagOff");
+    this.antilag = antilagOn ? 1 : 0;
 
     let thr = throttle;
     // no artificial speed cap: top speed comes from power, drag and gearing
@@ -128,7 +124,7 @@ export class Drivetrain {
 
     const wheelMul = Math.abs(this.ratio()) / s.tire * 0.97;
     const tq = this.torque(this.rpm);
-    let F = neutral ? 0 : thr * tq * wheelMul * this.assist;
+    let F = (neutral || this.antilag) ? 0 : thr * tq * wheelMul * this.assist;
     if (this.shiftT > 0) F *= 0.2;
     // how much of the car's weight sits on the driven wheels (weight transfers rearward under power)
     const accelShare = Math.max(0, Math.min(.12, this.accel / G * .25));
@@ -138,8 +134,7 @@ export class Drivetrain {
     // system to cut. The grip limit still caps how hard the car can pull, it just holds instead of spinning.
     this.wheelspin = 0;
     this.tcCut = 0;
-    if (Math.abs(F) > limit) F = Math.sign(F) * limit * (this.launchT > 0 ? 1.04 : 1);
-    if (this.launch === 1) F = 0;
+    if (Math.abs(F) > limit) F = Math.sign(F) * limit;
     this.load = neutral ? 0 : Math.max(0, Math.min(1.2, (thr * tq) / Math.max(1, this.peak) * (this.shiftT > 0 ? .2 : 1)));
     // engine braking: friction + pumping losses grow with rpm and are multiplied by the gear,
     // so a downshift slows the car harder. Clutch is open mid-shift and while slipping in 1st.
@@ -160,7 +155,7 @@ export class Drivetrain {
     F -= moving * brake * s.mass * G * brakeG;
     const a = F / s.mass;
     this.accel += (a - this.accel) * Math.min(1, dt * 8);
-    const v1 = this.v + (this.launch === 1 ? 0 : a) * dt;
+    const v1 = this.antilag ? this.v : this.v + a * dt;
     // braking and rolling drag must not drag the car backwards through zero
     this.v = (brake > .02 || throttle < .05) && Math.sign(v1) !== Math.sign(this.v) && this.v !== 0 ? 0 : v1;
     if (this.v < 0) this.v = 0;   // braking or drag can bring the car to rest, never push it backwards
@@ -186,7 +181,7 @@ export class Drivetrain {
       rpm: this.rpm, throttle, gain, load: this.load, boost: this.boost,
       boostNorm: s.boostMax ? Math.min(1.2, this.boost / s.boostMax) : 0,
       gear: Math.max(1, this.gear), speed: this.v, accel: this.accel, shifting: this.shiftT > 0,
-      overrun: this.overrun, redline: s.redline, warmth: this.warmth, wheelspin: this.wheelspin, launch: this.launch,
+      overrun: this.overrun, redline: s.redline, warmth: this.warmth, wheelspin: this.wheelspin, antilag: this.antilag,
     };
   }
 }

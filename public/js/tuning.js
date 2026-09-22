@@ -188,7 +188,6 @@ export const TUNE_RANGE = {
   decay: [.1, 3, .05, "s"],   // at the minimum the car fires one big bang instead of a burble train
   mix: [0, 1, .05, ""],
   engineBrake: [0, 2, .05, ""],
-  launchRpm: [.3, .85, .01, ""], // launch control hold, as a fraction of the rev limit
 };
 
 export function defaultTune(car) {
@@ -203,7 +202,7 @@ export function defaultTune(car) {
     gearing: 1,
     intake: "stock", exhaust: "stock", catalyst: "stock", turbo: "stock", intercooler: "stock", fuel: "stock",
     tires: "stock", brakes: "stock", suspension: "stock", transmission: "stock", weight: "stock", remap: "stock", internals: "stock", diff: "stock", aero: "stock",
-    burble: .75, burbleVol: 1, aggr: 1, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1, launchRpm: .55,
+    burble: .75, burbleVol: 1, aggr: 1, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1,
   };
 }
 export const PART_KINDS = Object.keys(PARTS);
@@ -467,7 +466,6 @@ export function tunedSpec(carId, tune) {
     induction: e.induction,
     engineBrakeTune: t.engineBrake,
     drive: DRIVE_LAYOUT[car.id] || "rwd",
-    launchFrac: t.launchRpm,
     eth: partOpt("fuel", t.fuel).eth,
     decay: t.decay,          // the HUD/flame code needs to know about a single-bang tune
     antiLag: isForced(e, t) && e.induction !== "super",

@@ -348,7 +348,7 @@ const LOADER_TIPS = [
   "Q and E work the gear lever — N and D, even in automatic.",
   "Press M to switch between automatic and manual shifting.",
   "Threading a gap at speed pays a close-call bonus. Chain them for a combo.",
-  "Hold the brake and the throttle together at a standstill to arm launch control.",
+  "Hold S against full W while rolling to trigger anti-lag: the revs bounce off the limiter and the car holds its speed.",
   "C cycles the cameras: chase, far, hood and bumper.",
   "Every car in the garage has its own engine, gearbox and tuning options.",
 ];
@@ -1313,12 +1313,14 @@ function updateDrive(dt, T) {
       if ((d.s.eth || 0) >= .3 && G.thr > .3 && Iu > .18) { G.flameT = Math.max(G.flameT || 0, .25 + d.s.eth * .45); G.engine?.event("pop", { v: .6 + d.s.eth }); }
     }
     else if (ev === "downshift" || ev === "autoDown") { G.engine?.event("downshift", evInfo()); if (ev === "downshift") audio.shiftClunk(false); }
-    else if (ev === "limiter" || ev === "lift") G.engine?.event(ev, evInfo());
+    else if (ev === "limiter" || ev === "lift") {
+      G.engine?.event(ev, evInfo());
+      if (ev === "limiter" && d.antilag) { const Ia = burbleNow(8); G.flameSize = Math.min(1.6, .7 + Ia); G.flameT = Math.max(G.flameT || 0, .18); }
+    }
     else if (ev === "deny") audio.deny();
-    else if (ev === "launchArm") { G.engine?.event("launchArm"); ui.toast("LAUNCH CONTROL ARMED — release brake"); }
-    else if (ev === "launch") G.engine?.event("launch");
+    else if (ev === "antilagOn") { G.engine?.event("antilagOn"); ui.toast("ROLLING ANTI-LAG — speed locked, revs free"); }
+    else if (ev === "antilagOff") G.engine?.event("antilagOff");
   }
-  if (G.brk > .5 && !thrIn && d.v < .5 && !G.launchHint) { G.launchHint = 1; ui.toast("Hold brake + throttle for launch control"); }
   const v = d.v, kmh = v * 3.6;
   d.surface = 1 - (sky.w?.rain || 0) * .22; // wet road
 
