@@ -4,14 +4,22 @@
 //   crank angle -> each cylinder fires a pressure pulse (fast rise, exponential decay) scaled by the
 //   engine's real LOAD (not raw pedal), with cycle-to-cycle variation, per-cylinder strength and
 //   runner delay
-//   -> header pipe + main pipe (quarter-wave waveguides: negative-reflection combs, damped)
+//   -> each cylinder is routed to ITS bank's exhaust (V engines: two banks, by the engine's real
+//      firing order; inline engines: one collector feeding two tailpipes), each with its own header
+//      + main pipe (quarter-wave waveguides: negative-reflection combs, damped) and its own tone
+//      chain -> stereo. A cross-plane V8's burble comes from its uneven per-bank firing gaps (see
+//      gapStrength), so it is heard in mono too, not only as a stereo effect.
 //   -> muffler (2-pole lowpass whose cutoff opens with load / sport mode)
 //   -> three rpm-weighted resonators (chest rumble -> mid growl -> top-end bark) + sub rumble
 //   -> intake: runner resonance gated by the same firing events, plus induction roar with boost
 //   -> turbo whistle / compressor surge (T51R = deep, slow, loud) / blow-off, supercharger whine
 //   -> afterfire pops and bangs from the decel-fuel-cut model in burbleIntensity()
+//   -> tailpipe air: turbulence at the pipe exit, gated by the exhaust pulses, bypassing the muffler
 //   -> gentle saturation -> DC block
 // Noise only ever appears gated by combustion events, never as a continuous bed.
+//
+// Tuned against real recordings (BMW B58 and S58 on-throttle loops at matching rpm): spectral shape
+// per 1/3 octave, the engine-order structure and the level of the top octaves.
 
 function biquad(type, f, q, sr) {
   const w = (2 * Math.PI * Math.min(f, sr * .45)) / sr, a = Math.sin(w) / (2 * q), c = Math.cos(w), n = 1 + a;
@@ -31,6 +39,61 @@ function run(s, x) {
 const even = (n) => Array.from({ length: n }, (_, i) => (720 / n) * i);
 const V8X = [1, .7, .74, 1, .76, 1, .72, 1];
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+// Which exhaust bank each cylinder feeds, listed in FIRING order (the same order as `fire`).
+// A cross-plane V8 fires its two banks unevenly (per bank: 180-270-180-90 degrees) - that uneven
+// beat in each pipe is the V8 burble, so it comes from the real firing order instead of being faked
+// with volume differences. V6, V10, V12, W16 and flat-six banks each fire evenly.
+const ALT = (n) => Array.from({ length: n }, (_, i) => i & 1);
+const CROSS_V8 = [0, 1, 0, 1, 1, 0, 1, 0];             // GM 1-8-7-2-6-5-4-3; AMG / BMW 1-5-4-8-6-3-7-2
+const LAYOUT = {
+  s63: CROSS_V8, amg: CROSS_V8, lt2: CROSS_V8, v8x: CROSS_V8,
+  hellcat: [0, 1, 1, 0, 1, 0, 0, 1],                   // Chrysler 1-8-4-3-6-5-7-2
+  vr30: ALT(6), vr38: ALT(6), v6: ALT(6), f6: ALT(6), gt3: ALT(6), v10: ALT(10), svj: ALT(12), v12: ALT(12), w16: ALT(16),
+};
+// How much of the other bank's pipe reaches each ear. The pipes are half a metre apart and the
+// listener is metres away, so both ears hear both, and the stereo image is a little width, not two
+// separate engines (with little crossfeed an even-fire V12 turns into an inline-six in each ear, an
+// octave down, because its two banks only become a V12 when they are added together). A hot-vee
+// merges the banks in the manifolds, so it is narrower still.
+const MERGE = { s63: .9, amg: .88 };
+// Pulse strength from the gap since the previous firing IN THE SAME BANK. A cylinder that fires 90
+// degrees after its neighbour exhausts into a pipe still full of that neighbour's pulse, so it comes
+// out weaker; after 270 degrees the pipe has emptied and it is at full strength. On a cross-plane V8
+// the per-bank gaps run 90-270-180-180, and this uneven strength is where the burble comes from - it
+// survives when the two pipes are added together, so it is heard in mono too. Even-fire engines have
+// equal gaps and are not touched.
+const gapStrength = (deg) => 1 - .28 * Math.pow(Math.max(0, Math.min(1, (270 - deg) / 180)), 1.3);
+function bankGaps(fire, bankOf) {
+  const n = fire.length, out = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (bankOf[i] < 0) continue;
+    for (let k = 1; k <= n; k++) { const j = (i - k + n) % n; if (bankOf[j] === bankOf[i]) { out[i] = ((fire[i] - fire[j] + 720) % 720) || 720; break; } }
+  }
+  return out;
+}
+// small, fixed differences between cylinders (flow, compression, injector) - they put stable energy on
+// the half-orders, which is the "chunk" of a real engine; a perfectly even engine is just a buzz
+const imbalance = (n, key) => Array.from({ length: n }, (_, i) => {
+  let h = 0; for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  h = (h ^ (i * 2654435761)) >>> 0; h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0;
+  return ((h >>> 8) / 16777216 - .5) * 2;               // -1..1
+});
+// one bank's exhaust: header + main pipe waveguides and the tone chain behind them
+function makeBank(p, sr, detune) {
+  const b = { header: new Delay(1024), main: new Delay(4096), dc: 0, dcIn: 0, lp: 0 };
+  b.header.len = Math.max(4, Math.round(sr / (2 * p.header * detune)));
+  b.main.len = Math.max(8, Math.min(4000, Math.round(sr / (2 * p.pipe * detune))));
+  b.muff = biquad("lp", p.muffler, .7, sr);
+  b.muff2 = biquad("lp", p.muffler * 1.4, .6, sr);
+  b.bodyF = biquad("bp", p.body[0] * detune, p.body[1], sr);
+  b.barkF = biquad("bp", p.bark[0] * detune, p.bark[1] * .72, sr);
+  b.topF = biquad("bp", p.bark[0] * 1.85 * detune, 1.2, sr);
+  b.raspLP = biquad("lp", 850, .7, sr);
+  b.airLo = biquad("bp", 2300 * detune, .75, sr);        // tailpipe turbulence
+  b.airHi = biquad("bp", 5600 * detune, .9, sr);
+  b.soft = biquad("lp", 11000, .6, sr);
+  return b;
+}
 
 // header/pipe: waveguide fundamentals (Hz); muffler: base lowpass (Hz); body/bark: [Hz, Q, gain]
 // rough: combustion grit; var: cycle variation; sub: half-order rumble; turbo/blower: 0..1.2
@@ -67,6 +130,16 @@ export const DEFAULT_TUNE = { burble: .75, burbleVol: 1, aggr: 1, drive: 1, eth:
 // How far the afterfire pops, cracks and bangs sit above the exhaust note. This lifts only the
 // transients - the steady engine tone is untouched, so the mix gets punchier, not louder overall.
 const POP_GAIN = 1.85;
+// Level of the tailpipe air band, and one output trim so the reworked engines sit at the same overall
+// loudness in the game mix as the old ones did (measured, see the tuning notes at the top).
+// Values found by searching against the real recordings (mean 1/3-octave shape error 10.0 -> 7.7 dB).
+// pipeFb / headFb: how hard the pipe resonances ring - the old values made them peak ~9 dB above a
+// real exhaust at 3x and 5x the pipe frequency. air: tailpipe turbulence, which rises steeply with
+// revs (airExp) because it follows gas velocity. trim: keeps the overall loudness where it was.
+// Loudness calibration (A-weighted, per ear, against the old engines at full load, cruise and idle):
+// two pipes carry half the pulses each, so a V engine is lifted to sit level with an inline one.
+const VEE_GAIN = 1.076;
+export const SYNTH = { air: .45, airHi: .2, airExp: 1.5, top: .4, barkQ: .72, pipeFb: .65, headFb: .15, trim: .846 };
 
 // ---------------------------------------------------------------- the burble model
 // How much unburnt fuel reaches the exhaust when the throttle shuts. Everything that matters is an
@@ -108,8 +181,7 @@ export class EngineDSP {
     this.cut = 0; this.crackle = 0; this.blip = 0;
     this.pulses = []; this.pops = []; this.chirps = []; this.thumps = [];
     this.seed = (Math.random() * 1e9) | 0;
-    this.header = new Delay(1024); this.main = new Delay(4096);
-    this.dc = 0; this.dcIn = 0; this.rumble = 0;
+    this.rumble = 0;
     this.whistle = 0; this.bov = 0;
     this.flutter = 0; this.flutterT = 0; this.nextChirp = 0;
     this.blowerPh = 0; this.intakePh = 0; this.als = 0; this.alsNext = 0; this.antilagHold = 0; this.idlePh = 0;
@@ -123,21 +195,25 @@ export class EngineDSP {
     this.p = p; this.pname = name;
     this.fireFrac = p.fire.map((d) => d / 720);
     this.runner = p.fire.map((_, i) => ((i * 7919) % 13) / 13 * .0009); // 0..0.9 ms runner length spread
-    this.header.len = Math.max(4, Math.round(sr / (2 * p.header)));
-    this.main.len = Math.max(8, Math.min(4000, Math.round(sr / (2 * p.pipe))));
-    this.muff = biquad("lp", p.muffler, .7, sr);
-    this.muff2 = biquad("lp", p.muffler * 1.4, .6, sr);
-    this.bodyF = biquad("bp", p.body[0], p.body[1], sr);
-    this.barkF = biquad("bp", p.bark[0], p.bark[1], sr);
-    this.topF = biquad("bp", p.bark[0] * 1.85, 1.6, sr);
+    // bank of each cylinder (by firing slot); inline engines feed one collector into both pipes
+    const lay = LAYOUT[name];
+    this.bankOf = p.fire.map((_, i) => (lay ? lay[i % lay.length] : -1));
+    this.vee = !!lay;
+    this.merge = MERGE[name] ?? .78;
+    const imb = imbalance(p.cyl, name);
+    // uneven banks: the strength pattern comes from the firing order, so it replaces the profile's
+    // hand-made amplitude table (which was only ever an approximation of exactly this)
+    const gaps = bankGaps(p.fire, this.bankOf), uneven = gaps.some((g) => g !== null && Math.abs(g - gaps[0]) > 1);
+    this.ampEff = p.amps.map((a, i) => (uneven ? gapStrength(gaps[i]) : a) * (1 + imb[i] * .085));
+    // the two pipes are never quite the same length, which is what keeps the two sides from
+    // collapsing into one mono sound
+    this.banks = [makeBank(p, sr, 1), makeBank(p, sr, 1.043)];
+    this.topF = biquad("bp", p.bark[0] * 1.85, 1.6, sr);   // valvetrain rasp (mech profiles)
     this.inductF = biquad("bp", p.bark[0] * 1.6, 1.5, sr);
     this.intakeF = biquad("bp", (p.intake ? p.intake[0] : 240) * 2, 1.4, sr);
     this.roarF = biquad("bp", 520, .8, sr);
     this.crackF = biquad("bp", 1700, 1.1, sr);
     this.whistF = biquad("bp", 5200, 2.4, sr);   // the airy band that rides with the turbo whistle
-    this.soft = biquad("lp", 4000, .6, sr);
-    this.soft2 = biquad("lp", 6500, .5, sr);
-    this.raspLP = biquad("lp", 850, .7, sr);
     this.chirpF = biquad("bp", 1500, 1.8, sr);
     this.bovF = biquad("bp", 3400, .9, sr);
   }
@@ -253,7 +329,9 @@ export class EngineDSP {
     if (this.pops.length > 28 || amp < .015) return;
     this.pops.push({ t: -delay, dur: dur * (.7 + this.rand() * .6), amp, sharp, pitch, big, f: biquad("bp", (sharp ? 2200 : 900) * pitch, sharp ? 1.4 : 1.1, this.sr) });
   }
-  process(out) {
+  // Writes the left channel into `out` and the right into `outR`. Called with one buffer it writes
+  // the mono sum instead, so a mono caller hears everything.
+  process(out, outR) {
     const n = out.length, sr = this.sr, p = this.p, t = this.tune, dt = 1 / sr;
     const sport = this.mode === "sport";
     const kR = 1 - Math.exp(-1 / (sr * .045));
@@ -262,16 +340,19 @@ export class EngineDSP {
     const kL = 1 - Math.exp(-1 / (sr * .05));
     // muffler opens with load; comfort keeps the valves shut
     const open = (sport ? 1.5 : .75) * (.55 + .45 * this.load) * (.9 + .4 * Math.min(1, this.rpm / 7000)) * (.8 + .2 * t.exhaust);
-    setLP(this.muff, p.muffler * open, .75, sr);
-    setLP(this.muff2, p.muffler * open * 2.6, .6, sr);
     // the exhaust and bark formants ride up a few percent with load and revs - hot, fast-moving gas
     // shifts a real resonance the same way; a formant fixed to one note is what reads as synthetic
     const fmDrift = 1 + this.load * .04 + Math.min(1, this.rpm / 7000) * .015;
-    setBP(this.bodyF, p.body[0] * fmDrift, p.body[1], sr);
-    setBP(this.barkF, p.bark[0] * fmDrift, p.bark[1], sr);
-    setBP(this.topF, p.bark[0] * 1.85 * fmDrift, 1.6, sr);
-    const outGain = p.gain * t.exhaust * (sport ? .75 : .5);
-    setLP(this.soft, sport ? 4200 : 2800, .6, sr); // ear-friendly top end
+    for (let k = 0; k < 2; k++) {
+      const B = this.banks[k], d = k ? 1.043 : 1;
+      setLP(B.muff, p.muffler * open, .75, sr);
+      setLP(B.muff2, p.muffler * open * 2.6, .6, sr);
+      setBP(B.bodyF, p.body[0] * fmDrift * d, p.body[1], sr);
+      setBP(B.barkF, p.bark[0] * fmDrift * d, p.bark[1] * SYNTH.barkQ, sr);
+      setBP(B.topF, p.bark[0] * 1.85 * fmDrift * d, 1.2, sr);
+      setLP(B.soft, sport ? 11000 : 6500, .6, sr);      // comfort: valves shut, the top end goes
+    }
+    const outGain = p.gain * t.exhaust * (sport ? .75 : .5) * SYNTH.trim;
     const rev = t.redline || 7000;
     const turboAmt = (p.turbo || 0) * (t.turbo ?? .8);
     if (this.als > 0) { // anti-lag bangs and a turbo that refuses to spool down
@@ -286,6 +367,8 @@ export class EngineDSP {
     }
     if (this.antilagHold) { this.tBoost = Math.max(this.tBoost, .5); if (this.rand() < .22) this.addPop(.55, .02, 0, false, .85); }
     const t51 = !!t.t51r;
+    const B0 = this.banks[0], B1 = this.banks[1], vee = this.vee, xf = this.merge;
+    const aggr = t.aggr ?? 1;
 
     for (let i = 0; i < n; i++) {
       let target = this.tRpm;
@@ -310,7 +393,6 @@ export class EngineDSP {
       const wrapped = this.crank >= 1;
       if (wrapped) this.crank -= 1;
       const fireHz = (rpm / 120) * p.cyl;
-      const tau = Math.min(.0055, Math.max(.0007, .3 / fireHz));
       let fired = 0;
       for (let c = 0; c < this.fireFrac.length; c++) {
         const f = this.fireFrac[c];
@@ -321,8 +403,9 @@ export class EngineDSP {
         const cyl = this.cut > 0 ? .13 : .15 + .85 * Math.max(load, thr * .35);
         const cold = 1 + (1 - this.warmth) * .35 * (this.rand() - .5) * 2;
         const lope = p.jitter ? (this.rand() - .5) * p.jitter * .06 * Math.max(0, 1 - rpm / 3000) : 0;
-        const a = p.amps[c] * cyl * cold * (1 + (this.rand() - .5) * 2 * p.var) * (1 + lope * 20);
-        if (this.pulses.length < 10) this.pulses.push({ t: -(this.runner[c] + Math.max(0, lope)), a, tau });
+        const a = this.ampEff[c] * cyl * cold * (1 + (this.rand() - .5) * 2 * p.var) * (1 + lope * 20);
+        const tau = Math.min(.0055, Math.max(.0007, .34 / fireHz));
+        if (this.pulses.length < 16) this.pulses.push({ t: -(this.runner[c] + Math.max(0, lope)), a, tau, bank: this.bankOf[c] });
         if (this.crackle > .02 && thr < .12 && rpm > 1800 && this.rand() < this.crackle * .085) {
           const g = this.crackle * Math.min(1.6, t.burble + .2);
           // ~1 in 4 overrun events is a real bang: deep, long and much louder than a pop
@@ -330,20 +413,23 @@ export class EngineDSP {
           else this.addPop((.35 + this.rand() * .55) * g, .03 + this.rand() * .04, this.rand() * .004, false, .7 + this.rand() * .45);
         }
       }
-      let exc = 0, env = 0;
+      // each bank hears only its own cylinders (inline: both hear all of them)
+      let e0 = 0, e1 = 0, v0 = 0, v1 = 0;
       for (let k = this.pulses.length - 1; k >= 0; k--) {
         const P = this.pulses[k];
         P.t += dt;
         if (P.t < 0) continue;
-        const e = Math.exp(-P.t / P.tau) - Math.exp(-P.t / (P.tau * .06));
-        exc += P.a * e; env += P.a * Math.exp(-P.t / P.tau);
+        const e = (Math.exp(-P.t / P.tau) - Math.exp(-P.t / (P.tau * .06))) * P.a, env = P.a * Math.exp(-P.t / P.tau);
+        if (P.bank !== 1) { e0 += e; v0 += env; }
+        if (P.bank !== 0) { e1 += e; v1 += env; }
         if (P.t > P.tau * 7) this.pulses.splice(k, 1);
       }
-      const nz = this.rand() * 2 - 1;
-      exc += nz * env * p.rough * (sport ? 1 : .6) * (this.overrun ? 1.35 : 1) * (.55 + .45 * (t.aggr ?? 1));
+      const nz = this.rand() * 2 - 1, nz1 = this.rand() * 2 - 1;
+      const grit = p.rough * (sport ? 1 : .6) * (this.overrun ? 1.35 : 1) * (.55 + .45 * aggr);
+      e0 += nz * v0 * grit; e1 += nz1 * v1 * grit;
 
       // afterfire: pressure pops go through the exhaust, sharp cracks bypass the muffler
-      let crack = 0, pk = 0;
+      let crack = 0, pk = 0, popEx = 0;
       for (let k = this.pops.length - 1; k >= 0; k--) {
         const P = this.pops[k];
         P.t += dt;
@@ -352,28 +438,38 @@ export class EngineDSP {
         const e = Math.exp(-P.t / (P.dur * .25));
         const body = P.amp * 1.3 * (e - Math.exp(-P.t / .0008)) + nz * e * P.amp * .3;
         if (P.sharp) crack += run(P.f, nz * e * P.amp * 1.6);
-        else { const v = run(P.f, body); exc += v * .55 + body * .5; pk += v * (P.big ? 4.2 : 2.4); }
+        else { const v = run(P.f, body); popEx += v * .55 + body * .5; pk += v * (P.big ? 4.2 : 2.4); }
       }
+      e0 += popEx; e1 += popEx;
 
-      // ---- exhaust system ----
-      let y = this.header.pipe(exc, .35, .5);
-      y = this.main.pipe(y, p.fb, .32);
-      const drive = p.drive * .72 * (.7 + .5 * load) * (sport ? 1 : .8) * (t.drive ?? 1);
-      y = Math.tanh(y * drive) / Math.tanh(drive);
-      const muffled = run(this.muff2, run(this.muff, y));
-      // three rpm-weighted voices: chest rumble low down, growl through the mid, bark up top
+      // ---- exhaust system, one per bank ----
+      const drive = p.drive * .72 * (.7 + .5 * load) * (sport ? 1 : .8) * (t.drive ?? 1), tdn = Math.tanh(drive);
       const wLow = 1 - .55 * clamp01((revN - .25) / .5);
       const wMid = .35 + .65 * clamp01((revN - .2) / .45);
       const wTop = clamp01((revN - .55) / .35);
-      let o = muffled * .9
-        + run(this.bodyF, y) * p.body[2] * (.9 - .2 * load) * wLow
-        + run(this.barkF, y) * p.bark[2] * (.25 + .75 * load) * (sport ? 1.15 : .45) * wMid
-        + run(this.topF, y) * p.bark[2] * (p.top || 1.3) * .45 * wTop * (.3 + .7 * load) * (t.aggr ?? 1);
-      this.rumble += (y - this.rumble) * .004;
-      o += this.rumble * p.sub * 2.2;
-      o += (y - run(this.raspLP, y)) * (.2 + .6 * load) * (sport ? .35 : .12) * (.3 + p.rough * 4) * (t.rasp ?? .7) * (this.overrun ? 1.3 : 1);
-      o += run(this.inductF, exc) * load * rn * .35; // tonal induction growl
-      const popVol = POP_GAIN * (t.burbleVol ?? 1) * (.85 + .15 * (t.aggr ?? 1)) * (1 + (t.eth || 0) * .35); // Burble loudness x aggressiveness x fuel
+      const gBody = p.body[2] * (.9 - .2 * load) * wLow;
+      const gBark = p.bark[2] * .82 * (.25 + .75 * load) * (sport ? 1.15 : .45) * wMid;
+      const gTop = p.bark[2] * (p.top || 1.3) * SYNTH.top * wTop * (.3 + .7 * load) * aggr;
+      const gRasp = (.2 + .6 * load) * (sport ? .35 : .12) * (.3 + p.rough * 4) * (t.rasp ?? .7) * (this.overrun ? 1.3 : 1);
+      // tailpipe air: turbulence at the pipe exit, riding the pulses. It skips the muffler, which is
+      // why a real exhaust keeps its hiss and rasp up top even when the tone is deep.
+      const gAir = (.08 + .92 * load * load) * Math.pow(revN, SYNTH.airExp) * (sport ? 1 : .35) * (.6 + .4 * aggr) * SYNTH.air * (.5 + p.rough * 3);
+      let y0 = B0.main.pipe(B0.header.pipe(e0, SYNTH.headFb, .5), p.fb * SYNTH.pipeFb, .32);
+      let y1 = B1.main.pipe(B1.header.pipe(e1, SYNTH.headFb, .5), p.fb * SYNTH.pipeFb, .32);
+      y0 = Math.tanh(y0 * drive) / tdn; y1 = Math.tanh(y1 * drive) / tdn;
+      let o0 = run(B0.muff2, run(B0.muff, y0)) * .9 + run(B0.bodyF, y0) * gBody + run(B0.barkF, y0) * gBark + run(B0.topF, y0) * gTop
+        + (y0 - run(B0.raspLP, y0)) * gRasp + (run(B0.airLo, nz * v0) + run(B0.airHi, nz * v0) * SYNTH.airHi) * gAir;
+      let o1 = run(B1.muff2, run(B1.muff, y1)) * .9 + run(B1.bodyF, y1) * gBody + run(B1.barkF, y1) * gBark + run(B1.topF, y1) * gTop
+        + (y1 - run(B1.raspLP, y1)) * gRasp + (run(B1.airLo, nz1 * v1) + run(B1.airHi, nz1 * v1) * SYNTH.airHi) * gAir;
+      // each ear hears mostly its own tailpipe and some of the other one (nobody hears a car hard-panned)
+      if (vee) { const a0 = o0, a1 = o1; o0 = (a0 + a1 * xf) * VEE_GAIN; o1 = (a1 + a0 * xf) * VEE_GAIN; }
+
+      // ---- everything below comes from the engine bay or the whole car, so it sits in the middle ----
+      const ym = (y0 + y1) * .5;
+      this.rumble += (ym - this.rumble) * .004;
+      let o = this.rumble * p.sub * 2.2;
+      o += run(this.inductF, (e0 + e1) * .5) * load * rn * .35; // tonal induction growl
+      const popVol = POP_GAIN * (t.burbleVol ?? 1) * (.85 + .15 * aggr) * (1 + (t.eth || 0) * .35); // Burble loudness x aggressiveness x fuel
       o += (run(this.crackF, crack) * 3.2 + pk) * popVol;   // pops and cracks sit above the exhaust note
       for (let k = this.thumps.length - 1; k >= 0; k--) {
         const Th = this.thumps[k]; Th.t += dt;
@@ -393,7 +489,7 @@ export class EngineDSP {
         const sw = (wTop * wTop * .65 + build * build * .5) * (.25 + .75 * load) * p.scream[2];
         o += wail * sw * .085;
       }
-      if (p.mech) o += run(this.topF, nz * env) * .06 * revN * p.mech; // valvetrain / gear-driven mechanical rasp
+      if (p.mech) o += run(this.topF, nz * (v0 + v1) * .5) * .06 * revN * p.mech; // valvetrain / gear-driven mechanical rasp
 
       // ---- intake: runner resonance gated by the firing events + induction roar with boost ----
       const intakeLvl = (p.intake ? p.intake[1] : .6) * (t.intake ?? .35);
@@ -449,11 +545,17 @@ export class EngineDSP {
         o += (Math.sin(this.blowerPh * 6.2832) * .6 + Math.sin(this.blowerPh * 12.566) * .25) * (p.blower || 1) * (.15 + .85 * load) * rn * .005 * (t.turbo ?? .8);
       }
 
-      const dcOut = o - this.dcIn + .996 * this.dc;
-      this.dcIn = o; this.dc = dcOut;
-      out[i] = Math.tanh(run(this.soft2, run(this.soft, dcOut)) * .9) * this.gain * outGain;
+      // ---- per side: DC block, gentle top, soft clip ----
+      const g = this.gain * outGain;
+      let L = o0 + o, R = o1 + o;
+      const dL = L - B0.dcIn + .996 * B0.dc; B0.dcIn = L; B0.dc = dL;
+      const dR = R - B1.dcIn + .996 * B1.dc; B1.dcIn = R; B1.dc = dR;
+      L = Math.tanh(run(B0.soft, dL) * .9) * g;
+      R = Math.tanh(run(B1.soft, dR) * .9) * g;
+      if (outR) { out[i] = L; outR[i] = R; } else out[i] = (L + R) * .5;
     }
     const decay = Math.max(.15, t.decay) * (sport ? 1 : .4);
     this.crackle *= Math.exp(-n / sr / decay);
   }
+
 }

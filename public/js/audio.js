@@ -13,12 +13,13 @@ class EngineVoice {
     this.out.connect(this.pan);
     this.pan.connect(am.engineBus);
     if (am.worklet) {
-      this.node = new AudioWorkletNode(ctx, "engine-processor", { outputChannelCount: [1] });
+      // stereo: the synth runs one pipe per side (see engine-dsp.js)
+      this.node = new AudioWorkletNode(ctx, "engine-processor", { outputChannelCount: [2] });
       this.post = (m) => this.node.port.postMessage(m);
     } else {
       const dsp = new EngineDSP(ctx.sampleRate);
-      this.node = ctx.createScriptProcessor(1024, 0, 1);
-      this.node.onaudioprocess = (e) => dsp.process(e.outputBuffer.getChannelData(0));
+      this.node = ctx.createScriptProcessor(1024, 0, 2);
+      this.node.onaudioprocess = (e) => dsp.process(e.outputBuffer.getChannelData(0), e.outputBuffer.getChannelData(1));
       this.post = (m) => dsp.message(m);
     }
     this.node.connect(this.out);
