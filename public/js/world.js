@@ -37,7 +37,6 @@ export function tunnelAmount(z) {
   if (!sp) return 0;
   return Math.max(0, Math.min(1, Math.min(sp[0] - z, z - sp[1]) / 30 + .5));
 }
-export const biomeAt = (z) => (hash(Math.floor(-z / CYCLE), 77) < .5 || Math.floor(-z / CYCLE) === 0 ? "desert" : "green");
 
 // The road surface, baked once. 23m across by TILE metres along, so everything here is authored in
 // metres and converted at the end. It carries the things you actually see on a highway: aggregate,
@@ -334,6 +333,43 @@ class Batch {
 const BLDG_COLORS = [0x8f8a86, 0xa89f94, 0x6f7a86, 0x5c6470, 0xb8b0a2, 0x7d6f64, 0x4e5866, 0x9aa6b0, 0xc2b8a8, 0x6a5e58];
 const NEON = [0xff2d95, 0x28e0ff, 0xffd12a, 0x7cff5a, 0xa05bff];
 const ROCK = [[0xc9763f, 0xe0955a], [0xb8663a, 0xd98a52], [0xa95b36, 0xcf7e4a]];
+const SNOW_ROCK = [[0x8a9098, 0xc4cdd4], [0x7c848c, 0xb0bac2], [0x6e777f, 0x9ea8b0]];
+
+// Four stretches of highway, picked by a coin toss every CYCLE metres (see biomeAt below). Each one
+// carries every colour and density knob the scenery code below reads, so a new biome is just a new
+// entry here rather than a change scattered through highwayScenery/rebuild.
+const BIOME = {
+  desert: {
+    hillCol: 0xc9763f, ridge: 0xc2a068, ground: 0xe2b875,
+    tuft: [0x9c8a52, 0xab9760, 0x8a7a48, 0xb8a672], tuftTall: .7,
+    horizon: [0xb07a4a, 0x9c7a63, 0x8c8090], rock: ROCK, plantDensity: 8, leafy: false,
+  },
+  green: {
+    hillCol: 0x5e9a48, ridge: 0x53823c, ground: 0x7fae5a,
+    tuft: [0x4a7c34, 0x568a3c, 0x3f6e2e, 0x6b9445], tuftTall: 1.1,
+    horizon: [0x4a7340, 0x51707a, 0x5d7486], rock: null, plantDensity: 11, leafy: true,
+    leaf: { conifer: [0x2c6633, 0x27592c], broad: 0x4a9a3e, scrub: [0x3f8a3a, 0x55a347] },
+  },
+  snow: {
+    hillCol: 0xb7c1c8, ridge: 0xaab4bc, ground: 0xd9e1e6,
+    tuft: [0xc7ced4, 0xb3bcc4, 0x9ea8b0, 0xd6dde2], tuftTall: .6,
+    horizon: [0x8a97a6, 0x9aa6b4, 0xb0bcc8], rock: SNOW_ROCK, rockCap: 0xeef3f6, plantDensity: 7, leafy: true,
+    leaf: { conifer: [0x223c2c, 0x1c3226], broad: 0x2e4a38, scrub: [0x2a4232, 0x35513e] },
+  },
+  plains: {
+    hillCol: 0xc4ac4e, ridge: 0xbfa858, ground: 0xd8c26a,
+    tuft: [0xc9b357, 0xd6c268, 0xb89f45, 0xe0cd7c], tuftTall: .85,
+    horizon: [0xb89a52, 0xa89868, 0x9c9070], rock: null, plantDensity: 3, leafy: true,
+    leaf: { conifer: [0x6a7a34, 0x5c6c2c], broad: 0x8a9a4a, scrub: [0x7a8a40, 0x94a456] },
+  },
+};
+const BIOME_NAMES = Object.keys(BIOME);
+// A biome runs for a whole CYCLE-metre stretch, picked by a hash so every player in a party sees the
+// same one. Block 0 (the spawn) is always desert, so the run always opens the same way.
+export const biomeAt = (z) => {
+  const b = Math.floor(-z / CYCLE);
+  return b === 0 ? "desert" : BIOME_NAMES[Math.floor(hash(b, 77) * BIOME_NAMES.length)];
+};
 
 export class World {
   constructor(renderer, scene) {
@@ -445,7 +481,7 @@ export class World {
       const r = (i) => hash(k, i, 911);
       const tun = tunnelSpan(z);
       if (tun) {
-        const hillCol = c >= .5 ? 0x8a8780 : biome === "green" ? 0x5e9a48 : 0xc9763f;
+        const hillCol = c >= .5 ? 0x8a8780 : BIOME[biome].hillCol;
         for (const [wx, face] of [[13.8, 1], [-13.8, -1]]) {
           B.tWall.add(wx, 0, z, .8, 9, SEG + .02);
           B.tBand.add(wx - face * .42, 0, z, .04, 1.25, SEG + .02);
@@ -536,19 +572,21 @@ export class World {
         const openK = 1 - c;
         this.highwayFurniture(B, k, z, openK, biome);
         this.highwayScenery(B, k, z, openK, biome, this.density);
-        if (biome === "desert") {
+        if (BIOME[biome].rock) {
           // canyon walls, broken up so the same block never repeats down the road
+          const { rock: pal0, rockCap } = BIOME[biome];
           for (const side of [1, -1]) {
             let zz = k * SEG, i = 0;
             while (zz < (k + 1) * SEG) {
               const len = 12 + r(side * 200 + i) * 26, dep = 22 + r(side * 210 + i) * 44;
               const h = (10 + r(side * 220 + i) * 38) * openK;
               const x = side * (78 + r(side * 230 + i) * 46 + dep / 2);
-              const pal = ROCK[(r(side * 240 + i) * ROCK.length) | 0];
+              const pal = pal0[(r(side * 240 + i) * pal0.length) | 0];
               const yaw = (r(side * 260 + i) - .5) * .5;
               B.rock.add(x, 0, zz + len / 2, dep, h * .55, len, pal[0], yaw);
               B.rock.add(x + side * dep * .12, h * .55, zz + len / 2, dep * .8, h * .45, len * .9, pal[1], yaw);
-              if (r(side * 250 + i) < .45) B.rock.add(x + side * dep * .2, h, zz + len / 2, dep * .45, h * .3, len * .6, pal[0], yaw * 1.6);
+              // a snow-capped peak shows up more often than the plain rocky spur other biomes get
+              if (r(side * 250 + i) < (rockCap ? .7 : .45)) B.rock.add(x + side * dep * .2, h, zz + len / 2, dep * .45, h * .3, len * .6, rockCap || pal[0], yaw * 1.6);
               zz += len; i++;
             }
           }
@@ -700,14 +738,13 @@ export class World {
   highwayScenery(B, k, z, openK, biome, density) {
     const r = (i) => hash(k, i, 613);
     const z0 = k * SEG;
-    const green = biome === "green";
-    const TUFT = green ? [0x4a7c34, 0x568a3c, 0x3f6e2e, 0x6b9445] : [0x9c8a52, 0xab9760, 0x8a7a48, 0xb8a672];
+    const bio = BIOME[biome], leafy = bio.leafy;
 
     // ---- the verge: a graded embankment either side, so the road is not laid on a flat plane ----
     for (const side of [1, -1]) {
       const bh = .5 + hash(k, side * 7) * 1.1;
       const halfW = 9;                                   // semi-axis, so this spans 18m across
-      B.ridge.add(side * (16 + halfW), -bh * .55, z, halfW, bh, SEG * .34, green ? 0x53823c : 0xc2a068);
+      B.ridge.add(side * (16 + halfW), -bh * .55, z, halfW, bh, SEG * .34, bio.ridge);
     }
 
     // ---- grass and scrub, thickest at the verge and thinning outwards ----
@@ -719,30 +756,30 @@ export class World {
       const x = side * (14.5 + t * 85);
       const zz = z0 + r(i + 400) * SEG;
       const sc = .4 + r(i + 600) * .9;
-      B.tuft.add(x, 0, zz, sc * .7, sc * (green ? 1.1 : .7), sc * .7,
-        TUFT[(r(i + 800) * TUFT.length) | 0], r(i + 1000) * 6.283);
+      B.tuft.add(x, 0, zz, sc * .7, sc * bio.tuftTall, sc * .7,
+        bio.tuft[(r(i + 800) * bio.tuft.length) | 0], r(i + 1000) * 6.283);
     }
 
     // ---- bigger plants: never the same size, never the same angle, never evenly spaced ----
-    const pn = Math.round((green ? 11 : 8) * openK * density);
+    const pn = Math.round(bio.plantDensity * openK * density);
     for (let i = 0; i < pn; i++) {
       const side = r(i + 30) < .5 ? 1 : -1;
       const x = side * (18 + r(i + 50) ** 1.6 * 70);
       const zz = z0 + r(i + 70) * SEG;
       const sc = .7 + r(i + 90) * 1.5;
       const yaw = r(i + 110) * 6.283;
-      if (green) {
+      if (leafy) {
         if (r(i + 130) < .68) {                       // tree, three silhouettes
-          const kind = r(i + 150);
+          const kind = r(i + 150), leaf = bio.leaf;
           B.trunk.add(x, 0, zz, .3 * sc, 2.4 * sc, .3 * sc, undefined, yaw);
           if (kind < .4) {                            // tall conifer
-            B.crown.add(x, 3.4 * sc, zz, 1.5 * sc, 3.2 * sc, 1.5 * sc, 0x2c6633, yaw);
-            B.crown.add(x, 5.2 * sc, zz, 1 * sc, 2 * sc, 1 * sc, 0x27592c, yaw);
+            B.crown.add(x, 3.4 * sc, zz, 1.5 * sc, 3.2 * sc, 1.5 * sc, leaf.conifer[0], yaw);
+            B.crown.add(x, 5.2 * sc, zz, 1 * sc, 2 * sc, 1 * sc, leaf.conifer[1], yaw);
           } else if (kind < .78) {                    // broad round crown
-            B.crown.add(x, 3.6 * sc, zz, 2.4 * sc, 2.1 * sc, 2.4 * sc, 0x4a9a3e, yaw);
+            B.crown.add(x, 3.6 * sc, zz, 2.4 * sc, 2.1 * sc, 2.4 * sc, leaf.broad, yaw);
           } else {                                    // scrubby, two lobes
-            B.crown.add(x - .5 * sc, 3 * sc, zz, 1.6 * sc, 1.5 * sc, 1.6 * sc, 0x3f8a3a, yaw);
-            B.crown.add(x + .6 * sc, 3.4 * sc, zz, 1.3 * sc, 1.3 * sc, 1.3 * sc, 0x55a347, yaw);
+            B.crown.add(x - .5 * sc, 3 * sc, zz, 1.6 * sc, 1.5 * sc, 1.6 * sc, leaf.scrub[0], yaw);
+            B.crown.add(x + .6 * sc, 3.4 * sc, zz, 1.3 * sc, 1.3 * sc, 1.3 * sc, leaf.scrub[1], yaw);
           }
         } else {
           B.bush.add(x, sc * .3, zz, sc, sc * .6, sc, undefined, yaw);
@@ -789,7 +826,7 @@ export class World {
         B.pier.add(px, deckY - .5, bz, 2.6, .5, 3.2);   // pier cap
       }
       // the embankment each end of the bridge
-      for (const side of [1, -1]) B.ridge.add(side * 46, -2.5, bz, 12, 5.5, 7, green ? 0x53823c : 0xc2a068);
+      for (const side of [1, -1]) B.ridge.add(side * 46, -2.5, bz, 12, 5.5, 7, bio.ridge);
     }
 
     // ---- the far horizon: layered ridges so the sky never meets flat ground ----
@@ -801,8 +838,7 @@ export class World {
           const dist = inner + wid;                                   // placed by its near edge
           const hgt = (30 + hash(k, side * 70 + band) * 62) * (1 - band * .1);
           // each band further out is hazier, which reads as depth
-          const base = green ? [0x4a7340, 0x51707a, 0x5d7486] : [0xb07a4a, 0x9c7a63, 0x8c8090];
-          B.ridge.add(side * dist, -hgt * .45, z + hash(k, band) * SEG, wid, hgt, SEG * 1.1, base[band]);
+          B.ridge.add(side * dist, -hgt * .45, z + hash(k, band) * SEG, wid, hgt, SEG * 1.1, bio.horizon[band]);
         }
       }
       // and something man-made out there, so it is not all landscape
@@ -828,8 +864,8 @@ export class World {
     this.ground.position.set(Math.round(focus.x / 50) * 50, -.03, Math.round(focus.z / 50) * 50);
     this.sandTex.offset.set(this.ground.position.x / 15, -this.ground.position.z / 15);
 
-    const c = cityAt(focus.z), green = biomeAt(focus.z) === "green";
-    const gcol = new THREE.Color(green ? 0x7fae5a : 0xe2b875).lerp(new THREE.Color(0x8a8780), c);
+    const c = cityAt(focus.z), bioGround = BIOME[biomeAt(focus.z)].ground;
+    const gcol = new THREE.Color(bioGround).lerp(new THREE.Color(0x8a8780), c);
     this.groundMat.color.lerp(gcol, Math.min(1, dt * 1.5));
 
     const wet = sky.w.wet;
