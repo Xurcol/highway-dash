@@ -546,6 +546,7 @@ function applyTune() {
     G.cfgDirty = 1;
     G.dt.mode = P.settings.driveMode;
     G.dt.engineBrake = tune.engineBrake;
+    G.dt.drive = s.drive;          // an AWD conversion changes which wheels the Drivetrain drives
   }
 }
 // Traffic near the spawn point can't hit you for 2 s, and stays harmless until it's clear of you.

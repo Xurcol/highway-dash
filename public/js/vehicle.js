@@ -129,7 +129,7 @@ export class Drivetrain {
     // how much of the car's weight sits on the driven wheels (weight transfers rearward under power)
     const accelShare = Math.max(0, Math.min(.12, this.accel / G * .25));
     const onDriven = this.drive === "awd" ? 1 : this.drive === "fwd" ? .6 - accelShare : .56 + accelShare;
-    const limit = s.mass * G * s.grip * onDriven * (this.surface ?? 1) * 1.45;
+    const limit = s.mass * G * s.grip * onDriven * (this.surface ?? 1) * 1.45 * (s.gripCal ?? 1);
     // The tyres never slip: there is no wheelspin, so no smoke, no squeal and nothing for a traction
     // system to cut. The grip limit still caps how hard the car can pull, it just holds instead of spinning.
     this.wheelspin = 0;

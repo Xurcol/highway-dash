@@ -6,6 +6,7 @@
 // Nothing here is random - the same tune always produces the same curve, and every parameter has a
 // monotonic, explainable effect (more boost -> more pressure -> more torque -> more heat and stress).
 import { CARS, specOf } from "./cars.js";
+import { Drivetrain } from "./vehicle.js";
 const carById = (id) => CARS.find((c) => c.id === id) || CARS[0];
 
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
@@ -123,6 +124,7 @@ export const PARTS = {
       stock: { label: "Road tires", grip: 1 },
       sport: { label: "Sport tires", grip: 1.07 },
       slick: { label: "Semi-slicks", grip: 1.15 },
+      drag: { label: "Drag radials", grip: 1.3 },
     },
   },
   brakes: {
@@ -160,6 +162,15 @@ export const PARTS = {
       stock: { label: "Stock gearbox", shift: 1 },
       sport: { label: "Solid mounts + TCU", shift: .78 },
       race: { label: "Dog-box conversion", shift: .58 },
+      seq: { label: "Sequential race gearbox", shift: .42 },
+    },
+  },
+  // Rear-drive cars put roughly half their weight on the driven wheels; AWD puts all of it there,
+  // which is the biggest single launch gain there is (only offered on cars that are not AWD already).
+  drivetrain: {
+    label: "Drivetrain", chassis: true, opts: {
+      stock: { label: "Factory layout" },
+      awd: { label: "AWD conversion", drive: "awd" },
     },
   },
   weight: {
@@ -167,6 +178,7 @@ export const PARTS = {
       stock: { label: "Full interior", mass: 1 },
       stage1: { label: "Stripped interior", mass: .96 },
       stage2: { label: "Carbon panels + cage", mass: .91 },
+      stage3: { label: "Race shell", mass: .85 },
     },
   },
 };
@@ -180,7 +192,7 @@ export const TUNE_RANGE = {
   timing: [-6, 8, .5, "deg"],
   afr: [10.4, 14.7, .1, ":1"],
   revLimit: [3000, 9500, 50, "rpm"],
-  final: [2.2, 5.6, .01, ""],
+  final: [2.2, 6.4, .01, ""],
   gearing: [.82, 1.2, .01, "x"],
   burble: [0, 2, .05, ""],
   burbleVol: [0, 3, .05, ""],   // how loud the pops, bangs and burbles are (not how often they happen)
@@ -201,7 +213,7 @@ export function defaultTune(car) {
     final: s.final,
     gearing: 1,
     intake: "stock", exhaust: "stock", catalyst: "stock", turbo: "stock", intercooler: "stock", fuel: "stock",
-    tires: "stock", brakes: "stock", suspension: "stock", transmission: "stock", weight: "stock", remap: "stock", internals: "stock", diff: "stock", aero: "stock",
+    tires: "stock", brakes: "stock", suspension: "stock", transmission: "stock", drivetrain: "stock", weight: "stock", remap: "stock", internals: "stock", diff: "stock", aero: "stock",
     burble: .75, burbleVol: 1, aggr: 1, decay: 1.1, mix: .2, brap: true, release: "flutter", engineBrake: 1,
   };
 }
@@ -220,6 +232,7 @@ export function normalizeTune(car, stored) {
     }
   }
   if (e.induction === "super" && t.turbo !== "stock") t.turbo = "stock"; // no T51R on a blower
+  if ((DRIVE_LAYOUT[car.id] || "rwd") === "awd") t.drivetrain = "stock";
   t.revLimit = clamp(t.revLimit, s.redline * .8, e.maxRev || s.redline);
   t.boost = isForced(e, t) ? clamp(t.boost, 4, maxBoostFor(e, t)) : 0;
   t.brap = !!t.brap;
@@ -288,7 +301,11 @@ function knockAndTiming(e, tune, rpm, boost) {
   return { iat, knock, pulled, timing: tune.timing - pulled };
 }
 
-function afrFactor(e, afr) {
+// The richest-power mixture depends on whether the engine is boosted - including an NA engine with a
+// turbo kit bolted on, which is why the tune is needed here. (It used to read an undeclared `tune`,
+// which in the browser silently resolved to the #tune element, so converted engines always got the
+// NA target and lost power.)
+function afrFactor(e, afr, tune) {
   const best = isForced(e, tune) ? 11.9 : 12.8;
   const d = (afr - best) / best;
   return clamp(1 - (d > 0 ? 3.1 : 1.5) * d * d, .72, 1.02);
@@ -302,7 +319,7 @@ function rawTorque(e, tune, rpm, cal) {
   const dens = 1 - clamp((iat - 25) / 900, 0, .16);                  // hot charge = less mass
   const pr = 1 + boost / ATM;
   const over = Math.max(0, rpm - tune.revLimit) / 400;               // torque dies past the limiter
-  return cal * e.disp * ve(e, rpm, tune.revLimit, isForced(e, tune)) * pr * dens * parts * (1 + .016 * timing) * afrFactor(e, tune.afr) * partOpt("fuel", tune.fuel || "stock").power * partOpt("remap", tune.remap || "stock").power * Math.exp(-over * over);
+  return cal * e.disp * ve(e, rpm, tune.revLimit, isForced(e, tune)) * pr * dens * parts * (1 + .016 * timing) * afrFactor(e, tune.afr, tune) * partOpt("fuel", tune.fuel || "stock").power * partOpt("remap", tune.remap || "stock").power * Math.exp(-over * over);
 }
 
 // One constant per car, solved so that the STOCK tune peaks at exactly the car's spec torque.
@@ -342,34 +359,87 @@ export function dyno(car, tune, step = 100) {
   return out;
 }
 
-// Acceleration / top speed from the tuned curve, integrated with the car's own gearbox.
-export function performance(car, tune) {
-  const s = specOf(car), ratios = s.ratios.map((r) => r * tune.gearing), final = tune.final;
-  const wheel = (g) => (ratios[g] * final) / s.tire;
-  const rpmAt = (v, g) => (v / (2 * Math.PI * s.tire)) * 60 * ratios[g] * final;
-  let v = 0, g = 0, t = 0, t100 = null;
-  const dt = .02;
-  for (let i = 0; i < 4000 && v * 3.6 < 400; i++) {
-    const rpm = clamp(rpmAt(v, g), s.idle, tune.revLimit);
-    if (rpm >= tune.revLimit - 20 && g < ratios.length - 1) { g++; t += s.shiftTime; continue; }
-    const F = torqueAt(car, tune, rpm) * wheel(g) * .97 - .5 * 1.2 * s.cda * v * v - .013 * s.mass * 9.81;
-    v = Math.max(0, v + (Math.min(F, s.mass * 9.81 * s.grip * 1.3) / s.mass) * dt);
-    t += dt;
-    if (t100 === null && v * 3.6 >= 100) t100 = t;
-    if (F < 1 && v > 20) break;
+// Which wheels this tuned car drives: its own layout, unless an AWD conversion is fitted.
+export const driveOf = (car, tune) => partOpt("drivetrain", tune?.drivetrain).drive || DRIVE_LAYOUT[car.id] || "rwd";
+const MPH60 = 26.8224; // m/s
+// Published stock 0-60 mph times (s) for the exact variant each car is. A stock car does this in the
+// game; parts make it quicker from there.
+export const ZERO60 = {
+  b330i: 5.6, a4: 5.2, c43: 4.6, golfr: 4.5, q50: 4.5, m240i: 4.1, q60: 4.5, m340i: 4.1, supra: 3.9, rs3: 3.6,
+  m2: 3.9, c63: 3.8, x3m: 3.7, m3: 3.8, charger: 3.6, carrera: 3.4, m5: 2.9, m4: 3.8, rs6: 3.5, e63: 3.3,
+  x5m: 3.7, x6m: 3.7, gtr: 2.9, c8: 2.9, gt3rs: 3.0, svj: 2.8, chiron: 2.3, laferrari: 2.4,
+};
+// Time to 60 mph, measured by running the game's own Drivetrain flat out from a standstill - so the
+// number in the menus is exactly what happens on the road, not a separate approximation of it.
+function run060(spec) {
+  const d = new Drivetrain(spec);
+  d.warmth = 1; d.manual = false; d.mode = "sport";
+  const dt = 1 / 120;
+  for (let i = 1; i <= 120 * 20; i++) { d.update(dt, 1, 0); if (d.v >= MPH60) return i * dt; }
+  return 99;
+}
+// One traction constant per car, solved once so the STOCK car does its real 0-60. Launch pace is set by
+// how much force the tyres will take, and that is the part of a real car (tyre compound, launch
+// control, weight transfer, diff) the simple grip model cannot know - so it is the part calibrated.
+// Tyres, diff, weight, gearbox, AWD and power upgrades all still work on top of it.
+const gripCalCache = new Map();
+export function gripCal(car) {
+  if (gripCalCache.has(car.id)) return gripCalCache.get(car.id);
+  let k = 1;
+  const target = ZERO60[car.id];
+  if (target) {
+    const stock = normalizeTune(car, {});
+    let lo = .2, hi = 4;
+    for (let i = 0; i < 20; i++) { const mid = (lo + hi) / 2; if (run060(physSpec(car, stock, mid)) > target) lo = mid; else hi = mid; }
+    k = (lo + hi) / 2;
   }
+  gripCalCache.set(car.id, k);
+  return k;
+}
+// The physics of a tuned car, everything the Drivetrain drives with.
+function physSpec(car, t, cal) {
+  const s = specOf(car), e = engineOf(car);
+  return {
+    ...s,
+    ratios: s.ratios.map((r) => r * t.gearing),
+    final: t.final,
+    redline: t.revLimit,
+    grip: s.grip * partOpt("tires", t.tires).grip * partOpt("diff", t.diff).grip,
+    gripCal: cal,
+    cda: s.cda * partOpt("aero", t.aero).drag,
+    mass: s.mass * partOpt("weight", t.weight).mass,
+    shiftTime: s.shiftTime * partOpt("transmission", t.transmission).shift,
+    brakeMul: partOpt("brakes", t.brakes).brake,
+    handlingMul: partOpt("suspension", t.suspension).handling * partOpt("aero", t.aero).handling,
+    torqueAt: (rpm) => torqueAt(car, t, rpm),
+    boostAt: (rpm) => boostCurve(e, t, rpm),
+    boostMax: maxBoostFor(e, t),
+    turboLag: isForced(e, t) && e.induction !== "super" ? partOpt("turbo", t.turbo).lag : 0,
+    induction: e.induction,
+    engineBrakeTune: t.engineBrake,
+    drive: driveOf(car, t),
+    eth: partOpt("fuel", t.fuel).eth,
+    decay: t.decay,          // the HUD/flame code needs to know about a single-bang tune
+    antiLag: isForced(e, t) && e.induction !== "super",
+  };
+}
+// Acceleration and top speed for a car + tune.
+export function performance(car, tune) {
+  const p = physSpec(car, tune, gripCal(car)), s = specOf(car);
+  const wheel = (g) => (p.ratios[g] * p.final) / s.tire;
+  const rpmAt = (v, g) => (v / (2 * Math.PI * s.tire)) * 60 * p.ratios[g] * p.final;
   // top speed solved per gear (rev limit vs the speed where thrust equals drag) rather than read off
-  // the integration, so it doesn't wobble with the step size
+  // an integration, so it doesn't wobble with the step size
   let best = 0;
-  for (let g = 0; g < ratios.length; g++) {
-    const vRev = (tune.revLimit / 60 / (ratios[g] * final)) * 2 * Math.PI * s.tire;
+  for (let g = 0; g < p.ratios.length; g++) {
+    const vRev = (tune.revLimit / 60 / (p.ratios[g] * p.final)) * 2 * Math.PI * s.tire;
     for (let u = vRev; u > 5; u -= .1) {
       const rpm = rpmAt(u, g);
       if (rpm < s.idle) break;
-      if (torqueAt(car, tune, rpm) * wheel(g) * .9 - .5 * 1.2 * s.cda * u * u - .013 * s.mass * 9.81 >= 0) { best = Math.max(best, u); break; }
+      if (torqueAt(car, tune, rpm) * wheel(g) * .9 - .5 * 1.2 * p.cda * u * u - .013 * p.mass * 9.81 >= 0) { best = Math.max(best, u); break; }
     }
   }
-  return { topKmh: best * 3.6, zeroTo100: t100 || 99 };
+  return { topKmh: best * 3.6, zeroTo60: run060(p) };
 }
 
 // Peak power the car leaves the factory with - the yardstick for "how far past stock is this?"
@@ -398,7 +468,7 @@ export function summary(car, tune) {
     boost3: at(3000).boost, boost4: at(4000).boost, boost5: at(5000).boost,
     iat: Math.round(pk((p) => p.iat).iat), egt: Math.round(pk((p) => p.egt).egt),
     knock: pk((p) => p.knock).knock, pulled: Math.round(pk((p) => p.pulled).pulled),
-    stress, stressRaw, topKmh: perf.topKmh, zeroTo100: perf.zeroTo100, curve,
+    stress, stressRaw, topKmh: perf.topKmh, zeroTo60: perf.zeroTo60, curve,
   };
 }
 
@@ -445,31 +515,8 @@ export const DRIVE_LAYOUT = {
 };
 // Physics view of a tuned car, handed to the Drivetrain.
 export function tunedSpec(carId, tune) {
-  const car = carById(carId), s = specOf(car), e = engineOf(car);
-  const t = normalizeTune(car, tune);
-  return {
-    ...s,
-    ratios: s.ratios.map((r) => r * t.gearing),
-    final: t.final,
-    redline: t.revLimit,
-    grip: s.grip * partOpt("tires", t.tires).grip * partOpt("diff", t.diff).grip,
-    cda: s.cda * partOpt("aero", t.aero).drag,
-    mass: s.mass * partOpt("weight", t.weight).mass,
-    shiftTime: s.shiftTime * partOpt("transmission", t.transmission).shift,
-    brakeMul: partOpt("brakes", t.brakes).brake,
-    handlingMul: partOpt("suspension", t.suspension).handling * partOpt("aero", t.aero).handling,
-    torqueAt: (rpm) => torqueAt(car, t, rpm),
-    boostAt: (rpm) => boostCurve(e, t, rpm),
-    peakTorque: summaryCache(car, t).nm,
-    boostMax: maxBoostFor(e, t),
-    turboLag: isForced(e, t) && e.induction !== "super" ? partOpt("turbo", t.turbo).lag : 0,
-    induction: e.induction,
-    engineBrakeTune: t.engineBrake,
-    drive: DRIVE_LAYOUT[car.id] || "rwd",
-    eth: partOpt("fuel", t.fuel).eth,
-    decay: t.decay,          // the HUD/flame code needs to know about a single-bang tune
-    antiLag: isForced(e, t) && e.induction !== "super",
-  };
+  const car = carById(carId), t = normalizeTune(car, tune);
+  return { ...physSpec(car, t, gripCal(car)), peakTorque: summaryCache(car, t).nm };
 }
 
 // Auto-map: the most boost and timing this car's parts and fuel can take while staying clear of knock.

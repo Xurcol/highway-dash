@@ -5,7 +5,7 @@ import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAIN
 import { FINISHES, TINTS, STANCES, FITMENT } from "./cars.js";
 import { stylePrice, STYLE_PRICES } from "./economy.js";
 import { SOUND_LABELS } from "./engine-dsp.js";
-import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, isForced, summary, defaultTune, maxBoostFor, peakHp, stageMap } from "./tuning.js";
+import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, isForced, summary, summaryCache, defaultTune, maxBoostFor, peakHp, stageMap, DRIVE_LAYOUT } from "./tuning.js";
 import { partPrice, TUNING_PRICES, COSMETIC_PRICES, fmtCoins, CAR_PRICES } from "./economy.js";
 import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
@@ -410,7 +410,8 @@ export class UI {
     $("paintPick").value = "#" + col.toString(16).padStart(6, "0");
     this.renderStyle(car);
     $("ciEngine").textContent = engineOf(car).label; // the engine belongs to the car - no swapping
-    $("ciTop").textContent = `Top speed ${Math.round(st.top * MPH)} mph · ${spec.torque} Nm`;
+    const sumNow = summaryCache(car, carTune(car.id));
+    $("ciTop").textContent = `${Math.round(sumNow.hp)} hp · ${Math.round(sumNow.nm)} Nm · 0-60 ${sumNow.zeroTo60.toFixed(1)} s`;
     const a = $("ciAction");
     if (P.equipped === car.id) { a.textContent = "EQUIPPED"; a.className = "btn gray wide"; }
     else if (P.owned.includes(car.id)) { a.textContent = "EQUIP"; a.className = "btn blue wide"; }
@@ -1050,7 +1051,7 @@ export class UI {
       cell("Torque", sum.nm, fresh?.nm, (v) => `${f0(v)} Nm`) +
       (boosted ? cell("Peak boost", sum.peakBoost, fresh?.peakBoost, (v) => `${f1(v)} psi`) : "") +
       cell("Top speed", sum.topKmh, fresh?.topKmh, (v) => `${f0(v * MPH)} mph`) +
-      cell("0-100", sum.zeroTo100, fresh?.zeroTo100, (v) => `${v.toFixed(2)} s`) +
+      cell("0-60", sum.zeroTo60, fresh?.zeroTo60, (v) => `${v.toFixed(2)} s`) +
       `<div class="tnum stress ${sum.stress.toLowerCase()}"><span>Engine stress</span><b>${sum.stress}</b></div>` +
       `<div class="tnum"><span>vs stock</span><b>${sum.hp >= stock.hp ? "+" : ""}${f0(sum.hp - stock.hp)} hp</b></div>`;
 
@@ -1122,6 +1123,7 @@ export class UI {
   // A factory-turbo upgrade only bolts to an engine that already has a turbo; a conversion kit
   // only makes sense on one that does not.
   optFits(kind, key, e) {
+    if (kind === "drivetrain") return key === "stock" || (DRIVE_LAYOUT[this.view] || "rwd") !== "awd";
     if (kind !== "turbo") return true;
     const o = PARTS.turbo.opts[key] || {};
     if (e.induction === "super") return key === "stock";
@@ -1172,6 +1174,12 @@ export class UI {
     if (o.handling !== undefined) return o.handling === 1 ? "Standard response" : `+${Math.round((o.handling - 1) * 100)}% turn-in`;
     if (o.shift !== undefined) return o.shift === 1 ? "Standard shifts" : `${Math.round((1 - o.shift) * 100)}% quicker shifts`;
     if (o.mass !== undefined) return o.mass === 1 ? "Standard weight" : `−${Math.round(specOf(car).mass * (1 - o.mass))} kg`;
+    // drivetrain: show what it does to the launch, from the same estimate the stats panel uses
+    if (kind === "drivetrain") {
+      if (!o.drive) return `Factory ${(DRIVE_LAYOUT[car.id] || "rwd").toUpperCase()}`;
+      const a = summaryCache(car, { ...t, drivetrain: "stock" }).zeroTo60, b = summaryCache(car, { ...t, drivetrain: key }).zeroTo60;
+      return `All four wheels driven · 0-60 ${a.toFixed(2)} → ${b.toFixed(2)} s`;
+    }
     return "";
   }
   renderFitted(t) {
@@ -1186,7 +1194,7 @@ export class UI {
     const [lo, hi, step] = TUNE_RANGE[key], s = specOf(car), e = engineOf(car), t = this.effTune();
     if (key === "revLimit") return [Math.round(s.redline * .8), Math.round(e.maxRev || s.redline), 50];
     if (key === "boost") return [4, Math.round(maxBoostFor(e, t)), .5];
-    if (key === "final") return [+(s.final * .75).toFixed(2), +(s.final * 1.3).toFixed(2), .01];
+    if (key === "final") return [+(s.final * .75).toFixed(2), +(s.final * 1.45).toFixed(2), .01];
     return [lo, hi, step];
   }
   // ---------- music ----------
