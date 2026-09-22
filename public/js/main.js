@@ -165,22 +165,58 @@ show.add(showDeco);
 }
 const DISC_TOP = .085;   // top face of the turntable: cars stand on this, not on y = 0
 let showCar = null, showCarId = null, showSpin = -0.6, dragging = false;
+// showCarId is the car the garage is SHOWING OR ABOUT TO SHOW (paint and style edits go to it);
+// shownId is the one actually on the turntable. They differ for the moment a newly picked car's
+// shaders are compiling in the background.
+let shownId = null, pendingShow = null;
+// Picking a car used to freeze the game for up to a second. Measured: building the car takes ~5 ms and
+// parsing its model ~100 ms, but the first frame that draws it had to compile 3-8 shader programs on the
+// main thread (~300-600 ms), and every switch paid it again because the previous car's materials - and
+// with them its shaders - were thrown away. Now the new car's shaders compile in the background
+// (renderer.compileAsync uses KHR_parallel_shader_compile) while the old car stays on the turntable,
+// and the two are swapped once the new one can be drawn without stalling.
 function setShowCar(id) {
   if (showCarId === id) return;
-  if (showCar) { show.remove(showCar.group); showCar.dispose(); }
-  const def = carById(id);
-  showCar = makeCar(def.id, carColor(id));
-  showCar.applyStyle?.(carStyle(id));
-  showCar.group.traverse((o) => (o.castShadow = true));
-  showCar.group.position.y = DISC_TOP;
-  show.add(showCar.group);
   showCarId = id;
-  if (hasModel(id) && !MODELS[id]) ensureModel(id).then((ok) => {
-    if (!ok || showCarId !== id || showOffKey) return;
-    showCarId = null; setShowCar(id);
-    Object.assign(ui.thumbs, makeThumbs([id])); if (state === "home") ui.renderHome();
+  if (pendingShow) { pendingShow.car?.dispose(); pendingShow = null; }   // superseded by a newer click
+  const build = () => {
+    const car = makeCar(id, carColor(id));
+    car.applyStyle?.(carStyle(id));
+    car.group.traverse((o) => (o.castShadow = true));
+    car.group.position.y = DISC_TOP;
+    return car;
+  };
+  const swapIn = (car) => {
+    if (showCar) { show.remove(showCar.group); showCar.dispose(); }
+    showCar = car; shownId = id; show.add(car.group);
+  };
+  if (!showCar) return swapIn(build());   // the very first car has nothing to stand in for it
+  // the old car stays on the turntable until the new one is loaded AND its shaders are ready
+  const p = pendingShow = { car: null };
+  (hasModel(id) && !MODELS[id] ? ensureModel(id) : Promise.resolve(true)).then(() => {
+    if (pendingShow !== p) return;
+    // the picture is normally cached already; re-rendering it compiled a second full set of
+    // shaders (the thumbnail setup lights the car differently) for a picture nobody needed
+    if (hasModel(id) && MODELS[id] && !thumbCache.get(id)) { Object.assign(ui.thumbs, makeThumbs([id])); if (state === "home") ui.renderHome(); }
+    p.car = build();
+    return warmCar(p.car, showCam, show).then(() => {
+      if (pendingShow !== p) return;     // a later click replaced it (and disposed it)
+      pendingShow = null;
+      swapIn(p.car);
+    });
   });
 }
+// Gets a car ready to be drawn without stalling: shaders compile in the background, then its textures
+// go up to the GPU one per tick (uploading a freshly loaded model's 13-30 textures in the first frame
+// that draws it was the last ~100-200 ms hitch).
+async function warmCar(car, cam, target) {
+  await renderer.compileAsync(car.group, cam, target).catch(() => {});
+  const seen = new Set();
+  car.group.traverse((o) => { if (o.isMesh) for (const m of [].concat(o.material)) for (const k of ["map", "normalMap", "roughnessMap", "metalnessMap", "emissiveMap", "aoMap", "alphaMap"]) if (m[k]) seen.add(m[k]); });
+  for (const t of seen) { renderer.initTexture(t); await new Promise((res) => setTimeout(res, 0)); }
+}
+// the garage car edits should go to: the one about to appear if a switch is in flight
+const showTarget = () => pendingShow?.car || showCar;
 const previewEl = document.getElementById("preview");
 previewEl.addEventListener("pointerdown", (e) => {
   if (e.target.closest("button")) return;
@@ -520,11 +556,12 @@ function shieldSpawn() {
   G.shieldT = 2;
 }
 const shieldHidden = () => (mode === "online" ? null : G.shield);
-function buildPlayerCar() {
+// prebuilt: a car whose shaders were already compiled in the background (see switchCar)
+function buildPlayerCar(prebuilt = null) {
   if (G.car) { scene.remove(G.car.group); G.car.dispose(); }
   G.def = carById(P.equipped);
-  G.car = makeCar(G.def.id, carColor(G.def.id));
-  G.car.applyStyle?.(carStyle(G.def.id));
+  G.car = prebuilt || makeCar(G.def.id, carColor(G.def.id));
+  if (!prebuilt) G.car.applyStyle?.(carStyle(G.def.id));
   scene.add(G.car.group);
   G.dt = makeDrivetrain();
   G.cfgDirty = 1;
@@ -888,13 +925,29 @@ function chatCommand(text) {
 // Swap the car under you without leaving the run or the server: same place, same speed, same session.
 // Other players see it because the identity block in the state stream (and the build broadcast) carries
 // the new car, and their client rebuilds that one remote car in place - no second car is ever created.
+// Mid-drive, the new car's shaders are compiled in the background first, so the swap never freezes
+// the game while you are driving; you keep the old car for the moment that takes.
+let switching = null;
 function switchCar(id) {
   if (!CARS.some((c) => c.id === id) || !P.owned.includes(id)) return ui.toast("You don't own that car yet", [], "warn");
-  if (id === G.def.id) return;
+  if (id === G.def.id || switching === id) return;
   if (!["ready", "drive"].includes(state)) return ui.toast("Can't switch cars right now", [], "warn");
+  switching = id;
+  (hasModel(id) && !MODELS[id] ? ensureModel(id) : Promise.resolve(true)).then(() => {
+    if (switching !== id) return;
+    const car = makeCar(id, carColor(id));
+    car.applyStyle?.(carStyle(id));
+    return warmCar(car, camera, scene).then(() => {
+      if (switching !== id || !["ready", "drive"].includes(state)) { if (switching === id) switching = null; car.dispose(); return; }
+      switching = null;
+      finishSwitch(id, car);
+    });
+  });
+}
+function finishSwitch(id, car) {
   const pos = G.car.group.position.clone(), rot = G.car.group.rotation.clone(), kmh = Math.max(0, G.dt.v * 3.6), manual = G.dt.manual;
   P.equipped = id; save();
-  buildPlayerCar();                      // removes the old car, builds the new one + drivetrain + engine voice
+  buildPlayerCar(car);                   // removes the old car, uses the new one + drivetrain + engine voice
   G.car.group.position.copy(pos); G.car.group.rotation.copy(rot);
   G.dt.manual = manual;
   if (state === "drive") { setSpeed(kmh); shieldSpawn(); G.ghostT = Math.max(G.ghostT, 2); }
@@ -1634,7 +1687,7 @@ function frame(now) {
       if (showCar) {
         showCar.group.rotation.y = showSpin;
         showCar.setLights?.(0, false, false, 0);   // headlights and DRLs stay lit so the look can be previewed
-        frameShowCam(carById(showCarId).body, rect.width / rect.height);
+        frameShowCam(carById(shownId || showCarId).body, rect.width / rect.height);
       }
       renderShowroom(rect);
     }
@@ -1797,13 +1850,14 @@ let showOffKey = null;
 function showOffCar(b) {
   if (!b || !CARS.some((c) => c.id === b.car)) return false;
   if (hasModel(b.car) && !MODELS[b.car]) ensureModel(b.car).then((ok) => { if (ok && showOffKey === JSON.stringify(b)) showOffCar(b); });
+  if (pendingShow) { pendingShow.car?.dispose(); pendingShow = null; }
   if (showCar) { show.remove(showCar.group); showCar.dispose(); }
   showCar = makeCar(b.car, b.col ?? carById(b.car).color);
   if (b.st) showCar.applyStyle?.(b.st);
   showCar.group.traverse((o) => (o.castShadow = true));
   showCar.group.position.y = DISC_TOP;
   show.add(showCar.group);
-  showCarId = b.car; showOffKey = JSON.stringify(b);
+  showCarId = shownId = b.car; showOffKey = JSON.stringify(b);
   return true;
 }
 function endShowOff() { if (!showOffKey) return; showOffKey = null; const id = showCarId; showCarId = null; setShowCar(ui.view || P.equipped); }
@@ -1850,9 +1904,9 @@ const ui = new UI({
   useCustomCam: () => { camMode = CUSTOM_CAM; P.settings.cam = camMode; G.snapCam = true; save(); ui.toast(CAMS[camMode], [], "info"); },
   SOLO_MODES, PARTY_MODES,
   // preview: shown on the garage car only, nothing saved or charged
-  previewStyle: (id, style) => { if (showCarId === id) showCar.applyStyle?.(style); },
+  previewStyle: (id, style) => { if (showCarId === id) showTarget()?.applyStyle?.(style); },
   styleCar: (id) => {
-    if (showCarId === id) showCar.applyStyle?.(carStyle(id));
+    if (showCarId === id) showTarget()?.applyStyle?.(carStyle(id));
     if (G.car && G.def.id === id) G.car.applyStyle?.(carStyle(id));
     G.cfgDirty = 1;
     clearTimeout(paintTimer);
@@ -1860,7 +1914,7 @@ const ui = new UI({
   },
   paintCar: (id, hex) => {
     P.colors[id] = hex; save();
-    if (showCarId === id) showCar.setColor(hex);
+    if (showCarId === id) showTarget()?.setColor(hex);
     clearTimeout(paintTimer);
     paintTimer = setTimeout(() => { Object.assign(ui.thumbs, makeThumbs([id])); if (state === "home") ui.renderHome(); }, 250);
   },
