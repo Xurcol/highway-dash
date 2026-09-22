@@ -36,7 +36,7 @@ export class UI {
     this.onlineSelected = false;
     this.el = {
       score: $("score"), best: $("best"), speed: $("speed"), dist: $("dist"), gear: $("gear"), gearMode: $("gearMode"),
-      sigL: $("sigL"), sigR: $("sigR"), gearStrip: $("gearStrip"), speedUp: $("speedUp"), ghost: $("ghostNote"), combo: $("combo"), catchUp: $("catchUp"),
+      sigL: $("sigL"), sigR: $("sigR"), speedUp: $("speedUp"), ghost: $("ghostNote"), combo: $("combo"), catchUp: $("catchUp"),
     };
     this.chatInput = $("chatInput");
     this.wireCommon();

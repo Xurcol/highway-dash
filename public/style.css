@@ -247,37 +247,34 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
   color:var(--accent);opacity:0;transition:opacity .3s;text-shadow:0 2px 10px rgba(0,0,0,.9)}
 .speedup.on{opacity:1;animation:pulse 1.2s infinite}
 /* ---------- instrument cluster (speed + gears + tacho), centred along the bottom edge ---------- */
-.cluster{position:fixed;left:50%;bottom:var(--s4);transform:translateX(-50%);display:grid;
-  grid-template-columns:auto auto auto;grid-template-areas:"speed tach sub" "strip strip strip";
-  align-items:center;justify-items:center;gap:var(--s2) var(--s6);
-  opacity:0;transition:opacity .35s var(--ease)}
+.cluster{--gauge:clamp(150px,19vmin,210px);position:fixed;left:50%;bottom:var(--s3);transform:translateX(-50%);
+  display:grid;grid-template-columns:auto var(--gauge) auto;grid-template-areas:"sl gauge sr" "foot foot foot";
+  align-items:center;justify-items:center;column-gap:var(--s3);row-gap:2px;
+  opacity:0;transition:opacity .35s var(--ease);pointer-events:none}
 #hud:not([hidden]) .cluster{opacity:1}
-.cl-speed{grid-area:speed;display:flex;flex-direction:column;align-items:center;gap:6px}
-.cl-speed-row{display:flex;align-items:baseline;gap:6px}
-#speed{font-size:var(--t-3xl);font-weight:700;line-height:.92;text-shadow:0 2px 18px rgba(0,0,0,.9)}
-#speedUnit{font-size:var(--t-sm);font-weight:700;letter-spacing:2px;color:var(--ink-2);text-shadow:0 1px 8px #000}
-.speedbar{display:block;width:170px;height:8px;border-radius:99px}
-.cl-sub{grid-area:sub;display:flex;align-items:center;gap:var(--s2)}
-#dist{font-size:var(--t-sm);font-weight:600;color:var(--ink-2);text-shadow:0 1px 8px #000}
-/* N 1 2 3 ... with the engaged gear lit */
-.gearstrip{grid-area:strip;display:flex;justify-content:center;gap:4px;margin-top:var(--s1)}
-.gearstrip i{font-style:normal;min-width:20px;padding:2px 0;text-align:center;border-radius:var(--r1);
-  font-size:var(--t-xs);font-weight:700;letter-spacing:.5px;color:var(--ink-3);
-  background:var(--glass);border:1px solid transparent;transition:color .12s,background .12s,border-color .12s}
-.gearstrip i.on{color:var(--accent-ink);background:var(--grad-accent);border-color:transparent;box-shadow:var(--glow-accent)}
-.gearstrip i.neu.on{background:var(--ink-2);border-color:var(--ink-2)}
-.sig{font-size:var(--t-xl);color:#2a3446;transition:color .08s}
-.sig.on{color:var(--good)}
+.gauge{grid-area:gauge;position:relative;width:var(--gauge);height:var(--gauge)}
+.gauge canvas{position:absolute;inset:0;width:100%;height:100%}
+.gauge-mid{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:4%}
+#speed{font-size:calc(var(--gauge) * .3);font-weight:700;line-height:.86;letter-spacing:-.5px;text-shadow:0 2px 16px rgba(0,0,0,.8)}
+#speedUnit{margin-top:2px;font-size:calc(var(--gauge) * .06);font-weight:700;letter-spacing:.24em;color:var(--ink-2)}
+.gearbadge{display:flex;align-items:center;gap:6px;margin-top:calc(var(--gauge) * .05);padding:3px 9px 3px 4px;
+  border-radius:var(--r2);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.09)}
+.gearbadge b{min-width:1.5em;padding:1px 0;border-radius:6px;text-align:center;font-size:calc(var(--gauge) * .11);line-height:1.1;
+  color:var(--accent-ink);background:var(--grad-accent)}
+.gearbadge span{font-size:calc(var(--gauge) * .05);font-weight:700;letter-spacing:.14em;color:var(--ink-3)}
+.gearbadge span.man{color:var(--accent)}
+.cl-foot{grid-area:foot;display:flex;align-items:center;gap:var(--s3)}
+#dist{font-size:var(--t-xs);font-weight:700;letter-spacing:.08em;color:var(--ink-2);font-variant-numeric:tabular-nums;
+  padding:2px 8px;border-radius:var(--r-pill);background:rgba(8,11,18,.62)}
+.sig{width:18px;height:22px;background:var(--good);opacity:.08;transition:opacity .08s,filter .08s}
+.sig.l{grid-area:sl;clip-path:polygon(100% 0,100% 100%,0 50%)}
+.sig.r{grid-area:sr;clip-path:polygon(0 0,0 100%,100% 50%)}
+.sig.on{opacity:1;filter:drop-shadow(0 0 6px var(--good))}
 .combo{position:absolute;top:150px;left:50%;font-size:var(--t-xl);font-weight:700;color:var(--accent);
   white-space:nowrap;opacity:0;transform:translate(-50%,0) scale(.8);
   transition:opacity .25s,transform .25s var(--ease);text-shadow:0 2px 10px rgba(0,0,0,.9)}
 .combo.on{opacity:1;transform:translate(-50%,0) scale(1)}
-.tach{grid-area:tach;position:relative;width:164px;height:164px}
-.tach canvas{width:100%;height:100%}
-.gear{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;padding-top:10px}
-.gear b{font-size:var(--t-2xl);line-height:1}
-.gear span{font-size:var(--t-xs);font-weight:600;color:var(--ink-3);letter-spacing:1px}
-.gear span.man{color:var(--accent)}
+
 .drivemode{margin-top:var(--s1);padding:1px 8px;border-radius:var(--r1);font-size:10px!important;letter-spacing:1px}
 .drivemode.sport{background:var(--bad);color:#fff}
 .drivemode.comfort{background:var(--good);color:#06240f}
@@ -545,8 +542,8 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
   .over-grid,.online-cols,.settings-grid,.tune-grid,.admin-grid{grid-template-columns:1fr}
   .media-main{flex-direction:column;align-items:stretch}.media-art{width:100%;height:200px}
   .btn.big{font-size:var(--t-lg);padding:12px 32px}
-  .ready-title{font-size:var(--t-2xl)}.tach{width:120px;height:120px}.gear b{font-size:var(--t-xl)}
-  #score{font-size:var(--t-2xl)}#speed{font-size:var(--t-xl)}
+  .ready-title{font-size:var(--t-2xl)}.cluster{--gauge:140px}
+  #score{font-size:var(--t-2xl)}
   .music-widget{width:calc(100% - 32px)}.chatlog,.chatinput{width:calc(100% - 32px)}
 }
 
@@ -574,7 +571,7 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .show-off .btn{align-self:flex-start;font-size:var(--t-xs);padding:7px 10px}
 
 /* ---------- type: condensed display face for anything that should feel fast ---------- */
-h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-title,.go-score,.ready-title,.ready-click,.combo,.speedup,.catchup,.mode-hud,.board-head,.rarity{font-family:"Barlow Condensed","Barlow",sans-serif}
+h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gearbadge b,.go-title,.go-score,.ready-title,.ready-click,.combo,.speedup,.catchup,.mode-hud,.board-head,.rarity{font-family:"Barlow Condensed","Barlow",sans-serif}
 .brand{font-style:italic;letter-spacing:1px;font-size:30px}
 #score,.go-score,.ready-title{font-style:italic}
 .btn{letter-spacing:.8px}

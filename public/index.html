@@ -116,15 +116,19 @@
   <div class="score"><div id="score">0</div><div id="best">BEST 0</div></div>
   <div id="speedUp" class="speedup">SPEED UP!</div>
   <div id="combo" class="combo">CLOSE CALL! x1</div>
-  <!-- one instrument cluster, bottom centre: the tach is the centrepiece, speed sits to its left -->
+  <!-- one gauge: the rev arc around the speed, the gear under it; signals only show when on -->
   <div class="cluster" id="cluster">
-    <div class="cl-speed">
-      <div class="cl-speed-row"><b id="speed">0</b><span id="speedUnit">MPH</span></div>
-      <canvas id="speedBar" class="speedbar" width="220" height="12"></canvas>
+    <i id="sigL" class="sig l" aria-hidden="true"></i>
+    <div class="gauge">
+      <canvas id="tach" width="360" height="360"></canvas>
+      <div class="gauge-mid">
+        <b id="speed">0</b>
+        <span id="speedUnit">MPH</span>
+        <div class="gearbadge"><b id="gear">1</b><span id="gearMode">AUTO</span></div>
+      </div>
     </div>
-    <div class="tach"><canvas id="tach" width="260" height="260"></canvas><div class="gear"><b id="gear">1</b><span id="gearMode">AUTO</span></div></div>
-    <div class="cl-sub"><span id="sigL" class="sig">◀</span><span id="dist">0.0 Mi</span><span id="sigR" class="sig">▶</span></div>
-    <div class="gearstrip" id="gearStrip" aria-hidden="true"></div>
+    <i id="sigR" class="sig r" aria-hidden="true"></i>
+    <div class="cl-foot"><span id="dist">0.0 Mi</span></div>
   </div>
   <div id="partyList" class="partylist"></div>
   <div id="peerMarkers" class="peer-markers"></div>

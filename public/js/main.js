@@ -1574,68 +1574,63 @@ function updateEngineSound(dt) {
 // ---------------- HUD ----------------
 const MPH = 0.621371; // speeds are shown in mph everywhere
 const tachCtx = document.getElementById("tach").getContext("2d");
-function drawTach(rpm, redline, manual) {
-  const g = tachCtx, cx = 130, cy = 130, R = 104;
-  g.clearRect(0, 0, 260, 260);
-  const a0 = Math.PI * .75, span = Math.PI * 1.5, maxR = Math.ceil(redline / 1000) * 1000 + 1000;
+// The gauge face (dial, ticks, numbers) only changes with the car's redline, so it is drawn once into
+// an offscreen canvas; each frame just copies it and draws the rev fill on top.
+const TACH = 360, T_C = TACH / 2, T_R = 150, T_A0 = Math.PI * .75, T_SPAN = Math.PI * 1.5;
+let tachFace = null, tachFaceKey = "";
+function tachFaceFor(redline) {
+  const maxR = Math.ceil(redline / 1000) * 1000 + 1000, key = String(maxR);
+  if (tachFaceKey === key) return { face: tachFace, maxR };
+  tachFaceKey = key;
+  tachFace ||= Object.assign(document.createElement("canvas"), { width: TACH, height: TACH });
+  const g = tachFace.getContext("2d");
+  g.clearRect(0, 0, TACH, TACH);
+  // dark disc so the gauge reads on a bright sky or a white car
+  const bg = g.createRadialGradient(T_C, T_C, T_R * .35, T_C, T_C, T_R + 22);
+  bg.addColorStop(0, "rgba(8,11,18,.82)"); bg.addColorStop(.82, "rgba(8,11,18,.72)"); bg.addColorStop(1, "rgba(8,11,18,0)");
+  g.fillStyle = bg; g.beginPath(); g.arc(T_C, T_C, T_R + 22, 0, Math.PI * 2); g.fill();
   g.lineCap = "round";
-  g.beginPath(); g.arc(cx, cy, R, a0, a0 + span); g.lineWidth = 16; g.strokeStyle = "rgba(10,14,24,.75)"; g.stroke();
-  g.beginPath(); g.arc(cx, cy, R, a0 + span * redline / maxR, a0 + span); g.lineWidth = 16; g.strokeStyle = "rgba(255,40,60,.55)"; g.stroke();
-  const f = Math.min(1, rpm / maxR);
-  const hot = rpm > redline * .92;
-  const grad = g.createLinearGradient(0, 260, 260, 0);
-  grad.addColorStop(0, "#3ee0ff"); grad.addColorStop(.7, "#9d7bff"); grad.addColorStop(1, "#ff3b5c");
-  g.beginPath(); g.arc(cx, cy, R, a0, a0 + span * f); g.lineWidth = 12; g.strokeStyle = hot && manual && Math.floor(performance.now() / 70) % 2 ? "#ff2a2a" : grad; g.stroke();
-  g.fillStyle = "#fff"; g.font = "700 15px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
+  // track
+  g.beginPath(); g.arc(T_C, T_C, T_R, T_A0, T_A0 + T_SPAN); g.lineWidth = 10; g.strokeStyle = "rgba(255,255,255,.07)"; g.stroke();
+  // red zone as a thin outer band, not a heavy block
+  g.beginPath(); g.arc(T_C, T_C, T_R + 11, T_A0 + T_SPAN * redline / maxR, T_A0 + T_SPAN); g.lineWidth = 3; g.strokeStyle = "rgba(255,59,92,.9)"; g.stroke();
+  // ticks: long every 1000, short every 500
+  for (let r = 0; r <= maxR; r += 500) {
+    const a = T_A0 + T_SPAN * (r / maxR), major = r % 1000 === 0, red = r >= redline;
+    const r0 = T_R - (major ? 24 : 18), r1 = T_R - 12;
+    g.beginPath(); g.moveTo(T_C + Math.cos(a) * r0, T_C + Math.sin(a) * r0); g.lineTo(T_C + Math.cos(a) * r1, T_C + Math.sin(a) * r1);
+    g.lineWidth = major ? 3 : 1.5; g.strokeStyle = red ? "rgba(255,59,92,.85)" : major ? "rgba(255,255,255,.55)" : "rgba(255,255,255,.22)"; g.stroke();
+  }
+  g.font = "700 20px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
   for (let k = 0; k <= maxR / 1000; k++) {
-    const a = a0 + span * (k * 1000 / maxR);
-    g.fillText(k, cx + Math.cos(a) * (R - 26), cy + Math.sin(a) * (R - 26));
+    const a = T_A0 + T_SPAN * (k * 1000 / maxR), rr = T_R - 38;
+    g.fillStyle = k * 1000 >= redline ? "#ff6b85" : "rgba(255,255,255,.7)";
+    g.fillText(k, T_C + Math.cos(a) * rr, T_C + Math.sin(a) * rr);
   }
+  return { face: tachFace, maxR };
 }
-const speedBarCtx = document.getElementById("speedBar").getContext("2d");
-// A slim rounded bar under the speed readout: how much of the car's current top speed you're
-// using right now, with the same cyan-to-red gradient the tach uses so the two read as one system.
-function drawSpeedBar(mph, topMph) {
-  const g = speedBarCtx, w = 220, h = 12, r = h / 2;
-  g.clearRect(0, 0, w, h);
-  const rr = (x, y, ww, hh, rad) => { g.beginPath(); g.roundRect(x, y, ww, hh, rad); };
-  rr(0, 2, w, h - 4, r - 2); g.fillStyle = "rgba(10,14,24,.7)"; g.fill();
-  const f = Math.max(0, Math.min(1, mph / Math.max(1, topMph)));
-  if (f > 0.01) {
-    const grad = g.createLinearGradient(0, 0, w, 0);
-    grad.addColorStop(0, "#3ee0ff"); grad.addColorStop(.7, "#9d7bff"); grad.addColorStop(1, "#ff3b5c");
-    g.save();
-    rr(0, 2, w, h - 4, r - 2); g.clip();
-    rr(0, 2, Math.max(h - 4, w * f), h - 4, r - 2); g.fillStyle = grad; g.fill();
-    g.restore();
-  }
-  // a tick every quarter of the way to top speed
-  g.strokeStyle = "rgba(0,0,0,.5)"; g.lineWidth = 1;
-  for (let k = 1; k < 4; k++) { const x = w * k / 4; g.beginPath(); g.moveTo(x, 2); g.lineTo(x, h - 2); g.stroke(); }
+function drawTach(rpm, redline, manual) {
+  const g = tachCtx, { face, maxR } = tachFaceFor(redline);
+  g.clearRect(0, 0, TACH, TACH);
+  g.drawImage(face, 0, 0);
+  const f = Math.max(0, Math.min(1, rpm / maxR)), end = T_A0 + T_SPAN * f;
+  const shift = rpm > redline * .9;                 // shift light: the arc warms up, then flashes in manual
+  const flash = shift && manual && Math.floor(performance.now() / 80) % 2 === 0;
+  const grad = g.createConicGradient(T_A0, T_C, T_C);
+  grad.addColorStop(0, "#3ee0ff"); grad.addColorStop(.55, "#8b7bff"); grad.addColorStop(.75, "#ff3b5c"); grad.addColorStop(1, "#ff3b5c");
+  g.lineCap = "round";
+  g.save();
+  if (shift) { g.shadowColor = "rgba(255,59,92,.8)"; g.shadowBlur = 18; }
+  g.beginPath(); g.arc(T_C, T_C, T_R, T_A0, Math.max(T_A0 + .001, end)); g.lineWidth = 10;
+  g.strokeStyle = flash ? "#ffffff" : grad; g.stroke();
+  g.restore();
+  // bright tip where the fill ends
+  g.beginPath(); g.arc(T_C + Math.cos(end) * T_R, T_C + Math.sin(end) * T_R, 6.5, 0, Math.PI * 2);
+  g.fillStyle = shift ? "#fff" : "#e8fbff"; g.fill();
 }
 let hudCache = {};
 function setText(el, v) { if (hudCache[el.id] !== v) { hudCache[el.id] = v; el.textContent = v; } }
 const gearLabel = (g) => (g === 0 ? "N" : String(g));
-// N 1 2 3 ... The cells are built once per car (the count only changes when the gearbox does) and
-// after that only the highlighted class is touched, so this costs nothing per frame.
-function gearStrip(d) {
-  const box = ui.el.gearStrip, n = d.s.ratios.length;
-  if (box.childElementCount !== n + 1) {
-    box.textContent = "";
-    for (let g = 0; g <= n; g++) {
-      const cell = document.createElement("i");
-      cell.textContent = gearLabel(g);
-      if (g === 0) cell.className = "neu";
-      box.appendChild(cell);
-    }
-    box.dataset.on = "";
-  }
-  const key = String(d.gear);
-  if (box.dataset.on === key) return;
-  box.dataset.on = key;
-  const idx = d.gear;
-  for (let i = 0; i < box.children.length; i++) box.children[i].classList.toggle("on", i === idx);
-}
 function updateHud() {
   if (state !== "drive" && state !== "crashed" && state !== "ended") return;
   const d = G.dt, kmh = d.v * 3.6;
@@ -1643,10 +1638,8 @@ function updateHud() {
   setText(ui.el.best, "BEST " + Math.max(P.best, Math.floor(G.score)).toLocaleString());
   const mph = Math.round(Math.abs(kmh) * MPH);
   setText(ui.el.speed, String(mph));
-  drawSpeedBar(mph, (d.s.vmax || 200) * MPH);
   setText(ui.el.dist, `${(G.dist / 1609.34).toFixed(1)} Mi`);
   setText(ui.el.gear, d.shiftT > 0 ? "-" : gearLabel(d.gear));
-  gearStrip(d);
   setText(ui.el.gearMode, d.manual ? "MANUAL" : "AUTO");
   ui.el.gearMode.classList.toggle("man", d.manual);
   ui.el.sigL.classList.toggle("on", !!G.sigL && G.sigOn);
