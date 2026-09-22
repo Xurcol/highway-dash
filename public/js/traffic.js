@@ -17,6 +17,12 @@ const SAME_V = LANE_MPH.map((m) => m * MPH);
 const S = 42;
 const PALETTE = [0xf2f2f2, 0x1d1f24, 0x9aa1aa, 0xc62828, 0x1e5bd8, 0xf2c230, 0x2e7d4f, 0x6d3fb0, 0xe0701c, 0x7a1f2b, 0x5b6f86, 0xd8cbb0];
 const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "van", "suv", "coupe", "muscle", "sedan", "suv", "hatch", "m340i", "q50", "x5m", "charger", "golfr", "c63", "rs6", "x3m"];
+// Per-car speed jitter (see raw() below) means a car's real position drifts away from its lane's
+// nominal speed the longer a session runs. The slot search below has to bracket the whole possible
+// range or, minutes into a drive, an outlier car falls outside the window it's searched in and just
+// never turns up - which reads as traffic vanishing in front of you, worse the longer you've been
+// driving. .92/1.08 covers every multiplier raw() can hand out, steady vehicles included.
+const V_JIT_LO = .92, V_JIT_HI = 1.08;
 const SWERVE_TARGET = { 0: 1, 2: 3 }; // each receiving lane has one source lane, so swerves can't collide
 const WIN = 8.6;
 // A lane change: signal for OUT_AT seconds, pull across, sit there, signal again, come back.
@@ -132,8 +138,9 @@ export class Traffic {
     const out = [];
     for (const dir of dirs) for (let lane = 0; lane < LANES; lane++) {
       const v = SAME_V[lane];
-      const shift = v * T;
-      const j0 = Math.ceil((zAhead + shift - 12) / S), j1 = Math.floor((zBehind + shift + 12) / S);
+      // bracket the search with the slowest and fastest a car in this lane could actually be
+      // going, not the lane's nominal speed - see V_JIT_LO/HI above
+      const j0 = Math.ceil((zAhead + v * V_JIT_LO * T - 12) / S), j1 = Math.floor((zBehind + v * V_JIT_HI * T + 12) / S);
       for (let j = j0; j <= j1; j++) {
         const c = this.raw(dir, lane, j);
         if (!c) continue;

@@ -19,6 +19,10 @@ function biquad(type, f, q, sr) {
   return { b0: (1 - c) / 2 / n, b1: (1 - c) / n, b2: (1 - c) / 2 / n, a1: (-2 * c) / n, a2: (1 - a) / n, x1: 0, x2: 0, y1: 0, y2: 0 }; // lp
 }
 function setLP(s, f, q, sr) { const t = biquad("lp", f, q, sr); s.b0 = t.b0; s.b1 = t.b1; s.b2 = t.b2; s.a1 = t.a1; s.a2 = t.a2; }
+// re-tunes a resonator's centre frequency without touching its history (x1/x2/y1/y2), so the
+// formant can drift with load/revs the way a real exhaust's resonance does with gas temperature and
+// velocity, instead of sitting on one fixed note for the whole rev range
+function setBP(s, f, q, sr) { const t = biquad("bp", f, q, sr); s.b0 = t.b0; s.b1 = t.b1; s.b2 = t.b2; s.a1 = t.a1; s.a2 = t.a2; }
 function run(s, x) {
   const y = s.b0 * x + s.b1 * s.x1 + s.b2 * s.x2 - s.a1 * s.y1 - s.a2 * s.y2;
   s.x2 = s.x1; s.x1 = x; s.y2 = s.y1; s.y1 = y;
@@ -108,7 +112,7 @@ export class EngineDSP {
     this.dc = 0; this.dcIn = 0; this.rumble = 0;
     this.whistle = 0; this.bov = 0;
     this.flutter = 0; this.flutterT = 0; this.nextChirp = 0;
-    this.blowerPh = 0; this.intakePh = 0; this.als = 0; this.alsNext = 0; this.antilagHold = 0;
+    this.blowerPh = 0; this.intakePh = 0; this.als = 0; this.alsNext = 0; this.antilagHold = 0; this.idlePh = 0;
     this.tune = { ...DEFAULT_TUNE }; this.mode = "sport";
     this.lockSport = true;
     this.setProfile("b58");
@@ -260,6 +264,12 @@ export class EngineDSP {
     const open = (sport ? 1.5 : .75) * (.55 + .45 * this.load) * (.9 + .4 * Math.min(1, this.rpm / 7000)) * (.8 + .2 * t.exhaust);
     setLP(this.muff, p.muffler * open, .75, sr);
     setLP(this.muff2, p.muffler * open * 2.6, .6, sr);
+    // the exhaust and bark formants ride up a few percent with load and revs - hot, fast-moving gas
+    // shifts a real resonance the same way; a formant fixed to one note is what reads as synthetic
+    const fmDrift = 1 + this.load * .04 + Math.min(1, this.rpm / 7000) * .015;
+    setBP(this.bodyF, p.body[0] * fmDrift, p.body[1], sr);
+    setBP(this.barkF, p.bark[0] * fmDrift, p.bark[1], sr);
+    setBP(this.topF, p.bark[0] * 1.85 * fmDrift, 1.6, sr);
     const outGain = p.gain * t.exhaust * (sport ? .75 : .5);
     setLP(this.soft, sport ? 4200 : 2800, .6, sr); // ear-friendly top end
     const rev = t.redline || 7000;
@@ -280,6 +290,11 @@ export class EngineDSP {
     for (let i = 0; i < n; i++) {
       let target = this.tRpm;
       if (this.blip > 0) { this.blip -= dt; target = Math.max(target, this.tRpm * 1.15); }
+      // idle hunt: a real ECU's idle control walks the revs up and down a little instead of holding
+      // one dead number. Only near idle and off the pedal - it has no business showing up mid-pull.
+      this.idlePh = (this.idlePh + dt * .85) % 1;
+      const idleEnv = clamp01(1 - this.thr * 2.2) * clamp01((1300 - this.rpm) / 500);
+      if (idleEnv > 0) target += Math.sin(this.idlePh * 6.2832) * idleEnv * 18;
       this.rpm += (target - this.rpm) * (this.blip > 0 ? kR * 3 : kR);
       this.thr += ((this.blip > 0 ? .85 : this.tThr) - this.thr) * kT;
       this.load += ((this.blip > 0 ? .6 : this.tLoad) - this.load) * kL;
