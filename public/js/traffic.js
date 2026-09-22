@@ -7,8 +7,9 @@ import { hash, laneX, LANES } from "./world.js";
 
 export const TRAFFIC_LEVELS = { Chill: .24, Normal: .38, Heavy: .5, Insane: .64 };
 // Each lane cruises at its own speed, fastest on the inside (the yellow-line side) and slowest on
-// the outside, 60 to 80 mph. Cars in a lane share their lane's speed, so spacing inside a lane never
-// changes; the difference between lanes is what breaks up a row of cars that spawned side by side.
+// the outside, 60 to 80 mph. Cars in a lane average their lane's speed, so spacing inside a lane only
+// breathes by a few metres (see DRIFT_*); the difference between lanes is what breaks up a row of cars
+// that spawned side by side.
 export const LANE_MPH = [80, 75, 70, 65, 60];
 const MPH = 0.44704;                       // metres per second per mile per hour
 const SAME_V = LANE_MPH.map((m) => m * MPH);
@@ -17,12 +18,12 @@ const SAME_V = LANE_MPH.map((m) => m * MPH);
 const S = 42;
 const PALETTE = [0xf2f2f2, 0x1d1f24, 0x9aa1aa, 0xc62828, 0x1e5bd8, 0xf2c230, 0x2e7d4f, 0x6d3fb0, 0xe0701c, 0x7a1f2b, 0x5b6f86, 0xd8cbb0];
 const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "van", "suv", "coupe", "muscle", "sedan", "suv", "hatch", "m340i", "q50", "x5m", "charger", "golfr", "c63", "rs6", "x3m"];
-// Per-car speed jitter (see raw() below) means a car's real position drifts away from its lane's
-// nominal speed the longer a session runs. The slot search below has to bracket the whole possible
-// range or, minutes into a drive, an outlier car falls outside the window it's searched in and just
-// never turns up - which reads as traffic vanishing in front of you, worse the longer you've been
-// driving. .92/1.08 covers every multiplier raw() can hand out, steady vehicles included.
-const V_JIT_LO = .92, V_JIT_HI = 1.08;
+// How far a driver drifts ahead of or behind their slot while easing on and off the throttle (see
+// raw()). Two cars in adjacent slots of one lane are at least 26.7 m bumper to bumper (42 m pitch,
+// minus spawn jitter, minus half of each car's length - two 5.3 m cars is the tightest pair; a bus
+// behind a car still leaves 27.4 m), so drifting up to 8 m each can never close that gap: the worst
+// case still leaves 10.7 m.
+const DRIFT_CAR = 8, DRIFT_HEAVY = 4;
 const SWERVE_TARGET = { 0: 1, 2: 3 }; // each receiving lane has one source lane, so swerves can't collide
 const WIN = 8.6;
 // A lane change: signal for OUT_AT seconds, pull across, sit there, signal again, come back.
@@ -70,26 +71,39 @@ export class Traffic {
     let body;
     if (lane >= 3 && h(4) < .22) body = h(5) < .3 ? "bus" : "truck";
     else body = SMALL[(h(6) * SMALL.length) | 0];
-    // No two drivers hold a lane's speed exactly: everyone sits within about 8% of it, same as real
-    // traffic never actually being in lockstep. A bus/truck driver is a steadier hand than the rest.
+    // Every car in a lane averages the lane's speed, and each driver eases on and off the throttle on
+    // their own rhythm (18-40 s), so gaps open and close and nobody moves in lockstep. It has to be a
+    // zero-average drift rather than a different steady speed per car: with steady speeds a quicker
+    // car simply drove through the one ahead of it in the lane (the gap shrank every second, forever).
+    // A bus/truck driver is a steadier hand than the rest.
     const steady = body === "bus" || body === "truck";
-    const v = SAME_V[lane] * (steady ? .97 + h(12) * .06 : .92 + h(12) * .16);
+    const v = SAME_V[lane];
+    const amp = (steady ? DRIFT_HEAVY * (.5 + h(12) * .5) : DRIFT_CAR * (.35 + h(12) * .65));
+    const w = 6.2832 / (18 + h(15) * 22);
     const z0 = j * S + (h(1) - .5) * (body === "bus" || body === "truck" ? 3 : 10);
     const ph = h(2) * 6.283;
-    return { key: `${dir}:${lane}:${j}`, h, body, dir, lane, j, v, z0, ph, L: BODIES[body].L, W: BODIES[body].W, color: PALETTE[(h(7) * PALETTE.length) | 0] };
+    return { key: `${dir}:${lane}:${j}`, h, body, dir, lane, j, v, amp, w, z0, ph, L: BODIES[body].L, W: BODIES[body].W, color: PALETTE[(h(7) * PALETTE.length) | 0] };
   }
-  zAt(c, t) { return c.z0 - c.v * t + Math.sin(t * .12 + c.ph) * 1.5; }
+  zAt(c, t) { return c.z0 - c.v * t + Math.sin(t * c.w + c.ph) * c.amp; }
 
-  // can car c occupy target lane during [t0, t1] without meeting anyone there?
+  // can car c occupy target lane during [t0, t1] without meeting anyone there? Both cars drift, so
+  // their gap is not a straight line through the window: it is checked at five points across it and
+  // must keep one sign and stay clear at every one.
   swerveSafe(c, target, t0, t1) {
     const vt = SAME_V[target];
     const za = this.zAt(c, t0), zb = this.zAt(c, t1);
-    const lo = Math.min(za + vt * t0, zb + vt * t1) - 60, hi = Math.max(za + vt * t0, zb + vt * t1) + 60;
+    const lo = Math.min(za + vt * t0, zb + vt * t1) - 60 - DRIFT_CAR, hi = Math.max(za + vt * t0, zb + vt * t1) + 60 + DRIFT_CAR;
     for (let j = Math.floor(lo / S); j <= Math.ceil(hi / S); j++) {
       const o = this.raw(1, target, j);
       if (!o) continue;
-      const d0 = this.zAt(o, t0) - za, d1 = this.zAt(o, t1) - zb, need = (c.L + o.L) / 2 + 9;
-      if (Math.sign(d0) !== Math.sign(d1) || Math.abs(d0) < need || Math.abs(d1) < need) return false;
+      const need = (c.L + o.L) / 2 + 9;
+      let sign = 0;
+      for (let q = 0; q <= 4; q++) {
+        const t = t0 + (t1 - t0) * q / 4, d = this.zAt(o, t) - this.zAt(c, t);
+        if (Math.abs(d) < need) return false;
+        if (sign && Math.sign(d) !== sign) return false;
+        sign = Math.sign(d);
+      }
     }
     return true;
   }
@@ -138,9 +152,8 @@ export class Traffic {
     const out = [];
     for (const dir of dirs) for (let lane = 0; lane < LANES; lane++) {
       const v = SAME_V[lane];
-      // bracket the search with the slowest and fastest a car in this lane could actually be
-      // going, not the lane's nominal speed - see V_JIT_LO/HI above
-      const j0 = Math.ceil((zAhead + v * V_JIT_LO * T - 12) / S), j1 = Math.floor((zBehind + v * V_JIT_HI * T + 12) / S);
+      // a car is never more than one drift (plus its spawn jitter) away from where its lane speed puts it
+      const j0 = Math.ceil((zAhead + v * T - 12 - DRIFT_CAR) / S), j1 = Math.floor((zBehind + v * T + 12 + DRIFT_CAR) / S);
       for (let j = j0; j <= j1; j++) {
         const c = this.raw(dir, lane, j);
         if (!c) continue;
