@@ -95,6 +95,10 @@
   <div class="ready-keys" id="readyKeys"></div>
 </section>
 
+<!-- ============ CINEMATIC BARS ============ -->
+<div id="cineTop" class="cine-bar top"></div>
+<div id="cineBot" class="cine-bar bot"></div>
+
 <!-- ============ HUD ============ -->
 <section id="hud" hidden>
   <div class="hud-tl">
@@ -116,6 +120,7 @@
   <div class="cluster" id="cluster">
     <div class="cl-read">
       <div class="cl-speed"><b id="speed">0</b><span id="speedUnit">MPH</span></div>
+      <canvas id="speedBar" class="speedbar" width="220" height="12"></canvas>
       <div class="cl-sub"><span id="sigL" class="sig">◀</span><span id="dist">0.0 Mi</span><span id="sigR" class="sig">▶</span></div>
     </div>
     <div class="tach"><canvas id="tach" width="260" height="260"></canvas><div class="gear"><b id="gear">1</b><span id="gearMode">AUTO</span></div></div>
@@ -334,6 +339,10 @@
         <h3>GRAPHICS</h3>
         <label class="toggle"><input type="checkbox" id="optShadows"> Shadows</label>
         <label class="toggle"><input type="checkbox" id="optBloom"> Bloom <span class="muted small">(light bleed at night)</span></label>
+        <label class="toggle"><input type="checkbox" id="optCinematic"> Cinematic mode <span class="muted small">(letterbox, vignette, film grade)</span></label>
+        <label class="slider">Quality <select id="optGfx" class="ms-select">
+          <option value="-1">Custom</option><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option><option value="3">Ultra</option><option value="4">RTX</option>
+        </select></label>
         <label class="slider">Resolution <input type="range" id="optRes" min="0.5" max="2" step="0.25"></label>
         <label class="slider">Scenery <input type="range" id="optScenery" min="0.25" max="1.5" step="0.25"></label>
         <label class="slider">View distance <input type="range" id="optView" min="0.5" max="1.25" step="0.25"></label>

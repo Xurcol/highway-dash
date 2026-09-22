@@ -1539,6 +1539,27 @@ function drawTach(rpm, redline, manual) {
     g.fillText(k, cx + Math.cos(a) * (R - 26), cy + Math.sin(a) * (R - 26));
   }
 }
+const speedBarCtx = document.getElementById("speedBar").getContext("2d");
+// A slim rounded bar under the speed readout: how much of the car's current top speed you're
+// using right now, with the same cyan-to-red gradient the tach uses so the two read as one system.
+function drawSpeedBar(mph, topMph) {
+  const g = speedBarCtx, w = 220, h = 12, r = h / 2;
+  g.clearRect(0, 0, w, h);
+  const rr = (x, y, ww, hh, rad) => { g.beginPath(); g.roundRect(x, y, ww, hh, rad); };
+  rr(0, 2, w, h - 4, r - 2); g.fillStyle = "rgba(10,14,24,.7)"; g.fill();
+  const f = Math.max(0, Math.min(1, mph / Math.max(1, topMph)));
+  if (f > 0.01) {
+    const grad = g.createLinearGradient(0, 0, w, 0);
+    grad.addColorStop(0, "#3ee0ff"); grad.addColorStop(.7, "#9d7bff"); grad.addColorStop(1, "#ff3b5c");
+    g.save();
+    rr(0, 2, w, h - 4, r - 2); g.clip();
+    rr(0, 2, Math.max(h - 4, w * f), h - 4, r - 2); g.fillStyle = grad; g.fill();
+    g.restore();
+  }
+  // a tick every quarter of the way to top speed
+  g.strokeStyle = "rgba(0,0,0,.5)"; g.lineWidth = 1;
+  for (let k = 1; k < 4; k++) { const x = w * k / 4; g.beginPath(); g.moveTo(x, 2); g.lineTo(x, h - 2); g.stroke(); }
+}
 let hudCache = {};
 function setText(el, v) { if (hudCache[el.id] !== v) { hudCache[el.id] = v; el.textContent = v; } }
 const gearLabel = (g) => (g === 0 ? "N" : String(g));
@@ -1567,7 +1588,9 @@ function updateHud() {
   const d = G.dt, kmh = d.v * 3.6;
   setText(ui.el.score, Math.floor(G.score).toLocaleString());
   setText(ui.el.best, "BEST " + Math.max(P.best, Math.floor(G.score)).toLocaleString());
-  setText(ui.el.speed, String(Math.round(Math.abs(kmh) * MPH)));
+  const mph = Math.round(Math.abs(kmh) * MPH);
+  setText(ui.el.speed, String(mph));
+  drawSpeedBar(mph, (d.s.vmax || 200) * MPH);
   setText(ui.el.dist, `${(G.dist / 1609.34).toFixed(1)} Mi`);
   setText(ui.el.gear, d.shiftT > 0 ? "-" : gearLabel(d.gear));
   gearStrip(d);
@@ -1592,6 +1615,7 @@ function frame(now) {
   const dt = Math.min(.05, (now - last) / 1000);
   last = now;
   if (state === "drive" && !paused && !document.hidden) adaptRes(dt);
+  document.body.classList.toggle("cine-active", !!P.settings.cinematic && (state === "drive" || state === "crashed" || state === "ended"));
 
   if (!thumbsReady && canvas.width >= 480 && canvas.height >= 260) {
     thumbsReady = true;
@@ -1724,6 +1748,21 @@ function frame(now) {
 // lamps: measured, 32 lamps cost 13.1ms a frame against 10.3 for the nearest 20, and the dropped
 // ones are the farthest and dimmest. The default is the middle option.
 const LAMP_BUDGETS = [10, 20, 32];
+// Graphics Quality bundles every other graphics setting into one pick. Picking one overwrites the
+// individual sliders (same idea as the time-of-day presets); leaving it on Custom leaves them alone.
+// Shadow map size and reflection sharpness have no sliders of their own - only a preset sets them.
+const GFX_TIERS = [
+  { name: "Low", shadows: false, shadowSize: 1024, res: .75, scenery: .5, view: .5, bloom: false, nightLights: 0, reflSize: 48, reflInterval: 3.5 },
+  { name: "Medium", shadows: true, shadowSize: 1536, res: 1, scenery: .75, view: .75, bloom: true, nightLights: 1, reflSize: 80, reflInterval: 2.2 },
+  { name: "High", shadows: true, shadowSize: 2048, res: 1, scenery: 1, view: 1, bloom: true, nightLights: 1, reflSize: 128, reflInterval: 1.5 },
+  { name: "Ultra", shadows: true, shadowSize: 3072, res: 1.25, scenery: 1.25, view: 1.1, bloom: true, nightLights: 2, reflSize: 192, reflInterval: 1 },
+  { name: "RTX", shadows: true, shadowSize: 4096, res: 1.5, scenery: 1.5, view: 1.25, bloom: true, nightLights: 2, reflSize: 256, reflInterval: .6 },
+];
+function applyGfxTier(i) {
+  const t = GFX_TIERS[i]; if (!t) { P.settings.gfx = -1; save(); return; }
+  Object.assign(P.settings, { gfx: i, shadows: t.shadows, res: t.res, scenery: t.scenery, viewDist: t.view, bloom: t.bloom, nightLights: t.nightLights });
+  applySettings();
+}
 function applySettings() {
   const s = P.settings;
   setLampBudget(LAMP_BUDGETS[s.nightLights ?? 1] ?? 20);
@@ -1733,6 +1772,9 @@ function applySettings() {
   world.lastK = null;
   if (bloomPass) bloomPass.strength = s.bloom ? BLOOM.strength * bloomNightFalloff(sky.night || 0) : 0;
   sky.hour = s.hour; sky.flow = s.flow; sky.setStyle(s.sky); sky.setWeather(s.weather);
+  const t = GFX_TIERS[s.gfx];
+  sky.setReflQuality(t ? t.reflSize : 128, t ? t.reflInterval : 1.5);
+  sky.setShadowSize(t ? t.shadowSize : 3072);
   audio.vol = { master: s.volMaster, engine: s.volEngine, fx: s.volFx };
   audio.applyVolumes();
   resize();
@@ -1801,6 +1843,7 @@ const ui = new UI({
   selectCar: (id) => { if (!showOffKey) setShowCar(id); },
   showOff: showOffCar, endShowOff,
   keyActions: KEY_ACTIONS, keyOf,
+  setGfxTier: applyGfxTier,
   // custom camera editor
   renderCamPreview,
   getCustomCam: () => customCam(),

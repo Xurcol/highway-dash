@@ -256,6 +256,7 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .cl-speed{display:flex;align-items:baseline;justify-content:flex-end;gap:6px}
 #speed{font-size:var(--t-3xl);font-weight:700;line-height:.92;text-shadow:0 2px 18px rgba(0,0,0,.9)}
 #speedUnit{font-size:var(--t-sm);font-weight:700;letter-spacing:2px;color:var(--ink-2);text-shadow:0 1px 8px #000}
+.speedbar{display:block;width:100%;height:7px;margin-top:5px;border-radius:99px}
 .cl-sub{display:flex;align-items:center;justify-content:flex-end;gap:var(--s2);margin-top:var(--s1)}
 #dist{font-size:var(--t-sm);font-weight:600;color:var(--ink-2);text-shadow:0 1px 8px #000}
 /* N 1 2 3 ... with the engaged gear lit */
@@ -754,6 +755,12 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,.tnum b,#score,#speed,.gear b,.go-t
 .cam-actions{margin-top:var(--s2)}
 @media (max-width:760px){.cam-grid{grid-template-columns:1fr}}
 
+/* ---------- cinematic mode ---------- */
+.cine-bar{position:fixed;left:0;right:0;height:9vh;background:#000;z-index:6;pointer-events:none;opacity:0;transition:opacity .5s var(--ease)}
+.cine-bar.top{top:0}.cine-bar.bot{bottom:0}
+.cine-active .cine-bar{opacity:1}
+.cine-active #hud{box-shadow:inset 0 0 min(22vw,260px) min(7vw,70px) rgba(0,0,0,.5)}
+.cine-active #c{filter:contrast(1.07) saturate(1.12) brightness(.96)}
 /* ---------- settings tabs ---------- */
 .set-tabs{display:flex;gap:var(--s2);flex-wrap:wrap;margin:var(--s3) 0 var(--s4);border-bottom:1px solid var(--hairline);padding-bottom:var(--s2)}
 .set-tab{background:none;border:0;color:var(--ink-2);font:inherit;font-weight:700;letter-spacing:.06em;padding:var(--s2) var(--s3);border-radius:var(--r2);cursor:pointer}

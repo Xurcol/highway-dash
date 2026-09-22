@@ -218,6 +218,7 @@ export class SkySystem {
     this.envDome.scale.setScalar(100);
     this.envScene.add(this.envDome);
     this.envTimer = 0; this.envRT = null; this.envKey = "";
+    this.reflSize = 128; this.reflInterval = 1.5;
 
     this.precip = this.makePrecip();
     scene.add(this.precip);
@@ -228,6 +229,16 @@ export class SkySystem {
 
   setWeather(name) { this.weatherName = name; this.target = WEATHERS[name]; }
   setStyle(name) { this.style = name; }
+  // how sharp and how often the sky/paint reflection cubemap rebakes - a graphics-quality knob
+  setReflQuality(size, interval) { this.reflSize = size; this.reflInterval = interval; }
+  // the sun's shadow map can be resized live: three.js just needs the old map thrown away so it
+  // rebuilds one at the new size on the next shadow pass
+  setShadowSize(n) {
+    if (this.sun.shadow.mapSize.width === n) return;
+    this.sun.shadow.mapSize.set(n, n);
+    this.sun.shadow.map?.dispose();
+    this.sun.shadow.map = null;
+  }
 
   makePrecip() {
     const N = 9000, pos = new Float32Array(N * 2 * 3), end = new Float32Array(N * 2);
@@ -341,9 +352,9 @@ export class SkySystem {
     const envKey = [Math.round(this.hour * 10), style, Math.round(W.cloud * 8), Math.round(W.dark * 8), this.night > .5 ? 1 : 0].join("|");
     if (this.envTimer <= 0 && envKey !== this.envKey) {
       this.envKey = envKey;
-      this.envTimer = 1.5;
+      this.envTimer = this.reflInterval;
       this.envDome.position.set(0, 0, 0);
-      const rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 200, { size: 128 });
+      const rt = this.pmrem.fromScene(this.envScene, 0, 0.1, 200, { size: this.reflSize });
       this.scene.environment = rt.texture;
       this.scene.environmentIntensity = .35 + (1 - this.night) * .65;
       this.envRT?.dispose(); this.envRT = rt;

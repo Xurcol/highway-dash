@@ -1336,7 +1336,10 @@ export class UI {
     chips("weathers", Object.keys(WEATHERS), (n) => s.weather === n, (n) => { s.weather = n; this.ctx.sky.setWeather(n); });
     chips("trafficLevels", Object.keys(TRAFFIC_LEVELS), (n) => s.traffic === n, (n) => { s.traffic = n; });
     for (const [id, key] of [["volMaster", "volMaster"], ["volEngine", "volEngine"], ["volFx", "volFx"], ["volWind", "volWind"], ["optRes", "res"], ["optScenery", "scenery"], ["optView", "viewDist"]]) $(id).oninput = (e) => { s[key] = +e.target.value; apply(); };
-    for (const [id, key] of [["optManual", "manual"], ["optShadows", "shadows"], ["optBloom", "bloom"], ["optHideNames", "hideNames"]]) $(id).onchange = (e) => { s[key] = e.target.checked; apply(); if (this.ctx.state() === "home") this.renderHome(); };
+    for (const [id, key] of [["optManual", "manual"], ["optShadows", "shadows"], ["optBloom", "bloom"], ["optHideNames", "hideNames"], ["optCinematic", "cinematic"]]) $(id).onchange = (e) => { s[key] = e.target.checked; apply(); if (this.ctx.state() === "home") this.renderHome(); };
+    // a graphics-quality pick overwrites shadows/res/scenery/view/bloom/nightLights, so the sliders
+    // need to redraw with whatever it just set them to
+    $("optGfx").onchange = (e) => { this.ctx.setGfxTier(+e.target.value); this.renderSettings(); };
   }
   syncTime(hour) {
     const h = Math.floor(hour), m = Math.floor((hour - h) * 60);
@@ -1353,6 +1356,7 @@ export class UI {
     $("optScenery").value = s.scenery ?? 1; $("optView").value = s.viewDist ?? 1; $("optNight").value = s.nightLights ?? 1;
     $("optNight").onchange = (e) => { s.nightLights = +e.target.value; apply(); };
     $("optManual").checked = s.manual; $("optShadows").checked = s.shadows; $("optBloom").checked = s.bloom !== false; $("optHideNames").checked = !!s.hideNames;
+    $("optCinematic").checked = !!s.cinematic; $("optGfx").value = s.gfx ?? -1;
     this.chipSync?.forEach((f) => f());
   }
 }
