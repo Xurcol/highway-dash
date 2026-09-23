@@ -678,13 +678,16 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .mr-src.yt{background:rgba(255,40,40,.16);color:#ff7070}
 .mr-src.sp{background:rgba(30,215,96,.16);color:#1ed760}
 /* the embedded Spotify / YouTube player: above everything, so it is never covered while it plays */
-.stream-dock{position:fixed;left:var(--s4);bottom:88px;z-index:30;border-radius:var(--r2);overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--hairline)}
+.stream-dock{position:fixed;left:var(--s4);bottom:88px;z-index:30;width:320px;border-radius:var(--r2);overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--hairline)}
+.stream-dock.joined{border-bottom-left-radius:0;border-bottom-right-radius:0;border-bottom:0;box-shadow:none}
+.music-widget.streaming{border-top-left-radius:0;border-top-right-radius:0;padding-top:6px;padding-bottom:9px}
+.music-widget.streaming .mw-art,.music-widget.streaming .mw-title{display:none}
+.music-widget.streaming .mw-artist{font-size:var(--t-xs);font-weight:600;color:var(--ink-2)}
 .stream-dock .sd-yt,.stream-dock .sd-sp{display:none}
 .stream-dock[data-kind="youtube"]{background:#000}
 .stream-dock[data-kind="youtube"] .sd-yt,.stream-dock[data-kind="spotify"] .sd-sp{display:block}
-.sd-yt iframe{display:block;width:200px;height:200px;border:0}
-.sd-sp{width:300px}
-.sd-sp iframe{display:block;width:300px;height:80px;border:0}
+.sd-yt iframe{display:block;width:320px;height:200px;border:0}
+.sd-sp iframe{display:block;width:320px;height:80px;border:0}
 .media-fx input{margin-top:2px;flex:0 0 auto}
 .media-fx b{color:var(--ink)}
 .media-box{width:min(720px,100%)}

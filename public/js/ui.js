@@ -1524,7 +1524,7 @@ export class UI {
     const art = $("mediaArt");
     art.innerHTML = t?.art ? `<img src="${t.art}" alt="">` : `<span>♪</span>`;
     $("mediaTitle").textContent = t ? t.title : "Nothing playing";
-    $("mediaArtist").textContent = t ? (t.artist || "Unknown artist") : "Add your own tracks to get started";
+    $("mediaArtist").textContent = t ? (t.artist || { spotify: "On Spotify", youtube: "On YouTube" }[t.kind] || "Unknown artist") : "Add your own tracks to get started";
     $("mediaAlbum").textContent = t?.album || "";
     $("mediaPlay").textContent = m.playing ? "❚❚" : "▶";
     $("mediaPrev").disabled = $("mediaNext").disabled = m.tracks.length < 2;
@@ -1535,18 +1535,20 @@ export class UI {
       const row = document.createElement("div");
       row.className = "media-row" + (i === m.index ? " on" : "");
       row.innerHTML = `<div class="mr-art">${tr.art ? `<img src="${tr.art}" alt="">` : "♪"}</div>
-        <div class="mr-text"><b>${esc(tr.title)}</b><small>${esc(tr.artist || "Unknown artist")}${tr.kind === "youtube" ? '<span class="mr-src yt">YouTube</span>' : tr.kind === "spotify" ? '<span class="mr-src sp">Spotify</span>' : ""}</small></div>
+        <div class="mr-text"><b>${esc(tr.title)}</b><small>${esc(tr.artist || (tr.kind === "file" ? "Unknown artist" : ""))}${tr.kind === "youtube" ? '<span class="mr-src yt">YouTube</span>' : tr.kind === "spotify" ? '<span class="mr-src sp">Spotify</span>' : ""}</small></div>
         <button class="mr-x" title="Remove">✕</button>`;
       row.onclick = (e) => { if (!e.target.closest(".mr-x")) m.play(i); };
       row.querySelector(".mr-x").onclick = () => m.remove(i);
       list.appendChild(row);
     });
-    const w = $("musicWidget");
+    // a link's own player already shows the song, so under it the widget is just the controls
+    const w = $("musicWidget"), streaming = !!m.dockKind;
     w.hidden = !t || this.ctx.state() === "home";
+    w.classList.toggle("streaming", streaming);
     if (t) {
       $("mwArt").innerHTML = t.art ? `<img src="${t.art}" alt="">` : "♪";
       $("mwTitle").textContent = t.title;
-      $("mwArtist").textContent = t.artist || "Unknown artist";
+      $("mwArtist").textContent = streaming ? `Playing on ${t.kind === "spotify" ? "Spotify" : "YouTube"}` : t.artist || "Unknown artist";
       $("mwPlay").textContent = m.playing ? "❚❚" : "▶";
     }
     this.renderMediaTime();
@@ -1565,14 +1567,16 @@ export class UI {
     if (this.ctx.state() === "home" && !w.hidden) w.hidden = true;
   }
 
-  // the embedded player for a link: bottom-left, clear of the garage's car strip or the in-game widget
+  // The embedded player for a link. In game it sits on the music widget as one card (player on top,
+  // the game's controls under it); in the garage it sits above the car strip.
   renderDock() {
     const k = this.music.dockKind, dock = $("streamDock");
     dock.hidden = !k;
     if (!k) return;
     dock.dataset.kind = k;
-    const home = this.ctx.state() === "home";
-    dock.style.bottom = (home ? (document.querySelector("#home .cardbar")?.offsetHeight || 150) + 24 : 88) + "px";
+    const home = this.ctx.state() === "home", w = $("musicWidget"), joined = !home && !w.hidden;
+    dock.classList.toggle("joined", joined);
+    dock.style.bottom = (home ? (document.querySelector("#home .cardbar")?.offsetHeight || 150) + 24 : joined ? 16 + w.offsetHeight - 1 : 16) + "px";
   }
 
   // ---------- admin ----------

@@ -82,11 +82,11 @@ async function linkMeta(link) {
   const api = link.kind === "spotify" ? `https://open.spotify.com/oembed?url=${q}` : `https://www.youtube.com/oembed?format=json&url=${q}`;
   try {
     const r = await fetch(api);
-    if (r.ok) { const j = await r.json(); if (j.title) return { title: j.title, artist: j.author_name || (link.kind === "spotify" ? "Spotify" : "YouTube"), art: j.thumbnail_url || null }; }
+    if (r.ok) { const j = await r.json(); if (j.title) return { title: j.title, artist: j.author_name || "", art: j.thumbnail_url || null }; }
   } catch { /* offline or blocked: fall back to a plain label */ }
   return {
     title: link.kind === "spotify" ? `Spotify ${link.type}` : link.id ? "YouTube video" : "YouTube playlist",
-    artist: link.kind === "spotify" ? "Spotify" : "YouTube", art: link.id ? `https://i.ytimg.com/vi/${link.id}/hqdefault.jpg` : null,
+    artist: "", art: link.id ? `https://i.ytimg.com/vi/${link.id}/hqdefault.jpg` : null,
   };
 }
 // the services' player APIs, loaded the first time they're needed
@@ -289,7 +289,8 @@ export class MusicPlayer extends EventTarget {
   restoreLinks() {
     try {
       const saved = JSON.parse(localStorage.getItem(LINKS_KEY) || "[]");
-      if (Array.isArray(saved)) this.tracks.push(...saved.filter((t) => t && (t.kind === "youtube" || t.kind === "spotify") && (t.id || t.list)));
+      if (Array.isArray(saved)) this.tracks.push(...saved.filter((t) => t && (t.kind === "youtube" || t.kind === "spotify") && (t.id || t.list))
+        .map((t) => (t.artist === "Spotify" || t.artist === "YouTube" ? { ...t, artist: "" } : t)));
     } catch { /* nothing saved */ }
   }
   // tell the OS what we're playing so the hardware media keys and the browser widget work
