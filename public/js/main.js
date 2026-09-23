@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { SkySystem, TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { World, laneX, ROAD_HALF, SHOULDER, cityAt } from "./world.js";
-import { Traffic } from "./traffic.js";
+import { Traffic, EV_TYPES } from "./traffic.js";
 import { CARS, BODIES, specOf, DetailedCar } from "./cars.js";
 import { Drivetrain } from "./vehicle.js";
 import { AudioManager } from "./audio.js";
@@ -1257,6 +1257,42 @@ function updateCatchUp(dt, list) {
 // every driver in the session, so traffic knows not to change lanes into any of us
 // Every driver on the road, for the traffic: where they are, how fast they are going and how big
 // their car is. block = they are actually in the lane (not crashed), so traffic queues behind them.
+// ---------------- emergency vehicles ----------------
+// Now and then a police car, ambulance or fire engine comes up behind you with its siren going, and
+// the traffic opens a corridor between the two left lanes for it (traffic.js). Sit in that gap and it
+// stays behind you on the air horn; move over and it goes by, and you get a bonus. Not in a police
+// chase - that has its own cops.
+function updateEmergency(dt, T) {
+  traffic.evOn = state === "drive" && !(mode === "solo" && soloMode() === "police");
+  for (const e of traffic.stepEmergency(dt, T)) {
+    const d = EV_TYPES[e.e.kind];
+    if (e.type === "horn") {
+      const dist = Math.hypot(e.e.x - G.x, e.e.z - G.z);
+      audio.honk?.(Math.max(-1, Math.min(1, (e.e.x - G.x) / 12)), true, Math.min(1, 18 / Math.max(6, dist)) * (e.me ? 1 : .5));
+    } else if (e.type === "passed" && state === "drive" && !e.e.dead) {
+      if (e.e.blockedT < 1) { G.score += 150; ui.toast(`${d.icon} Moved over for the ${d.name.toLowerCase()} · +150`, [], "success"); }
+      else ui.toast(`${d.icon} You held up the ${d.name.toLowerCase()}`, [], "warn");
+    }
+  }
+  // warn once it's close enough to hear, and voice every siren
+  const sirens = [];
+  for (const e of traffic.evs) {
+    const dx = e.x - G.x, dz = e.z - G.z, dist = Math.max(1, Math.hypot(dx, dz));
+    if (!e.announced && state === "drive" && dz > 0 && dz < 230) {
+      e.announced = true;
+      const d = EV_TYPES[e.kind];
+      ui.toast(`${d.icon} ${d.name} coming through behind you - move over`, [], "warn");
+    }
+    if (e.dead || dist > 650) continue;
+    // Doppler from both speeds along the line between you (everyone drives towards -z)
+    const ux = dx / dist, uz = dz / dist;
+    const vL = G.vx * ux - (G.dt?.v || 0) * uz, vS = -e.v * uz;
+    sirens.push({ key: e.key, kind: e.kind, level: Math.min(1, (40 / Math.max(20, dist)) ** 1.1) * (paused ? .4 : 1),
+      pan: dx / 18, dop: (343 + vL) / (343 + vS), yelp: dist < 70 });
+  }
+  audio.evSirens?.(sirens);
+}
+
 function allPlayers() {
   const out = [];
   if (state !== "home") {
@@ -1848,6 +1884,8 @@ function frame(now) {
     }
     audio.update(0, 0, false);
     audio.musicEnv?.({ home: true, on: P.settings.musicFx !== false });
+    if (traffic.evs.length) traffic.evs.length = 0;
+    audio.evSirens?.([]);
     ui.music.setDuck(1);
     return;
   }
@@ -1865,6 +1903,7 @@ function frame(now) {
     audio.honk?.(Math.max(-1, Math.min(1, (h.x - G.x) / 12)), h.heavy, Math.min(1, 16 / Math.max(6, d)) * (h.me ? 1 : .6));
     if (h.flash) traffic.react(h.key, true);
   }
+  updateEmergency(simDt, T);
 
   if (state === "ready" && mode === "online" && partyRound) {
     const recap = lastResults && lastResults.round === partyRound - 1 ? `${lastResults.win ? "🏆 " + lastResults.by + " wins" : "💥 " + lastResults.by + " crashed"} — ${lastResults.scores.map((p) => `${p.name} ${p.score.toLocaleString()}`).join(" · ")}` : net.room ? net.room.players.map((p) => p.name).join(" · ") : "";
@@ -2063,6 +2102,62 @@ function revTick() {
 }
 function revPreview(sound, carId) { revHold(sound, carId, true); setTimeout(() => revHold(sound, carId, false), 650); }
 
+// ---------------- workshop dyno pull ----------------
+// A full-throttle pull on the rollers in fourth: from 2,000 rpm the revs climb only as fast as the
+// engine's torque at each rpm can spin the drum up - a turbo engine surges once its boost arrives -
+// then it bounces off the limiter, lifts, and crackles back down to idle. onTick(rpm, phase) lets
+// the workshop trace the curve as it happens; resolves once the engine is back at idle.
+let dynoBusy = false;
+async function dynoPull(sound, carId, onTick) {
+  if (dynoBusy) return;
+  dynoBusy = true;
+  await audio.init();
+  audio.vol = { master: P.settings.volMaster, engine: P.settings.volEngine, fx: P.settings.volFx, wind: P.settings.volWind };
+  audio.applyVolumes();
+  if (!revVoice) {
+    revVoice = audio.engine(sound);
+    revVoice.onFire = (amp, big) => { if (state === "home") showFlames.fire(showFlame, amp, big); };
+  }
+  revVoice.setProfile(sound);
+  revVoice.tune(carAudio(carId), P.settings.driveMode);
+  clearInterval(rev.timer); rev.timer = null; rev.hold = false;       // the hold-to-rev loop hands over
+  const sp = tunedSpec(carId, carTune(carId)), lim = sp.redline, idle = sp.idle, start = Math.max(idle + 300, 2000);
+  let peak = 1;
+  for (let r = start; r <= lim; r += 100) peak = Math.max(peak, sp.torqueAt(r));
+  const boostN = (r) => (sp.boostMax ? Math.min(1, Math.max(0, sp.boostAt(r) / sp.boostMax)) : 0);
+  let rpm = idle, phase = "spool", t = 0, limT = 0, nextCut = 0;
+  const dt = .025;
+  await new Promise((resolve) => {
+    const timer = setInterval(() => {
+      t += dt;
+      let thr = 1, load = 1;
+      if (phase === "spool") {                 // settle onto the rollers at the start of the pull
+        rpm += (start - rpm) * Math.min(1, dt * 4); thr = .35; load = .3;
+        if (t > .8) phase = "pull";
+      } else if (phase === "pull") {
+        // drum inertia set so a typical engine takes about five seconds from 2,000 rpm to the limiter
+        rpm += Math.max(.15, sp.torqueAt(rpm) / peak) * (lim - start) / 4.6 * dt;
+        if (rpm >= lim) { rpm = lim; phase = "limit"; }
+      } else if (phase === "limit") {          // held flat against the limiter for a moment
+        limT += dt;
+        if ((nextCut -= dt) <= 0) { revVoice.event("limiter"); nextCut = .11; }
+        rpm = lim * (.975 + .02 * Math.random());
+        if (limT > .8) { phase = "lift"; revVoice.event("lift", { rpm: lim, load: 1, release: 10, boost: boostN(lim), gear: 4 }); }
+      } else {                                 // off the throttle: burble back down to idle
+        thr = 0; load = 0;
+        rpm += (idle - rpm) * Math.min(1, dt * 1.5);
+        if (rpm < idle * 1.06) phase = "done";
+      }
+      revVoice.params({ rpm, throttle: thr, gain: .9, load, boostNorm: boostN(rpm) * load, gear: 4, redline: lim, warmth: 1 });
+      onTick?.(rpm, phase);
+      if (phase === "done") { clearInterval(timer); resolve(); }
+    }, 25);
+  });
+  dynoBusy = false;
+  // quiet again after a moment at idle, as after holding the rev button
+  setTimeout(() => { if (!rev.timer && !dynoBusy) revVoice.params({ rpm: idle, throttle: 0, gain: 0, load: 0 }); }, 2500);
+}
+
 // ---------------- boot ----------------
 const ui = new UI({
   net, audio, sky,
@@ -2094,6 +2189,7 @@ const ui = new UI({
   },
   revPreview,
   revHold,
+  dynoPull,
   applyTune,
   currentCar: () => G.def.id, switchCar, leaveServer, playerRows, teleportTo, freeMode,
   play: (asMode) => { audio.init(); if (asMode === "online") partyDrive(); else { partyRound = 0; enterReady(asMode); } },

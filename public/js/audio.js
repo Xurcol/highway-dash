@@ -591,6 +591,41 @@ export class AudioManager {
     for (const f of freqs) { const o = ctx.createOscillator(); o.type = "sawtooth"; o.frequency.value = f; o.connect(lp); o.start(t0); o.stop(end); }
     setTimeout(() => p.disconnect(), (end - ctx.currentTime + .3) * 1000);
   }
+  // Emergency vehicles' sirens, one voice each, updated every frame from a list of
+  // { key, kind, level, pan, dop, yelp }; anything no longer listed fades out. Police wail and switch to
+  // a fast yelp up close, ambulances go hi-lo, a fire engine is a slow, deep wail. dop is the Doppler
+  // ratio (pitch up coming at you, down going away); far away they are quieter and duller. They go
+  // through the effects bus, so a tunnel makes them ring.
+  evSirens(list) {
+    if (!this.ready) return;
+    const seen = new Set();
+    this.evVoices ||= new Map();
+    for (const s of list) {
+      seen.add(s.key);
+      let v = this.evVoices.get(s.key);
+      if (!v) {
+        const ctx = this.ctx, cfg = { police: ["square", 1050, 420, .23, "sine"], ambulance: ["square", 850, 120, .95, "square"], fire: ["sawtooth", 740, 330, .14, "triangle"] }[s.kind] || ["square", 1000, 400, .25, "sine"];
+        const o = ctx.createOscillator(), lfo = ctx.createOscillator(), depth = ctx.createGain(), lp = ctx.createBiquadFilter(), g = ctx.createGain(), p = ctx.createStereoPanner();
+        o.type = cfg[0]; o.frequency.value = cfg[1]; depth.gain.value = cfg[2]; lfo.frequency.value = cfg[3]; lfo.type = cfg[4];
+        lp.type = "lowpass"; lp.frequency.value = 2400; g.gain.value = 0;
+        lfo.connect(depth).connect(o.frequency); o.connect(lp).connect(g).connect(p).connect(this.fx);
+        o.start(); lfo.start();
+        v = { o, lfo, g, p, lp, kind: s.kind };
+        this.evVoices.set(s.key, v);
+      }
+      this.set(v.g.gain, s.level * .12, .15);
+      this.set(v.p.pan, Math.max(-1, Math.min(1, s.pan)), .1);
+      this.set(v.o.detune, 1200 * Math.log2(Math.max(.5, Math.min(2, s.dop || 1))), .08);
+      this.set(v.lp.frequency, 800 + 2600 * Math.min(1, s.level * 1.5), .2);
+      if (v.kind === "police") this.set(v.lfo.frequency, s.yelp ? 3.4 : .23, .25);
+    }
+    for (const [k, v] of this.evVoices) if (!seen.has(k)) {
+      this.set(v.g.gain, 0, .15);
+      const end = this.ctx.currentTime + .9;
+      v.o.stop(end); v.lfo.stop(end);
+      this.evVoices.delete(k);
+    }
+  }
   truckHorn(pan) {
     if (!this.ready) return;
     [185, 233].forEach((f) => this.tone({ type: "sawtooth", f0: f, f1: f * 0.97, a: 0.02, d: 0.7, peak: 0.07, pan }));

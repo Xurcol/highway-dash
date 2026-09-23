@@ -24,6 +24,21 @@ const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "va
 const SCENE_S = 560, SCENE_P = .3, SCENE_X = ROAD_HALF + .9;
 const PARKED = ["sedan", "hatch", "suv", "pickup", "van", "coupe", "muscle", "sedan", "suv"];
 const ONE = [0], TWO = [-1, 1];
+// Emergency vehicles. They come up behind the player down an emergency corridor opened between the
+// two left lanes: the leftmost lane moves left, every other lane moves right, less the further from
+// the gap (YIELD_X, metres per lane). The biggest thing in lanes 0-1 is 2 m wide, so a fully open
+// corridor is ~4.2 m for a vehicle of at most 2.45 m. model: the pooled mesh, body: its size.
+const CORRIDOR_X = laneX(0) + LW / 2;
+const YIELD_X = [-1.15, 1.1, .7, .35, .1];
+export const EV_TYPES = {
+  police: { model: "cop", body: "sedan", color: 0x121418, name: "Police", icon: "🚓" },
+  ambulance: { model: "amb", body: "van", color: 0xf2f2f2, name: "Ambulance", icon: "🚑" },
+  fire: { model: "fire", body: "truck", color: 0xb81c1c, name: "Fire engine", icon: "🚒" },
+};
+// where each model's light bar sits along the roof (z, metres, + = rearward) and its two colours
+const BARS = { cop: { z: .35, a: [3, .06, .08], b: [.06, .12, 3] }, amb: { z: -.5, a: [3, .06, .08], b: [2.4, 2.4, 2.4] }, fire: { z: -2.2, a: [3, .06, .06], b: [3, .25, .05] } };
+// how much a car has moved over for an emergency vehicle d metres behind it (d < 0: already past)
+const yieldK = (d) => (d > 250 ? 0 : d > 150 ? smooth((250 - d) / 100) : d > -25 ? 1 : d > -60 ? smooth((d + 60) / 35) : 0);
 // Following a driver who is holding the lane up (an intelligent-driver model): a comfortable pull
 // away and a comfortable brake, a hard limit for emergencies, a standstill gap and a time gap.
 const IDM = { a: 2.2, b: 3.5, bMax: 9, s0: 4, th: 1.0, catchUp: 4 };
@@ -60,6 +75,58 @@ export class Traffic {
     // Cars held up by a player: key -> { z, v, acc, dir, lane, j, honkT }. A held car has left its
     // schedule and drives itself (see step()) until it has caught back up with it.
     this.held = new Map();
+    // emergency vehicles on the road right now (local to this client), and the spawn clock
+    this.evs = []; this.evOn = false; this.evNext = 40 + Math.random() * 30; this.evN = 0;
+  }
+  // Drives the emergency vehicles: now and then one sets off ~320 m behind the local player at a
+  // speed that catches them, runs down the corridor, follows whatever is in the gap (a player who
+  // hasn't moved over gets the air horn), and leaves once well past. Returns events for main.js:
+  // spawn, horn, passed, gone.
+  stepEmergency(dt, T) {
+    const out = [];
+    if (!(dt > 0)) return out;
+    const me = this.players.find((p) => p.me && p.block);
+    if (this.evOn && me && !this.evs.length && (this.evNext -= dt) <= 0) {
+      this.evNext = 55 + Math.random() * 65;
+      const kind = ["police", "police", "police", "ambulance", "ambulance", "fire"][(Math.random() * 6) | 0], d = EV_TYPES[kind], B = BODIES[d.body];
+      const e = { key: `8:${this.evN++ % 1000}:0`, ev: true, kind, model: d.model, body: d.body, color: d.color, L: B.L, W: B.W, dir: 8, lane: -1, sig: 0,
+        x: CORRIDOR_X, z: me.z + 280, v: Math.max(34, me.v || 0), blockedT: 0, hornT: 0, passed: false, announced: false };
+      this.evs.push(e);
+      out.push({ type: "spawn", e });
+    }
+    for (const e of [...this.evs]) {
+      if (this.bumped.has(e.key)) {                       // knocked: it rolls to a stop, siren off
+        e.v = Math.max(0, e.v - 12 * dt); e.z -= e.v * dt; e.dead = true;
+      } else {
+        // the nearest thing in its path: a car that hasn't cleared the gap yet, or a player in it
+        let gap = Infinity, lead = null;
+        for (const c of this.query(T, e.z - 160, e.z - .1)) {
+          if (c.parked || c.ev || Math.abs(c.x - e.x) > (c.W + e.W) / 2 + .25) continue;
+          const g = (e.z - e.L / 2) - (c.z + c.L / 2);
+          if (g < gap) { gap = g; lead = { z: c.z, L: c.L, v: c.held ? c.held.v : this.vAt(c, T), p: null }; }
+        }
+        for (const p of this.players) {
+          if (!p.block || Math.abs(p.x - e.x) > ((p.W || 1.9) + e.W) / 2 + .25) continue;
+          const g = (e.z - e.L / 2) - (p.z + (p.L || 4.6) / 2);
+          if (g > -1 && g < gap) { gap = g; lead = { z: p.z, L: p.L || 4.6, v: Math.max(0, p.v || 0), p }; }
+        }
+        // fast enough to catch whoever it is behind; once past them, on its way
+        const want = me && e.z > me.z - 5 ? Math.min(64, Math.max(48, (me.v || 0) + 14)) : 52;
+        let acc = 3 * (1 - (e.v / want) ** 4);
+        if (lead) acc -= 3 * ((5 + Math.max(0, e.v * .9 + (e.v * (e.v - lead.v)) / (2 * Math.sqrt(15)))) / Math.max(.5, gap)) ** 2;
+        e.v = Math.max(0, e.v + Math.max(-10, Math.min(3, acc)) * dt);
+        e.z -= e.v * dt;
+        if (lead) e.z = Math.max(e.z, lead.z + (lead.L + e.L) / 2 + 1);
+        // held up by a player sitting in the corridor: air horn until they move
+        if (lead?.p && gap < 45 && e.v < want * .75) {
+          e.blockedT += dt;
+          if ((e.hornT -= dt) <= 0) { e.hornT = .9 + Math.random() * 1.1; out.push({ type: "horn", e, me: !!lead.p.me }); }
+        }
+      }
+      if (me && !e.passed && e.z < me.z - 8) { e.passed = true; out.push({ type: "passed", e }); }
+      if (!me || e.z < me.z - 700 || e.z > me.z + 500) { this.evs.splice(this.evs.indexOf(e), 1); out.push({ type: "gone", e }); }
+    }
+    return out;
   }
   // a car's scheduled forward speed at time T (its lane speed plus its own easing on and off)
   vAt(c, T) { return c.v - c.amp * c.w * Math.cos(T * c.w + c.ph); }
@@ -78,7 +145,7 @@ export class Traffic {
     for (const p of this.players) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
     const bands = Array.from({ length: LANES }, () => []);
     for (const c of this.query(T, z0 - 300, z1 + 600)) {
-      if (c.parked || this.bumped.has(c.key)) continue;
+      if (c.parked || c.ev || this.bumped.has(c.key)) continue;
       const li = Math.max(0, Math.min(LANES - 1, Math.round((c.x - laneX(0)) / LW)));
       bands[li].push({ c, z: c.z, v: c.held ? c.held.v : this.vAt(c, T), L: c.L });
     }
@@ -117,7 +184,7 @@ export class Traffic {
     if (!hs) {
       // on schedule: only step off it when keeping it would mean closing in on a player or on a car
       // that is already held up. A car part-way through a lane change finishes it on schedule.
-      if (!lead || !(lead.p || lead.c?.held) || c.sig || Math.abs(c.x - laneX(c.lane)) > .6 || accel(zDet, vDet, vDet) > -1.2) return;
+      if (!lead || !(lead.p || lead.c?.held) || c.sig || Math.abs(c.swerve || 0) > .6 || accel(zDet, vDet, vDet) > -1.2) return;
       const [dir, lane, j] = c.key.split(":").map(Number);
       hs = { z: zDet, v: vDet, acc: 0, dir, lane, j, honkT: .5 + Math.random() };
       this.held.set(c.key, hs);
@@ -153,6 +220,7 @@ export class Traffic {
     this.ramp = ramp;
     for (const [, m] of this.active) this.release(m);
     this.active.clear(); this.bumped.clear(); this.blocked.clear(); this.reacts.clear(); this.bikeX.clear(); this.held.clear();
+    this.evs.length = 0; this.evNext = 40 + Math.random() * 30;
   }
   // Capped well below full: even on Insane a lane keeps real gaps in it.
   density(j) { return Math.min(.62, this.base + (this.ramp ? Math.min(.16, Math.max(0, -j * S) / 30000) : .06)); }
@@ -234,15 +302,20 @@ export class Traffic {
     const bike = c.body === "bike";
     const wobA = (bike ? .2 : .08) + c.h(13) * (bike ? .3 : .18), wobF = .16 + c.h(14) * .22;
     c.x = baseX + Math.sin(T * wobF + c.ph * 1.7) * wobA;
-    c.sig = 0;
+    c.sig = 0; c.swerve = 0;
+    let k = 0;
+    for (const e of this.evs) k = Math.max(k, yieldK(e.z - c.z));
+    c.yieldK = k;
+    if (k) c.x += YIELD_X[c.lane] * k;
     const target = SWERVE_TARGET[c.lane];
-    if (!hs && target !== undefined && c.h(8) < .45 && c.body !== "bus") {
+    if (!hs && !k && target !== undefined && c.h(8) < .45 && c.body !== "bus") {
       const P = 15 + c.h(9) * 14, phase = T + c.h(10) * P, tl = ((phase % P) + P) % P;
       if (tl < WIN) {
         const T0 = T - tl;
         if (this.swerveSafe(c, target, T0 + 1, T0 + WIN) && this.playerClear(c, target, `${c.key}:${Math.floor(phase / P)}`, tl)) {
           const k = smooth((tl - OUT_AT) / OUT_LEN) * (1 - smooth((tl - BACK_AT) / BACK_LEN));
-          c.x += (laneX(target) - baseX) * k;
+          c.swerve = (laneX(target) - baseX) * k;
+          c.x += c.swerve;
           // +1 while pulling across, -1 while coming back: the indicator has to follow the direction
           // the car is actually moving, not the lane it started in
           if (tl < OUT_AT + .4) c.sig = 1;
@@ -275,6 +348,8 @@ export class Traffic {
       const sc = this.rawScene(j);
       if (sc) for (const c of sc) if (c.z >= zAhead && c.z <= zBehind) out.push(c);
     }
+    // emergency vehicles (a copy each: callers move what they are given, e.g. a knocked car's slide)
+    for (const e of this.evs) if (e.z >= zAhead && e.z <= zBehind) out.push({ ...e });
     return out;
   }
   // The keys look like lane keys ("9:n:j") so a knocked one goes round the party like any other car.
@@ -299,21 +374,29 @@ export class Traffic {
   acquire(model, color) {
     const p = this.pool.get(model);
     let m = p && p.pop();
-    if (!m) { m = model === "bike" ? makeTrafficBike(color) : model === "cop" ? this.makeCop() : makeTrafficCar(model, color); this.scene.add(m); }
-    if (model !== "cop") m.children[0].userData.setColor(color);
+    if (!m) { m = model === "bike" ? makeTrafficBike(color) : BARS[model] ? this.makeEmergency(model) : makeTrafficCar(model, color); this.scene.add(m); }
+    if (!BARS[model]) m.children[0].userData.setColor(color);
     m.visible = true;
     return m;
   }
-  // a cruiser for the roadside stops: a dark sedan with a light bar the update loop flashes
-  makeCop() {
-    const m = makeTrafficCar("sedan", 0x121418), bar = new THREE.Group();
+  // A cruiser (the roadside stops use it too), an ambulance or a fire engine: the body in its livery
+  // with a light bar on the roof whose two halves the update loop strobes. The ambulance gets a red
+  // band down each side.
+  makeEmergency(model) {
+    const d = Object.values(EV_TYPES).find((t) => t.model === model), B = BODIES[d.body], bar = new THREE.Group();
+    const m = makeTrafficCar(d.body, d.color);
     const red = new THREE.MeshBasicMaterial({ color: 0xff2030, toneMapped: false }), blue = new THREE.MeshBasicMaterial({ color: 0x2050ff, toneMapped: false });
     const base = new THREE.Mesh(new THREE.BoxGeometry(1.1, .09, .3), new THREE.MeshStandardMaterial({ color: 0x111111 }));
     const r = new THREE.Mesh(new THREE.BoxGeometry(.5, .1, .26), red), b = new THREE.Mesh(new THREE.BoxGeometry(.5, .1, .26), blue);
     r.position.set(-.27, .07, 0); b.position.set(.27, .07, 0);
-    bar.add(base, r, b); bar.position.set(0, BODIES.sedan.top + .04, .35);
+    bar.add(base, r, b); bar.position.set(0, B.top + .04, BARS[model].z);
     m.add(bar);
-    m.userData.body = "cop"; m.userData.bar = { red, blue };
+    if (model === "amb") {
+      const band = new THREE.Mesh(new THREE.BoxGeometry(B.W + .02, .22, B.L * .78), new THREE.MeshStandardMaterial({ color: 0xc81e1e, roughness: .5 }));
+      band.position.set(0, 1.05, .15);
+      m.add(band);
+    }
+    m.userData.body = model; m.userData.bar = { red, blue, z: BARS[model].z };
     return m;
   }
   // Knocked cars are shared: the crashing player broadcasts (key, speed, side, kick) so that
@@ -402,23 +485,29 @@ export class Traffic {
       if (c.parked) {
         // hazards on a breakdown; a light bar going on a cruiser, bright enough to see from far off
         if (c.hazard && blink) for (const s of sides) { glows.add(c.x + s * hw, B.tl[1], tz, 1, .55, .05, 1.2); glows.add(c.x + s * hw, B.hl[1], fz, 1, .55, .05, 1.0); }
-        if (c.cop && m.userData.bar) {
-          const bar = m.userData.bar, y = B.top + .14;
-          bar.red.color.setRGB(strobe ? 3 : .12, .06, .08); bar.blue.color.setRGB(.06, .12, strobe ? .12 : 3);
-          glows.add(c.x - .3, y, c.z + .35, strobe ? 1 : .1, .06, .08, 2.4);
-          glows.add(c.x + .3, y, c.z + .35, .06, .12, strobe ? .1 : 1, 2.4);
-          if (copN < 2 && Math.abs(c.z - camPos.z) < 220) {
-            const L = this.copLights[copN++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -1, 0), color: new THREE.Color(), intensity: 6, range: 16, cosOuter: -2, cosInner: -1.9 };
-            L.pos.set(c.x - 1.2, y + .4, c.z); L.color.setRGB(strobe ? 1 : .12, .08, strobe ? .12 : 1);
-            lights.push(L);
-          }
+        if (!c.cop) continue;
+      }
+      if ((c.cop || c.ev) && m.userData.bar) {
+        // the two halves of the bar take turns, bright enough to see from far off, and light the road
+        const bar = m.userData.bar, S = BARS[c.model || "cop"], y = B.top + .14, bz = c.z + (bar.z ?? .35), dim = .05;
+        const A = strobe ? S.a : S.a.map((v) => v * dim), Bc = strobe ? S.b.map((v) => v * dim) : S.b;
+        bar.red.color.setRGB(A[0], A[1], A[2]); bar.blue.color.setRGB(Bc[0], Bc[1], Bc[2]);
+        glows.add(c.x - .3, y, bz, A[0] / 3, A[1] / 3, A[2] / 3, 2.4);
+        glows.add(c.x + .3, y, bz, Bc[0] / 3, Bc[1] / 3, Bc[2] / 3, 2.4);
+        // on the move, the headlights wig-wag too
+        if (c.ev && !c.dead) glows.add(c.x + (strobe ? -1 : 1) * (c.W / 2 - .35), B.hl[1], fz, 1, .97, .9, 2.2);
+        if (copN < 2 && Math.abs(c.z - camPos.z) < 220) {
+          const L = this.copLights[copN++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -1, 0), color: new THREE.Color(), intensity: 6, range: 16, cosOuter: -2, cosInner: -1.9 };
+          const lc = strobe ? S.a : S.b;
+          L.pos.set(c.x, y + .5, bz); L.color.setRGB(lc[0] / 3, lc[1] / 3, lc[2] / 3);
+          lights.push(L);
         }
         continue;
       }
       // brake lights: drivers brake as they ease back in their slot (the strongest part of each slow-down),
       // and anyone you have just cut off stands on the brakes
       const r = this.reacts.get(c.key);
-      const braking = !b && (c.held ? c.held.acc < -.4 || c.held.v < 1.5 : c.amp * c.w * c.w > .06 && Math.sin(T * c.w + c.ph) < -.72 || (r && r.t < 1.1));
+      const braking = !b && (c.held ? c.held.acc < -.4 || c.held.v < 1.5 : c.amp * c.w * c.w > .06 && Math.sin(T * c.w + c.ph) < -.72 || (r && r.t < 1.1) || (c.yieldK > .02 && c.yieldK < .98));
       if (braking) for (const s of sides) glows.add(c.x + s * hw, B.tl[1], tz, 1, .07, .05, one ? 1.1 : 1.35);
       else if (night) for (const s of sides) glows.add(c.x + s * hw, B.tl[1], tz, 1, .08, .05, .9);
       // ...and flashes its headlights at you, twice
