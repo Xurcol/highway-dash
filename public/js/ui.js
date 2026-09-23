@@ -10,7 +10,7 @@ import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, isForced, summary, sum
 import { partPrice, TUNING_PRICES, COSMETIC_PRICES, fmtCoins, CAR_PRICES } from "./economy.js";
 import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
-import { MusicPlayer } from "./media.js";
+import { MusicPlayer, parseLink } from "./media.js";
 import { FLAME_COLORS } from "./flames.js";
 import { todaysDaily, dailyBonusDone, msToDailyReset, DAILY_TIERS, DAILY_BONUS } from "./daily.js";
 
@@ -1466,6 +1466,25 @@ export class UI {
   // through the Media Session API. That is exactly what this does; nothing is mocked.
   wireMedia() {
     const m = this.music;
+    m.ytHost = $("ytHost"); m.spHost = $("spHost");
+    // pasted Spotify / YouTube links
+    const addLink = async (text) => {
+      const btn = $("mediaLinkAdd");
+      btn.disabled = true;
+      try { const t = await m.addLink(text); $("mediaLink").value = ""; this.toast(`Added ${t.title}`); }
+      catch (e) { this.toast(e.message || "Couldn't add that link", [], "warn"); }
+      btn.disabled = false;
+    };
+    $("mediaLinkAdd").onclick = () => { const v = $("mediaLink").value.trim(); if (v) addLink(v); };
+    $("mediaLink").onkeydown = (e) => { e.stopPropagation(); if (e.key === "Enter") $("mediaLinkAdd").click(); };
+    // with the music panel open, pasting a link anywhere adds it
+    addEventListener("paste", (e) => {
+      if ($("media").hidden || e.target.closest?.("input, textarea")) return;
+      const text = e.clipboardData?.getData("text") || "";
+      if (parseLink(text)) { e.preventDefault(); addLink(text); }
+    });
+    m.addEventListener("error", (e) => this.toast(e.detail, [], "warn"));
+    m.addEventListener("dock", () => this.renderDock());
     $("mediaAdd").onclick = () => $("mediaFiles").click();
     $("mediaFiles").onchange = async (e) => {
       const n = await m.add([...e.target.files]);
@@ -1486,8 +1505,10 @@ export class UI {
     for (const ev of ["track", "state", "list"]) m.addEventListener(ev, () => this.renderMedia());
     m.addEventListener("time", () => this.renderMediaTime());
     // drop audio files anywhere on the page
-    addEventListener("dragover", (e) => { if (e.dataTransfer?.types?.includes("Files")) e.preventDefault(); });
+    addEventListener("dragover", (e) => { const ty = e.dataTransfer?.types; if (ty?.includes("Files") || ty?.includes("text/uri-list")) e.preventDefault(); });
     addEventListener("drop", async (e) => {
+      const dropped = e.dataTransfer?.getData("text/uri-list") || e.dataTransfer?.getData("text/plain") || "";
+      if (!e.dataTransfer?.files?.length && parseLink(dropped)) { e.preventDefault(); return addLink(dropped); }
       if (!e.dataTransfer?.files?.length) return;
       e.preventDefault();
       const n = await m.add([...e.dataTransfer.files]);
@@ -1514,7 +1535,7 @@ export class UI {
       const row = document.createElement("div");
       row.className = "media-row" + (i === m.index ? " on" : "");
       row.innerHTML = `<div class="mr-art">${tr.art ? `<img src="${tr.art}" alt="">` : "♪"}</div>
-        <div class="mr-text"><b>${esc(tr.title)}</b><small>${esc(tr.artist || "Unknown artist")}</small></div>
+        <div class="mr-text"><b>${esc(tr.title)}</b><small>${esc(tr.artist || "Unknown artist")}${tr.kind === "youtube" ? '<span class="mr-src yt">YouTube</span>' : tr.kind === "spotify" ? '<span class="mr-src sp">Spotify</span>' : ""}</small></div>
         <button class="mr-x" title="Remove">✕</button>`;
       row.onclick = (e) => { if (!e.target.closest(".mr-x")) m.play(i); };
       row.querySelector(".mr-x").onclick = () => m.remove(i);
@@ -1531,16 +1552,27 @@ export class UI {
     this.renderMediaTime();
   }
   renderMediaTime() {
-    const m = this.music, a = m.audio;
+    const m = this.music;
     const fmt = (s) => (isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
-    $("mediaNow").textContent = fmt(a.currentTime);
-    $("mediaDur").textContent = fmt(a.duration);
+    $("mediaNow").textContent = fmt(m.time);
+    $("mediaDur").textContent = fmt(m.duration);
+    this.renderDock();
     const pct = (m.progress * 100).toFixed(1) + "%";
     $("mediaBar").firstElementChild.style.width = pct;
     $("mwBar").style.width = pct;
     const w = $("musicWidget");
     if (m.track && this.ctx.state() !== "home" && w.hidden) w.hidden = false;
     if (this.ctx.state() === "home" && !w.hidden) w.hidden = true;
+  }
+
+  // the embedded player for a link: bottom-left, clear of the garage's car strip or the in-game widget
+  renderDock() {
+    const k = this.music.dockKind, dock = $("streamDock");
+    dock.hidden = !k;
+    if (!k) return;
+    dock.dataset.kind = k;
+    const home = this.ctx.state() === "home";
+    dock.style.bottom = (home ? (document.querySelector("#home .cardbar")?.offsetHeight || 150) + 24 : 88) + "px";
   }
 
   // ---------- admin ----------

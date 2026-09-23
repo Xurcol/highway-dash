@@ -415,6 +415,11 @@
         <label class="toggle media-fx"><input type="checkbox" id="mediaFx"> <span><b>In-game acoustics</b> — the music echoes in tunnels and off city walls, sounds like the car's stereo from outside it, and muffles when you pause or crash</span></label>
       </div>
     </div>
+    <div class="media-link">
+      <input type="text" id="mediaLink" placeholder="Paste a Spotify or YouTube link" autocomplete="off" spellcheck="false">
+      <button class="btn primary" id="mediaLinkAdd">ADD LINK</button>
+    </div>
+    <p class="muted small media-link-note">Links play in Spotify's and YouTube's own players, shown bottom-left while one is on. Spotify plays full songs if you're logged in to Spotify in this browser, 30-second previews if not. In-game acoustics only work on your own files.</p>
     <div class="media-add">
       <button class="btn accent" id="mediaAdd">ADD TRACKS</button>
       <input type="file" id="mediaFiles" accept="audio/*" multiple hidden>
@@ -520,6 +525,11 @@
   </div>
 </section>
 
+<!-- the embedded Spotify / YouTube player for a pasted link: it has to stay visible while it plays -->
+<div id="streamDock" class="stream-dock" hidden aria-label="Now playing">
+  <div class="sd-yt"><div id="ytHost"></div></div>
+  <div class="sd-sp"><div id="spHost"></div></div>
+</div>
 <div id="toasts" class="toasts"></div>
 <script type="module" src="js/main.js"></script>
 </body>

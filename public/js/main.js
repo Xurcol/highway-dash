@@ -1812,6 +1812,7 @@ function frame(now) {
     }
     audio.update(0, 0, false);
     audio.musicEnv?.({ home: true, on: P.settings.musicFx !== false });
+    ui.music.setDuck(1);
     return;
   }
 
@@ -1880,6 +1881,7 @@ function frame(now) {
   if (audio.ready) {
     audio.setTunnel(state === "home" ? 0 : world.tunnel); audio.setEnv(state === "home" ? 0 : cityAt(G.z));
     audio.musicEnv?.({ tunnel: world.tunnel, city: cityAt(G.z), view: G.engine?.lastView || "exterior", paused, on: P.settings.musicFx !== false });
+    ui.music.setDuck(paused && P.settings.musicFx !== false ? .5 : 1);   // a streamed track can only be dipped, not filtered
   }
   traffic.update(simDt, T, G.z, sky.lampsOn, glows, lights, camera.position, state === "home" ? null : shieldHidden());
   const peerList = mode === "online" ? updateRemotes(T, dt) : null;

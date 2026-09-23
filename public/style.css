@@ -671,6 +671,20 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 
 /* ---------- music player ---------- */
 .media-fx{align-items:flex-start;margin-top:var(--s3);font-size:var(--t-sm)}
+.media-link{display:flex;gap:var(--s2);margin-top:var(--s5)}
+.media-link input{flex:1;min-width:0}
+.media-link-note{margin:var(--s2) 0 0;line-height:1.45}
+.mr-src{display:inline-block;margin-left:6px;padding:0 6px;border-radius:var(--r-pill);font-size:10px;font-weight:700;letter-spacing:.4px;vertical-align:1px}
+.mr-src.yt{background:rgba(255,40,40,.16);color:#ff7070}
+.mr-src.sp{background:rgba(30,215,96,.16);color:#1ed760}
+/* the embedded Spotify / YouTube player: above everything, so it is never covered while it plays */
+.stream-dock{position:fixed;left:var(--s4);bottom:88px;z-index:30;border-radius:var(--r2);overflow:hidden;box-shadow:var(--shadow);border:1px solid var(--hairline)}
+.stream-dock .sd-yt,.stream-dock .sd-sp{display:none}
+.stream-dock[data-kind="youtube"]{background:#000}
+.stream-dock[data-kind="youtube"] .sd-yt,.stream-dock[data-kind="spotify"] .sd-sp{display:block}
+.sd-yt iframe{display:block;width:200px;height:200px;border:0}
+.sd-sp{width:300px}
+.sd-sp iframe{display:block;width:300px;height:80px;border:0}
 .media-fx input{margin-top:2px;flex:0 0 auto}
 .media-fx b{color:var(--ink)}
 .media-box{width:min(720px,100%)}
