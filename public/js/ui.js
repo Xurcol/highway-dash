@@ -12,6 +12,7 @@ import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
 import { MusicPlayer } from "./media.js";
 import { FLAME_COLORS } from "./flames.js";
+import { todaysDaily, dailyBonusDone, msToDailyReset, DAILY_TIERS, DAILY_BONUS } from "./daily.js";
 
 const $ = (id) => document.getElementById(id);
 const MPH = 0.621371; // the game shows mph only
@@ -156,6 +157,7 @@ export class UI {
     if (id === "settings") this.renderSettings();
     if (id === "camEdit") this.renderCamEdit();
     if (id === "tune") { this.pick = null; this.renderTune(); }
+    if (id === "daily") this.renderDaily();
     this.ctx.audio.ui();
   }
   toggleModal(id) { if (!$(id).hidden) this.closeModals(); else this.openModal(id); }
@@ -447,6 +449,25 @@ export class UI {
     $("hMedals").textContent = `${medalCount(P.best)}/${MEDALS.length}`;
     $("hCoins").textContent = P.coins.toLocaleString();
     $("hHearts").textContent = P.hearts;
+    // how many of today's challenges are still open, on the garage button
+    const left = todaysDaily().filter((c) => !c.done).length, dot = $("dailyDot");
+    dot.textContent = left; dot.hidden = !left;
+  }
+  // ---------- daily challenges ----------
+  renderDaily() {
+    const list = todaysDaily(), ms = msToDailyReset(), h = Math.floor(ms / 3600000), m = Math.floor((ms % 3600000) / 60000);
+    $("dailyReset").textContent = `New ones in ${h}h ${m}m`;
+    $("dailyList").innerHTML = list.map((c) => {
+      const f = (v) => (c.dec ? v.toFixed(c.dec) : Math.floor(v).toLocaleString()), pct = Math.min(100, (c.prog / c.target) * 100);
+      return `<div class="dc t${c.tier}${c.done ? " done" : ""}">
+        <div class="dc-top"><span class="dc-tier">${DAILY_TIERS[c.tier]}</span><span class="dc-rew">🪙 ${c.reward.coins.toLocaleString()} · ${c.reward.xp} XP</span></div>
+        <b class="dc-text">${esc(c.text)}</b>
+        <div class="dc-bar"><i style="width:${pct}%"></i></div>
+        <small>${c.done ? "✓ Done — paid" : `${f(c.prog)} / ${f(c.target)}`}</small></div>`;
+    }).join("");
+    const n = list.filter((c) => c.done).length;
+    $("dailyBonus").className = "daily-bonus" + (dailyBonusDone() ? " done" : "");
+    $("dailyBonus").innerHTML = `<div><b>Finish all three</b><small>${dailyBonusDone() ? "Bonus paid — see you tomorrow" : `${n} of 3 done`}</small></div><span>🪙 ${DAILY_BONUS.coins.toLocaleString()} · ${DAILY_BONUS.xp} XP</span>`;
   }
   renderHome() {
     this.renderTop();

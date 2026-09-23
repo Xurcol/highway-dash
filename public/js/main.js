@@ -15,6 +15,7 @@ import { burbleIntensity } from "./engine-dsp.js";
 import { runReward } from "./economy.js";
 import { tunedSpec, peakHp, PARTS } from "./tuning.js";
 import { UI } from "./ui.js";
+import { dailyTrack, dailyBest, dailyFlush, dailyHooks } from "./daily.js";
 import { loadModels, makeCar, ensureModel, hasModel, MODELS, missingModels, downloadModels } from "./models.js";
 
 // ---------------- renderer / scenes ----------------
@@ -38,6 +39,13 @@ const flames = new Flames(scene), playerFlame = flames.emitter();
 // Point sprites are sized in pixels, so they need the camera's pixels-per-metre: this matches the
 // glow sprites' .9 x height at the game camera's 62 degrees, and scales for any other lens.
 const pxScale = (hPx, cam) => hPx * .54 / Math.tan(cam.fov * Math.PI / 360);
+// a daily challenge finished mid-drive: say so, and pay (daily.js already credited it)
+dailyHooks.onComplete = (c, all) => {
+  audio.coin();
+  ui.toast(`✅ Daily done: ${c.text} · +${c.reward.coins.toLocaleString()} coins`, [], "success");
+  if (all) ui.toast("🏆 All three dailies done! +1,500 bonus coins", [], "success");
+  ui.renderTop();
+};
 // Tyre smoke: a pooled, soft, lit-by-nothing particle cloud that grows and fades as it drifts back.
 const smoke = (() => {
   const N = 260, pos = new Float32Array(N * 3), size = new Float32Array(N), alpha = new Float32Array(N), P = [];
@@ -607,7 +615,11 @@ async function ensureAudio() {
   audio.applyVolumes();
   if (!G.engine) {
     G.engine = audio.engine(carSound(G.def.id));
-    G.engine.onFire = (amp, big) => { if (state === "drive" || state === "ended") flames.fire(playerFlame, amp, big); };
+    G.engine.onFire = (amp, big) => {
+      if (state !== "drive" && state !== "ended") return;
+      flames.fire(playerFlame, amp, big);
+      if (amp >= .3 && state === "drive") dailyTrack("flames");
+    };
   }
 }
 
@@ -631,7 +643,7 @@ function enterReady(asMode) {
     joinHint = null;
     if (seen.length) { const sp = safeSpotNear(seen.reduce((a, o) => a + o.z, 0) / seen.length, getT(), seen); G.z = sp.z; G.x = sp.x; }
   }
-  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: G.god ? 1e9 : 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, sentWin: false, bestCombo: 0, slide: 0, driftYaw: 0, slideDir: 0, flameT: 0, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
+  Object.assign(G, { vx: 0, yaw: 0, steer: 0, score: 0, dist: 0, combo: 0, comboT: 0, closeCalls: 0, revives: 0, ghostT: G.god ? 1e9 : 0, sigL: 0, sigR: 0, crashT: 0, thrown: null, slowT: 0, shield: null, shieldT: 0, prevThrIn: 0, awarded: false, sentWin: false, bestCombo: 0, slide: 0, driftYaw: 0, slideDir: 0, flameT: 0, cutKeys: new Set(), cutT: -9, catch: 0, catchOn: false, release: 0, liftLoad: 0 });
   G.prevDz.clear();
   G.dt.v = 0; G.readyRpm = G.dt.s.idle;
   G.car.group.position.set(G.x, 0, G.z); G.car.group.rotation.set(0, 0, 0);
@@ -681,6 +693,7 @@ function awardRun(opts = {}) {
   const prevMedals = medalCount(prevBest), nowMedals = medalCount(P.best);
   P.medals = nowMedals;
   const levelUps = addXp(Math.floor(score / 4) + 25);
+  dailyBest("score", score); dailyFlush(true);
   // payouts all come from economy.js so the whole economy can be balanced in one place
   const best = [...remotes.values()].map((r) => r.s?.sc || 0);
   const reward = runReward({
@@ -1462,6 +1475,8 @@ function updateDrive(dt, T) {
   }
   G.z -= v * dt;
   G.dist += Math.max(0, v) * dt;   // reversing does not rack up distance
+  dailyTrack("miles", Math.max(0, v) * dt / 1609.344);
+  dailyBest("mph", Math.round(kmh * .621371));
   G.yaw += (-Math.atan2(G.vx, Math.max(v, 6)) * .9 - G.yaw) * Math.min(1, dt * 10);
   // exhaust flames (the tyres never slip, so there is no tyre smoke or squeal). The engine voice
   // fires them itself, one per pop it plays (G.engine.onFire); this only keeps the pipes where the
@@ -1490,6 +1505,7 @@ function updateDrive(dt, T) {
   if (G.xLag === undefined || Math.abs(G.x - G.xLag) > 6) G.xLag = G.x;
   G.xLag += (G.x - G.xLag) * Math.min(1, dt / .45);
   G.passAt ||= {};
+  G.cutKeys ||= new Set();
 
   // traffic interaction
   const near = traffic.query(T, G.z - 60, G.z + 30, [1]);
@@ -1513,10 +1529,15 @@ function updateDrive(dt, T) {
     if (prev !== undefined && prev < 0 && dz >= 0) {
       const gap = Math.abs(dx) - (c.W + B.W) / 2;
       if (gap < 3.2) audio.whoosh(Math.sign(dx) * .7, c.body === "truck" || c.body === "bus");
-      if (gap < 1.35 && kmh > 90 && G.ghostT <= 0) {
+      if (gap < 1.35 && kmh > 90 && G.ghostT <= 0 && !c.parked) {
         G.combo = G.comboT > 0 ? G.combo + 1 : 1;
         G.comboT = 2.5; G.closeCalls++; G.bestCombo = Math.max(G.bestCombo || 0, G.combo);
         const cc = gradeCloseCall(c, gap, dx, kmh, T, B);
+        dailyTrack("closeCalls"); dailyBest("streak", G.combo);
+        if (cc.tier === 3) dailyTrack("insane");
+        if (cc.tags.includes("THREAD THE NEEDLE")) dailyTrack("needle");
+        if (cc.tags.includes("DODGED")) dailyTrack("dodged");
+        if (cc.tags.includes("BIG RIG")) dailyTrack("bigrig");
         G.score += cc.pts;
         ui.closeCall(cc);
         audio.closeCall(G.combo, cc.tier, !!cc.streak);
@@ -1524,6 +1545,20 @@ function updateDrive(dt, T) {
         if (G.combo % 5 === 0) net.send({ t: "event", kind: "combo", v: G.combo });
       }
       if (gap < 2.2) G.passAt[dx > 0 ? "r" : "l"] = T;
+    }
+    // Cutting in just in front of someone: you are in their lane now, you weren't half a second ago,
+    // and they are close behind. Most drivers lean on the horn, flash their lights, or both.
+    if (!c.parked && dz > 0 && G.ghostT <= 0 && !G.cutKeys.has(c.key) && T - G.cutT > 1.1) {
+      const reach = (c.W + B.W) / 2, gapBehind = dz - (c.L + B.L) / 2;
+      if (gapBehind < 14 && Math.abs(dx) < reach - .25 && Math.abs(G.xLag - c.x) > reach + .2) {
+        G.cutKeys.add(c.key); G.cutT = T;
+        if (gapBehind < 7 || Math.random() < .7) {
+          const r = Math.random(), honk = r < .75;
+          traffic.react(c.key, r > .45);
+          if (honk) audio.honk?.(Math.max(-1, Math.min(1, dx / 10)), c.body === "truck" || c.body === "bus", Math.min(1, 14 / Math.max(5, dz)));
+          if (honk) dailyTrack("honks");
+        }
+      }
     }
   }
   for (const k of G.prevDz.keys()) if (!seen.has(k)) G.prevDz.delete(k);
@@ -1708,6 +1743,7 @@ let hudCache = {};
 function setText(el, v) { if (hudCache[el.id] !== v) { hudCache[el.id] = v; el.textContent = v; } }
 const gearLabel = (g) => (g === 0 ? "N" : String(g));
 function updateHud() {
+  dailyFlush();
   if (state !== "drive" && state !== "crashed" && state !== "ended") return;
   const d = G.dt, kmh = d.v * 3.6;
   setText(ui.el.score, Math.floor(G.score).toLocaleString());

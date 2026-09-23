@@ -45,6 +45,7 @@
         <button class="mode on" data-mode="solo">🏁 SOLO</button>
         <button class="mode" data-mode="online">🌐 ONLINE <em id="onlineDot" class="dot"></em></button>
         <div class="spacer"></div>
+        <button class="btn icon daily-btn" data-open="daily" title="Daily challenges">📅<em id="dailyDot" class="daily-dot" hidden>3</em></button>
         <button class="btn icon" data-open="leader" title="Leaderboard [L]">🏆</button>
         <button class="btn icon" data-open="media" title="Music [J]">🎵</button>
         <button class="btn icon" data-open="settings" title="Settings">⚙️</button>
@@ -443,6 +444,16 @@
         <p class="muted small">While driving, <b>C</b> cycles chase, far, hood, bumper and this custom camera. Tilt is the angle the view points below level, and the field of view widens a little as you speed up.</p>
       </div>
     </div>
+  </div>
+</section>
+
+<section id="daily" class="modal" hidden>
+  <div class="panel modal-box daily-box">
+    <button class="close" data-close aria-label="Close">✕</button>
+    <h2>DAILY CHALLENGES <small id="dailyReset"></small></h2>
+    <p class="muted small daily-intro">Three a day, the same for everyone. They count in any mode and pay out the moment you finish one.</p>
+    <div id="dailyList" class="daily-list"></div>
+    <div id="dailyBonus" class="daily-bonus"></div>
   </div>
 </section>
 

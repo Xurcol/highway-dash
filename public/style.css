@@ -642,6 +642,33 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
   .dy-chart{height:140px}
 }
 
+/* ---------- daily challenges ---------- */
+.daily-btn{position:relative}
+.daily-dot{position:absolute;top:-5px;right:-5px;min-width:18px;height:18px;padding:0 5px;border-radius:var(--r-pill);
+  background:var(--bad);color:#fff;font-style:normal;font-size:11px;font-weight:700;line-height:18px;text-align:center;box-shadow:0 0 0 2px var(--bg)}
+.daily-box{width:min(560px,100%)}
+.daily-box h2 small{color:var(--ink-3);font-size:var(--t-sm)}
+.daily-intro{margin:-8px 0 var(--s4)}
+.daily-list{display:flex;flex-direction:column;gap:var(--s2)}
+.dc{--tc:var(--good);background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--tc);border-radius:var(--r2);padding:var(--s3) var(--s4)}
+.dc.t1{--tc:var(--warn)}.dc.t2{--tc:var(--bad)}
+.dc-top{display:flex;justify-content:space-between;align-items:baseline;gap:var(--s2)}
+.dc-tier{font-size:10px;font-weight:700;letter-spacing:1.6px;color:var(--tc)}
+.dc-rew{font-size:var(--t-xs);color:var(--accent);font-weight:600;font-variant-numeric:tabular-nums}
+.dc-text{display:block;font-size:var(--t-md);margin:4px 0 var(--s2)}
+.dc-bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.dc-bar i{display:block;height:100%;border-radius:3px;background:var(--tc);transition:width .4s var(--ease)}
+.dc small{display:block;margin-top:5px;font-size:var(--t-xs);color:var(--ink-3);font-variant-numeric:tabular-nums}
+.dc.done{background:color-mix(in srgb,var(--good) 8%,var(--surface))}
+.dc.done small{color:var(--good);font-weight:600}
+.daily-bonus{display:flex;align-items:center;gap:var(--s3);margin-top:var(--s3);padding:var(--s3) var(--s4);border-radius:var(--r2);
+  background:linear-gradient(135deg,var(--primary-soft),transparent);border:1px dashed var(--primary)}
+.daily-bonus div{flex:1}
+.daily-bonus b{display:block;font-size:var(--t-sm)}
+.daily-bonus small{font-size:var(--t-xs);color:var(--ink-3)}
+.daily-bonus span{font-size:var(--t-sm);font-weight:700;color:var(--accent);white-space:nowrap}
+.daily-bonus.done{border-style:solid;border-color:var(--good);background:color-mix(in srgb,var(--good) 10%,var(--surface))}
+
 /* ---------- music player ---------- */
 .media-box{width:min(720px,100%)}
 .media-main{display:flex;gap:var(--s5);align-items:center}
