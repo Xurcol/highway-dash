@@ -622,6 +622,7 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .tune-warn{background:color-mix(in srgb,var(--warn) 10%,var(--surface));border:1px solid color-mix(in srgb,var(--warn) 70%,transparent);
   border-radius:var(--r2);padding:10px var(--s3);font-size:var(--t-xs);line-height:1.45;display:flex;flex-direction:column;gap:var(--s1);color:var(--ink-2)}
 .dy-actions{display:grid;grid-template-columns:1fr auto;gap:var(--s2);margin-top:auto;padding-top:var(--s2)}
+.dy-actions .dyno-btn{grid-column:1/-1}
 .ws-dyno .btn.wide{margin-top:0}
 
 @media (max-width:1180px){.ws-body{grid-template-columns:176px minmax(0,1fr) 300px}.dy-big b{font-size:48px}}

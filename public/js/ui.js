@@ -1022,6 +1022,7 @@ export class UI {
     this.pick = null;
     this.draft = null;
     this.holdToRev($("tuneRev"));
+    $("tuneDyno").onclick = () => this.runDyno();
     $("tBrap").onchange = (e) => this.editTune({ brap: e.target.checked });
     $("tuneReset").onclick = () => {
       if (!confirm("Reset this car's tune to stock? Parts you bought stay in the garage.")) return;
@@ -1289,10 +1290,43 @@ export class UI {
     ab.onclick = () => this.applyBest();
 
     $("dyLegNext").hidden = !nx;
-    this.drawDyno(
-      { c: stock.curve, lim: defaultTune(car).revLimit },
-      { c: cur.curve, lim: fitted.revLimit },
-      nx && { c: nx.curve, lim: next.revLimit });
+    this.lastSeries = { stock: { c: stock.curve, lim: defaultTune(car).revLimit }, cur: { c: cur.curve, lim: fitted.revLimit } };
+    if (this.dynoLive) return this.renderDynoLive();
+    this.drawDyno(this.lastSeries.stock, this.lastSeries.cur, nx && { c: nx.curve, lim: next.revLimit });
+  }
+
+  // ---- dyno run: a full pull on the rollers, the curve traced as the revs climb ----
+  runDyno() {
+    if (this.dynoLive) return;
+    const car = carById(this.view), cur = summaryCache(car, carTune(this.view)), btn = $("tuneDyno");
+    this.dynoLive = { rpm: 0, now: 0, phase: "spool", cur };
+    btn.disabled = true; btn.textContent = "ON THE ROLLERS…"; $("tuneRev").disabled = true;
+    this.ctx.dynoPull(carSound(this.view), this.view, (rpm, phase) => {
+      const L = this.dynoLive;
+      if (!L) return;
+      if (phase === "pull" || phase === "limit") L.rpm = Math.max(L.rpm, rpm);
+      L.phase = phase; L.now = rpm;
+      if (!$("tune").hidden) this.renderDynoLive();
+    }).then(() => {
+      const L = this.dynoLive;
+      this.dynoLive = null;
+      btn.disabled = false; btn.textContent = "▶ RUN DYNO"; $("tuneRev").disabled = false;
+      if (L) this.toast(`Dyno: ${Math.round(L.cur.hp).toLocaleString()} hp at ${L.cur.hpRpm.toLocaleString()} rpm · ${Math.round(L.cur.nm).toLocaleString()} Nm at ${L.cur.nmRpm.toLocaleString()} rpm`, [], "success");
+      if (!$("tune").hidden) this.renderTune();
+    });
+  }
+  // while it pulls: power and torque at the revs the rollers are turning, the curve drawn up to them
+  renderDynoLive() {
+    const L = this.dynoLive, s = this.lastSeries;
+    if (!L || !s) return;
+    const pulling = L.phase === "spool" || L.phase === "pull";
+    const at = (r) => L.cur.curve.reduce((a, p) => (Math.abs(p.rpm - r) < Math.abs(a.rpm - r) ? p : a), L.cur.curve[0]);
+    const p = pulling ? at(Math.min(L.now, s.cur.lim)) : { hp: L.cur.hp, nm: L.cur.nm, boost: L.cur.peakBoost };
+    const live = L.rpm > 0;
+    $("dyPower").innerHTML = `<div class="dy-k">${pulling ? "ON THE DYNO" : "PEAK"} · ${Math.round(L.now).toLocaleString()} RPM</div>
+      <div class="dy-big"><b>${live ? Math.round(p.hp).toLocaleString() : "—"}</b><span class="u">hp</span></div>
+      <div class="dy-sub">${live ? `${Math.round(p.nm).toLocaleString()} Nm${p.boost > .5 ? ` · ${p.boost.toFixed(1)} psi` : ""}` : "Strapping down…"}</div>`;
+    this.drawDyno(s.stock, s.cur, null, live ? L.rpm : 1000);
   }
 
   // A factory-turbo upgrade only bolts to an engine that already has a turbo; a conversion kit
@@ -1393,7 +1427,8 @@ export class UI {
     return "";
   }
   // Power and torque against revs: stock dashed and dim, the build solid, a previewed change dashed white.
-  drawDyno(stock, cur, next) {
+  // upTo: during a dyno run, the build's curve is only drawn as far as the revs have reached so far
+  drawDyno(stock, cur, next, upTo = Infinity) {
     const cv = $("dyChart"), w = cv.clientWidth, h = cv.clientHeight;
     if (!w || !h) return;
     const dpr = Math.min(2, devicePixelRatio || 1);
@@ -1421,6 +1456,7 @@ export class UI {
       g.fillStyle = "#6e7889"; g.textAlign = "center"; g.fillText(r / 1000 + "k", x, h - 5);
     }
     const pts = (s) => s.c.filter((p) => p.rpm >= x0 && p.rpm <= s.lim);
+    if (upTo < Infinity) cur = { c: cur.c, lim: Math.min(cur.lim, upTo) };
     const line = (s, key, color, width, dash = []) => {
       const P = pts(s);
       if (!P.length) return;
@@ -1442,6 +1478,13 @@ export class UI {
     line(cur, "nm", "#8b5cf6", 2);
     line(cur, "hp", "#2fd8f5", 2.4);
     if (next) { line(next, "nm", "rgba(214,200,255,.95)", 1.6, [5, 3]); line(next, "hp", "#ffffff", 1.8, [5, 3]); }
+    // during a run: a cursor at the revs the rollers are turning, and the reading at its tip
+    if (upTo < Infinity) {
+      const x = Math.round(X(Math.min(upTo, x1))) + .5, tip = C[C.length - 1];
+      g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 1; g.beginPath(); g.moveTo(x, T); g.lineTo(x, h - B); g.stroke();
+      if (tip) { g.fillStyle = "#2fd8f5"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.hp), 3.5, 0, Math.PI * 2); g.fill(); g.fillStyle = "#8b5cf6"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.nm), 3, 0, Math.PI * 2); g.fill(); }
+      return;
+    }
     // mark the peak
     const pk = (next ? pts(next) : C).reduce((a, p) => (p.hp > a.hp ? p : a), { hp: -1 });
     if (pk.hp > 0) {
