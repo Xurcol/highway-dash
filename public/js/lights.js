@@ -16,6 +16,12 @@ const U = {
 };
 export const lampUniforms = U;
 
+// Lamp and headlight light is capped below the bloom threshold (BLOOM.threshold = 3.0 in main.js, which
+// works on the linear HDR buffer). Uncapped, a headlight on glossy paint reflected at ~9 and bloomed into
+// a smear. Up to the knee the light is untouched; above it, it rolls off smoothly towards the ceiling.
+// The ceiling leaves headroom for the sky/sun reflection the same pixel already has. Light SOURCES (lamp
+// heads, headlight and tail-light glows, neon) are separate unlit materials and still bloom.
+const LAMP_KNEE = 1.2, LAMP_CEIL = 2.3;
 const DECL = /* glsl */`
 #define LAMP_MAX ${LAMP_MAX}
 uniform vec3 lampPos[LAMP_MAX];
@@ -45,7 +51,14 @@ const APPLY = /* glsl */`
     accD += lampColor[i] * k * max(dot(normal, L), 0.0);
     accS += lampColor[i] * k * pow(max(dot(normalize(L + V), normal), 0.0), 48.0);
   }
-  outgoingLight += diffuseColor.rgb * accD + accS * (1.0 - roughnessFactor) * 1.5;
+  vec3 lampAdd = diffuseColor.rgb * accD + accS * (1.0 - roughnessFactor) * 1.5;
+  float lampLum = dot(lampAdd, vec3(0.2126, 0.7152, 0.0722));
+  if (lampLum > ${LAMP_KNEE.toFixed(3)}) {
+    float span = ${(LAMP_CEIL - LAMP_KNEE).toFixed(3)};
+    float capped = ${LAMP_KNEE.toFixed(3)} + span * (1.0 - exp(-(lampLum - ${LAMP_KNEE.toFixed(3)}) / span));
+    lampAdd *= capped / lampLum;
+  }
+  outgoingLight += lampAdd;
 }
 `;
 
