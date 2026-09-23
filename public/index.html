@@ -18,6 +18,10 @@
 <!-- Visible in the markup from the first paint, so the menu is never shown half-built. main.js
      fades it out once the world, the models and the garage are all actually ready. -->
 <section id="loader" class="loader">
+  <!-- background clip (a forward-then-reversed render, so the plain loop is a seamless boomerang) and a
+       scrim that keeps the text readable over it; both simply don't show if the file isn't there -->
+  <video id="loaderVideo" class="loader-video" src="loader-media/wrist-boomerang.mp4" muted autoplay loop playsinline preload="auto" aria-hidden="true"></video>
+  <div class="loader-scrim" aria-hidden="true"></div>
   <div class="loader-bg" aria-hidden="true"><i></i><i></i><i></i></div>
   <div class="loader-box">
     <div class="brand">HIGHWAY <span>DASH</span></div>

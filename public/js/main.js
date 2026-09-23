@@ -419,6 +419,37 @@ const loader = (() => {
   showTip();
   tipTimer = setInterval(showTip, 4200);
   document.getElementById("loaderVer").textContent = (document.documentElement.dataset.ver || "dev") + " build";
+  // The loading music, looping for as long as the screen is up. Browsers only allow sound after the
+  // player has interacted with the page, so if the first try is refused it starts on the first click
+  // or key press instead. Missing files (the public build ships without them) just mean no music/video.
+  const video = document.getElementById("loaderVideo");
+  video.addEventListener("error", () => { video.hidden = true; });
+  const SONG_VOL = .55;
+  let song = new Audio("loader-media/wrist.mp3");
+  song.loop = true; song.preload = "auto"; song.volume = SONG_VOL;
+  song.addEventListener("error", () => { song = null; });
+  const startSong = () => { song?.play().then(() => { if (video.paused) video.play().catch(() => { }); }).catch(() => { }); };
+  const onGesture = () => startSong();
+  const gestures = ["pointerdown", "keydown", "touchstart"];
+  song.play().catch(() => gestures.forEach((ev) => addEventListener(ev, onGesture, { once: true, capture: true })));
+  // A time-based fade (not requestAnimationFrame, which a background tab pauses), on an ease-out
+  // curve so the tail doesn't drop off a cliff. It only touches the volume, so it is the same smooth
+  // fade wherever the looping song happens to be.
+  const fadeSong = (ms) => new Promise((resolve) => {
+    if (!song || song.paused) return resolve();
+    const v0 = song.volume, t0 = performance.now();
+    const step = () => {
+      const k = Math.min(1, (performance.now() - t0) / ms);
+      song.volume = v0 * Math.pow(Math.cos(k * Math.PI / 2), 1.6);
+      if (k < 1) setTimeout(step, 16); else { song.volume = 0; resolve(); }
+    };
+    step();
+  });
+  // everything stopped and released once the screen is gone
+  const unload = () => {
+    if (song) { song.pause(); song.removeAttribute("src"); song.load(); song = null; }
+    video.pause(); video.removeAttribute("src"); video.load(); video.remove();
+  };
   return {
     // progress 0..1, or null when there is nothing real to measure (the bar sweeps instead of lying)
     stage(text, detail = "", progress = null) {
@@ -436,12 +467,17 @@ const loader = (() => {
       requestAnimationFrame(() => setTimeout(go, 0));
       setTimeout(go, 60);
     }),
+    // The exit: the song fades out over 2.4 s while the screen - clip, scrim and text together -
+    // fades over 3 s onto the garage, which is already drawn behind it. So the music is silent before
+    // the screen is gone, and there is never a black frame between the two.
     async finish() {
       this.stage("Ready", "", 1);
       await new Promise((r) => setTimeout(r, 220));
       clearInterval(tipTimer);
+      gestures.forEach((ev) => removeEventListener(ev, onGesture, { capture: true }));
       el.classList.add("out");
-      setTimeout(() => { el.hidden = true; }, 520);
+      const faded = fadeSong(2400);
+      setTimeout(async () => { await faded; el.hidden = true; unload(); }, 3050);
     },
   };
 })();

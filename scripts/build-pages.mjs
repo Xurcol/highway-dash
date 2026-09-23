@@ -9,7 +9,8 @@ const domain = process.argv.slice(2).find((a) => !a.startsWith("--")) || "xurco.
 const withSounds = process.argv.includes("--with-sounds"); // recorded engine banks are third-party audio: opt-in only
 
 fs.rmSync(out, { recursive: true, force: true });
-fs.cpSync(path.join(root, "public"), out, { recursive: true, filter: (src) => withSounds || !src.includes(path.join("public", "sounds")) });
+// the loading screen's song and video are a commercial track and clip: local builds only, never published
+fs.cpSync(path.join(root, "public"), out, { recursive: true, filter: (src) => !src.includes(path.join("public", "loader-media")) && (withSounds || !src.includes(path.join("public", "sounds"))) });
 for (const rel of [
   "build/three.module.js", "build/three.core.js",
   "examples/jsm/postprocessing", "examples/jsm/shaders",

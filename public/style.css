@@ -803,7 +803,12 @@ h1,h2,.brand,.btn,.tab,.mode,.filter,.chip b,#score,#speed,.gearbadge b,.go-titl
   background:radial-gradient(120% 80% at 50% 0%,#16203a 0%,var(--bg) 62%);overflow:hidden;
   opacity:1;transition:opacity .5s var(--ease)}
 .loader[hidden]{display:none}
-.loader.out{opacity:0;pointer-events:none}
+/* the exit: a slow fade (the song is faded out over the first 2.4 s of it, see loader.finish) */
+.loader.out{opacity:0;pointer-events:none;transition:opacity 3s cubic-bezier(.4,0,.2,1)}
+.loader-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
+.loader-scrim{position:absolute;inset:0;pointer-events:none;
+  background:radial-gradient(90% 75% at 50% 50%,rgba(6,8,14,.38) 0%,rgba(6,8,14,.82) 100%)}
+.loader-video[hidden],.loader-video[hidden]+.loader-scrim{display:none}
 /* three lane stripes sliding past: the whole animated backdrop, no images and no JS */
 .loader-bg{position:absolute;inset:0;perspective:320px;opacity:.5}
 .loader-bg i{position:absolute;left:50%;bottom:-40%;width:14px;height:220%;
