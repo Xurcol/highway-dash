@@ -55,12 +55,15 @@ export class Flames {
         void main(){ vC = color; vS = seed; vec4 mv = modelViewMatrix * vec4(position, 1.0);
           gl_PointSize = clamp(size * scale / -mv.z, 0.0, 384.0); gl_Position = projectionMatrix * mv; }`,
       // a soft ball with a ragged edge (the seed turns the lobes), so a stream of them reads as licks
-      // of flame rather than a string of beads
+      // of flame rather than a string of beads.
+      // Careful with NaN here: atan(0, 0) is undefined and some GPUs return NaN for the sprite's centre
+      // pixel. One NaN pixel in the HDR buffer gets spread by the bloom blur into a black square, so
+      // the angle is taken a hair off-centre and nothing negative ever reaches pow().
       fragmentShader: `varying vec3 vC; varying float vS;
-        void main(){ vec2 p = gl_PointCoord * 2.0 - 1.0; float ang = atan(p.y, p.x);
+        void main(){ vec2 p = gl_PointCoord * 2.0 - 1.0; float ang = atan(p.y, p.x + 1e-4);
           float r = length(p) * (1.0 + .16 * sin(ang * 5.0 + vS * 40.0) + .09 * sin(ang * 3.0 - vS * 23.0));
-          if (r > 1.0) discard;
-          float a = pow(1.0 - r, 1.5) + exp(-r * r * 16.0) * .7;
+          if (r >= 1.0) discard;
+          float a = pow(max(1.0 - r, 0.0), 1.5) + exp(-r * r * 16.0) * .7;
           gl_FragColor = vec4(vC * a, 1.0); }`,
       blending: THREE.AdditiveBlending, depthWrite: false, transparent: true,
     });
