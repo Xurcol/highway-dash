@@ -1123,8 +1123,15 @@ function updateRemotes(T, dt) {
       const snd = cfg?.engine || carSound(r.carId);
       if (!r.voice) r.voice = audio.engine(snd);
       if (r.snd !== snd) { r.snd = snd; r.voice.setProfile(snd); }
+      // Doppler: an engine closing on you sounds higher, one pulling away lower. Everyone drives
+      // towards -z; u points from you to them.
+      const dx = s.x - G.x, dz = s.z - G.z, dd = Math.max(1, Math.hypot(dx, dz)), ux = dx / dd, uz = dz / dd;
+      const toThem = -(G.dt?.v || 0) * uz, toMe = (s.v || 0) * uz - (s.vx || 0) * ux;
+      const dop = Math.max(.8, Math.min(1.25, (343 + toThem) / (343 - toMe)));
+      r.dop = r.dop ? r.dop + (dop - r.dop) * .2 : dop;
+      r.voice.setDistance(dist);
       r.voice.params({
-        rpm: s.rpm || 900, throttle: s.thr || 0, gain: .8, load: s.ld ?? s.thr ?? 0,
+        rpm: (s.rpm || 900) * r.dop, throttle: s.thr || 0, gain: .8, load: s.ld ?? s.thr ?? 0,
         boostNorm: (s.bo ?? 0) / 100, gear: s.g || 1, redline: cfg?.redline || 7000,
       });
       r.voice.setPan((s.x - G.x) / 20, Math.max(0, 1 - dist / 140) ** 2 * .7);
@@ -1545,6 +1552,10 @@ function updateCamera(dt) {
       camera.position.set(G.x * .9, lc ? lc.height : (camMode === 1 ? 4.4 : 2.9) + B.top * .45 + tall * .3, G.z - ahead);
       look.set(G.x, 1.5 + tall * .4, G.z + 30);
     }
+    // where the listener is, for the engine mix (engine-dsp VIEWS): hood cam = cabin, bumper cam and
+    // the look-back swing = in front of the car, far chase = further back, the rest = behind the car
+    const view = lookBack || camMode === 3 ? "front" : camMode === 2 ? "interior" : camMode === 1 ? "far" : "exterior";
+    if (G.engine && G.engine.lastView !== view) { G.engine.lastView = view; G.engine.event("view", { view }); }
     camera.lookAt(look);
     const fovCc = camMode === CUSTOM_CAM ? customCam() : null;
     camera.fov = lookBack ? (fovCc ? Math.min(100, fovCc.fov + 8) : 70) : fovCc ? fovCc.fov + Math.min(14, kmh * .045) : hood ? (camMode === 3 ? 76 : 70) + Math.min(18, kmh * .05) : 58 + Math.min(20, kmh * .065);
@@ -1743,7 +1754,7 @@ function frame(now) {
   sky.update(dt, camera, focus, state === "drive" ? G.dt.v : 0, audio);
   world.update(focus, sky, glows, lights, dt);
   sky.tunnel = world.tunnel;
-  if (audio.ready) audio.setTunnel(state === "home" ? 0 : world.tunnel);
+  if (audio.ready) { audio.setTunnel(state === "home" ? 0 : world.tunnel); audio.setEnv(state === "home" ? 0 : cityAt(G.z)); }
   traffic.update(simDt, T, G.z, sky.lampsOn, glows, lights, camera.position, state === "home" ? null : shieldHidden());
   const peerList = mode === "online" ? updateRemotes(T, dt) : null;
   if (!paused) updateCatchUp(simDt, peerList);

@@ -489,6 +489,8 @@ export function audioConfig(car, tune) {
     exhaust: ex.loud * (1 + (aggr - 1) * .45), rasp: ex.rasp * aggr * raw,
     aggr, drive: aggr * raw, eth: fuel.eth || 0,
     shiftHard: trans.shift ? 1 / trans.shift : 1,
+    // straight-cut gears: the dog box and the sequential whine, the road boxes do not
+    whine: { race: .75, seq: 1 }[tune.transmission] || 0,
     burble: tune.burble * ex.burble * cat.burble, burbleVol: tune.burbleVol ?? 1,
     decay: tune.decay, mix: tune.mix, brap: tune.brap, release: tune.release,
     intake: partOpt("intake", tune.intake).sound,

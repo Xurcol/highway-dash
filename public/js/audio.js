@@ -22,9 +22,12 @@ class EngineVoice {
       this.node.onaudioprocess = (e) => dsp.process(e.outputBuffer.getChannelData(0), e.outputBuffer.getChannelData(1));
       this.post = (m) => dsp.message(m);
     }
-    this.node.connect(this.out);
+    // distance: air takes the top off a far-away car (only remote voices ever move this)
+    this.far = ctx.createBiquadFilter(); this.far.type = "lowpass"; this.far.frequency.value = 20000; this.far.Q.value = .5;
+    this.node.connect(this.far).connect(this.out);
     this.post({ type: "profile", name: profile });
   }
+  setDistance(d) { this.far.frequency.setTargetAtTime(distanceCutoff(d), this.am.ctx.currentTime, .08); }
   setProfile(name) { this.post({ type: "profile", name }); }
   params(a, b, c) { this.post({ type: "params", ...asState(a, b, c) }); }
   event(type, info) { this.post({ type, ...(info || {}) }); }
@@ -34,8 +37,10 @@ class EngineVoice {
     this.pan.pan.setTargetAtTime(Math.max(-1, Math.min(1, p)), t, 0.05);
     this.out.gain.setTargetAtTime(vol, t, 0.05);
   }
-  dispose() { this.node.disconnect(); this.pan.disconnect(); }
+  dispose() { this.node.disconnect(); this.far.disconnect(); this.pan.disconnect(); }
 }
+// Air absorbs treble with distance: full range up close, about 2.5 kHz at 140 m.
+const distanceCutoff = (d) => Math.max(2500, Math.min(20000, 20000 * Math.exp(-Math.max(0, d - 8) / 64)));
 
 // ---------- recorded engine (sample banks, e.g. public/sounds/s58) ----------
 const BANK_FOR = { s58real: "s58", f458real: "f458", b58real: "b58" };
@@ -76,7 +81,8 @@ class SampleVoice {
     this.tone = ctx.createBiquadFilter(); this.tone.type = "lowpass"; this.tone.frequency.value = 6500; this.tone.Q.value = .5;
     this.pan = ctx.createStereoPanner();
     this.out = ctx.createGain();
-    this.master.connect(this.tone).connect(this.out).connect(this.pan).connect(am.engineBus);
+    this.far = ctx.createBiquadFilter(); this.far.type = "lowpass"; this.far.frequency.value = 20000; this.far.Q.value = .5;
+    this.master.connect(this.tone).connect(this.far).connect(this.out).connect(this.pan).connect(am.engineBus);
     this.layers = [];
     for (const [set, kind] of [[bank.on, "on"], [bank.off, "off"]]) {
       for (const e of set) {
@@ -214,6 +220,7 @@ class SampleVoice {
 
 // Engine voice facade: the recorded bank when the sound has one and it loaded, synthesized otherwise.
 class SmartEngine {
+  setDistance(d) { this.state.dist = d; this.voice.setDistance?.(d); }
   constructor(am, profile) { this.am = am; this.voice = null; this.name = null; this.state = {}; this.setProfile(profile); }
   use(voice) {
     if (this.voice) this.voice.dispose();
@@ -222,6 +229,8 @@ class SmartEngine {
     if (s.tune) voice.tune(s.tune, s.mode);
     if (s.pan) voice.setPan(s.pan[0], s.pan[1]);
     if (s.params) voice.params(s.params);
+    if (s.dist !== undefined) voice.setDistance?.(s.dist);
+    if (s.view) voice.event("view", s.view);
   }
   setProfile(name) {
     if (name === this.name) return;
@@ -232,7 +241,7 @@ class SmartEngine {
     if (bankName) loadBank(this.am.ctx, bankName).then((bank) => { if (bank && this.name === name) this.use(new SampleVoice(this.am, bank)); });
   }
   params(a, b, c) { const s = asState(a, b, c); this.state.params = s; this.voice.params(s); }
-  event(type, info) { this.voice.event(type, info); }
+  event(type, info) { if (type === "view") this.state.view = info; this.voice.event(type, info); }
   tune(tune, mode) { this.state.tune = tune; this.state.mode = mode; this.voice.tune(tune, mode); }
   setPan(p, vol) { this.state.pan = [p, vol]; this.voice.setPan(p, vol); }
   dispose() { if (this.voice) this.voice.dispose(); }
@@ -273,6 +282,17 @@ export class AudioManager {
     this.echoSend = ctx.createGain(); this.echoSend.gain.value = 0;
     this.engineBus.connect(this.echoSend);
     this.echoSend.connect(this.echo); this.echo.connect(elp); elp.connect(efb).connect(this.echo); elp.connect(this.master);
+    // Slap-back off the surroundings: a building face ~20 m away returns the engine ~120 ms later, a
+    // little later on the far side, so each ear gets its own reflection; the low highway barriers
+    // return a weaker, earlier one. Concrete and glass dull the top of it.
+    this.slapSend = ctx.createGain(); this.slapSend.gain.value = 0;
+    const slapLP = ctx.createBiquadFilter(); slapLP.type = "lowpass"; slapLP.frequency.value = 3200;
+    this.engineBus.connect(this.slapSend); this.fx.connect(this.slapSend); this.slapSend.connect(slapLP);
+    this.slap = [-1, 1].map((side) => {
+      const d = ctx.createDelay(.4), p = ctx.createStereoPanner(); p.pan.value = side * .85;
+      slapLP.connect(d).connect(p).connect(this.master);
+      return d;
+    });
     this.applyVolumes();
 
     this.noiseBuf = this.makeNoise(3);
@@ -307,6 +327,14 @@ export class AudioManager {
     this.set(this.echoSend.gain, f * .72, .25);
   }
   setReverb(amount) { if (this.ctx) this.reverbSend.gain.setTargetAtTime(amount, this.ctx.currentTime, 0.5); }
+  // city 0..1: how built-up the roadside is (world.cityAt). Open highway still has its barriers.
+  setEnv(city) {
+    if (!this.slap) return;
+    const t = this.ctx.currentTime;
+    this.slapSend.gain.setTargetAtTime(.07 + city * .23, t, .4);
+    this.slap[0].delayTime.setTargetAtTime(.07 + city * .048, t, .4);    // ~12 m barrier -> ~20 m building face
+    this.slap[1].delayTime.setTargetAtTime(.078 + city * .058, t, .4);
+  }
   engine(profile) { return new SmartEngine(this, profile); }
 
   makeNoise(sec, brown = false) {

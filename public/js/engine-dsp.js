@@ -139,6 +139,25 @@ const POP_GAIN = 1.85;
 // Loudness calibration (A-weighted, per ear, against the old engines at full load, cruise and idle):
 // two pipes carry half the pulses each, so a V engine is lifted to sit level with an inline one.
 const VEE_GAIN = 1.076;
+// Where the listener is. Each camera hears a different mix of the same engine: outside behind the car
+// the exhaust dominates; in front of it the exhaust is metres behind you and the intake and turbo are
+// nearer; in the cabin the firewall and glass take the top off the exhaust, the intake and turbo come
+// through the bulkhead, the body booms, and both ears hear nearly the same thing.
+//   ex: exhaust tone  pop: pops/bangs  in: intake  turbo: turbo/blower  mech: valvetrain + whine
+//   boom: sub/chest   width: stereo    lp: low-pass on the whole engine (Hz)
+const VIEWS = {
+  exterior: { ex: 1,   pop: 1,   in: 1,   turbo: 1,   mech: 1,   boom: 1,    width: 1,   lp: 11000 },
+  far:      { ex: .95, pop: 1,   in: .75, turbo: .8,  mech: .8,  boom: .9,   width: .8,  lp: 8000 },
+  front:    { ex: .55, pop: .6,  in: 1.5, turbo: 1.35, mech: 1.35, boom: .9, width: .7,  lp: 9000 },
+  interior: { ex: .55, pop: .5,  in: 1.45, turbo: 1.5, mech: 1.5, boom: 1.4,  width: .35, lp: 3200 },
+};
+// Straight-cut gears whine at the mesh frequency: shaft speed x tooth count. The input shaft turns
+// at engine speed, so the whine climbs through each gear and steps down on every upshift; each gear
+// pair has its own tooth count, so the note shifts a little between gears too.
+const WHINE_TEETH = [0, 23, 25, 27, 28, 29, 30, 31, 32, 33, 34];
+// Bite: above ~60% of the rev range under load the exhaust is driven harder into saturation and the
+// rasp rises - the tearing edge a real engine gets near the redline. Nothing changes below that.
+const BITE = { from: .6, span: .3, drive: .6, rasp: .8 };
 export const SYNTH = { air: .45, airHi: .2, airExp: 1.5, top: .4, barkQ: .72, pipeFb: .65, headFb: .15, trim: .846 };
 
 // ---------------------------------------------------------------- the burble model
@@ -186,6 +205,7 @@ export class EngineDSP {
     this.flutter = 0; this.flutterT = 0; this.nextChirp = 0;
     this.blowerPh = 0; this.intakePh = 0; this.als = 0; this.alsNext = 0; this.antilagHold = 0; this.idlePh = 0;
     this.tune = { ...DEFAULT_TUNE }; this.mode = "sport";
+    this.view = { ...VIEWS.exterior }; this.viewTarget = VIEWS.exterior; this.whinePh = 0;
     this.lockSport = true;
     this.setProfile("b58");
   }
@@ -237,6 +257,7 @@ export class EngineDSP {
       case "pop": this.addPop(m.v ?? .8, .05); break;
       case "antilagOn": this.antilagHold = 1; break;
       case "antilagOff": this.antilagHold = 0; break;
+      case "view": this.viewTarget = VIEWS[m.view] || VIEWS.exterior; break;
     }
   }
   // all four event handlers share one intensity model, so nothing fires "randomly"
@@ -350,9 +371,12 @@ export class EngineDSP {
       setBP(B.bodyF, p.body[0] * fmDrift * d, p.body[1], sr);
       setBP(B.barkF, p.bark[0] * fmDrift * d, p.bark[1] * SYNTH.barkQ, sr);
       setBP(B.topF, p.bark[0] * 1.85 * fmDrift * d, 1.2, sr);
-      setLP(B.soft, sport ? 11000 : 6500, .6, sr);      // comfort: valves shut, the top end goes
     }
+    const vw = this.view, vt = this.viewTarget, vk = 1 - Math.exp(-n / sr / .12);
+    for (const k in vt) vw[k] += (vt[k] - vw[k]) * vk;
+    for (let k = 0; k < 2; k++) setLP(this.banks[k].soft, Math.min(sport ? 11000 : 6500, vw.lp), .6, sr);
     const outGain = p.gain * t.exhaust * (sport ? .75 : .5) * SYNTH.trim;
+    const whine = t.whine || 0;
     const rev = t.redline || 7000;
     const turboAmt = (p.turbo || 0) * (t.turbo ?? .8);
     if (this.als > 0) { // anti-lag bangs and a turbo that refuses to spool down
@@ -443,39 +467,40 @@ export class EngineDSP {
       e0 += popEx; e1 += popEx;
 
       // ---- exhaust system, one per bank ----
-      const drive = p.drive * .72 * (.7 + .5 * load) * (sport ? 1 : .8) * (t.drive ?? 1), tdn = Math.tanh(drive);
+      const bite = clamp01((revN - BITE.from) / BITE.span) * load;
+      const drive = p.drive * .72 * (.7 + .5 * load) * (sport ? 1 : .8) * (t.drive ?? 1) * (1 + BITE.drive * bite), tdn = Math.tanh(drive);
       const wLow = 1 - .55 * clamp01((revN - .25) / .5);
       const wMid = .35 + .65 * clamp01((revN - .2) / .45);
       const wTop = clamp01((revN - .55) / .35);
       const gBody = p.body[2] * (.9 - .2 * load) * wLow;
       const gBark = p.bark[2] * .82 * (.25 + .75 * load) * (sport ? 1.15 : .45) * wMid;
       const gTop = p.bark[2] * (p.top || 1.3) * SYNTH.top * wTop * (.3 + .7 * load) * aggr;
-      const gRasp = (.2 + .6 * load) * (sport ? .35 : .12) * (.3 + p.rough * 4) * (t.rasp ?? .7) * (this.overrun ? 1.3 : 1);
+      const gRasp = (.2 + .6 * load) * (sport ? .35 : .12) * (.3 + p.rough * 4) * (t.rasp ?? .7) * (this.overrun ? 1.3 : 1) * (1 + BITE.rasp * bite);
       // tailpipe air: turbulence at the pipe exit, riding the pulses. It skips the muffler, which is
       // why a real exhaust keeps its hiss and rasp up top even when the tone is deep.
       const gAir = (.08 + .92 * load * load) * Math.pow(revN, SYNTH.airExp) * (sport ? 1 : .35) * (.6 + .4 * aggr) * SYNTH.air * (.5 + p.rough * 3);
       let y0 = B0.main.pipe(B0.header.pipe(e0, SYNTH.headFb, .5), p.fb * SYNTH.pipeFb, .32);
       let y1 = B1.main.pipe(B1.header.pipe(e1, SYNTH.headFb, .5), p.fb * SYNTH.pipeFb, .32);
       y0 = Math.tanh(y0 * drive) / tdn; y1 = Math.tanh(y1 * drive) / tdn;
-      let o0 = run(B0.muff2, run(B0.muff, y0)) * .9 + run(B0.bodyF, y0) * gBody + run(B0.barkF, y0) * gBark + run(B0.topF, y0) * gTop
-        + (y0 - run(B0.raspLP, y0)) * gRasp + (run(B0.airLo, nz * v0) + run(B0.airHi, nz * v0) * SYNTH.airHi) * gAir;
-      let o1 = run(B1.muff2, run(B1.muff, y1)) * .9 + run(B1.bodyF, y1) * gBody + run(B1.barkF, y1) * gBark + run(B1.topF, y1) * gTop
-        + (y1 - run(B1.raspLP, y1)) * gRasp + (run(B1.airLo, nz1 * v1) + run(B1.airHi, nz1 * v1) * SYNTH.airHi) * gAir;
+      let o0 = vw.ex * (run(B0.muff2, run(B0.muff, y0)) * .9 + run(B0.bodyF, y0) * gBody + run(B0.barkF, y0) * gBark + run(B0.topF, y0) * gTop
+        + (y0 - run(B0.raspLP, y0)) * gRasp + (run(B0.airLo, nz * v0) + run(B0.airHi, nz * v0) * SYNTH.airHi) * gAir);
+      let o1 = vw.ex * (run(B1.muff2, run(B1.muff, y1)) * .9 + run(B1.bodyF, y1) * gBody + run(B1.barkF, y1) * gBark + run(B1.topF, y1) * gTop
+        + (y1 - run(B1.raspLP, y1)) * gRasp + (run(B1.airLo, nz1 * v1) + run(B1.airHi, nz1 * v1) * SYNTH.airHi) * gAir);
       // each ear hears mostly its own tailpipe and some of the other one (nobody hears a car hard-panned)
       if (vee) { const a0 = o0, a1 = o1; o0 = (a0 + a1 * xf) * VEE_GAIN; o1 = (a1 + a0 * xf) * VEE_GAIN; }
 
       // ---- everything below comes from the engine bay or the whole car, so it sits in the middle ----
       const ym = (y0 + y1) * .5;
       this.rumble += (ym - this.rumble) * .004;
-      let o = this.rumble * p.sub * 2.2;
+      let o = this.rumble * p.sub * 2.2 * vw.boom;
       o += run(this.inductF, (e0 + e1) * .5) * load * rn * .35; // tonal induction growl
       const popVol = POP_GAIN * (t.burbleVol ?? 1) * (.85 + .15 * aggr) * (1 + (t.eth || 0) * .35); // Burble loudness x aggressiveness x fuel
-      o += (run(this.crackF, crack) * 3.2 + pk) * popVol;   // pops and cracks sit above the exhaust note
+      o += (run(this.crackF, crack) * 3.2 + pk) * popVol * vw.pop;   // pops and cracks sit above the exhaust note
       for (let k = this.thumps.length - 1; k >= 0; k--) {
         const Th = this.thumps[k]; Th.t += dt;
         if (Th.t < 0) continue;
         if (Th.t > Th.dur * 5) { this.thumps.splice(k, 1); continue; }
-        o += Math.sin(Th.t * Th.f * 6.2832) * Math.exp(-Th.t / Th.dur) * Th.amp * .9 * popVol;
+        o += Math.sin(Th.t * Th.f * 6.2832) * Math.exp(-Th.t / Th.dur) * Th.amp * .9 * popVol * vw.pop;
       }
       // engine-specific harmonic scream that builds with revs (SVJ V12, GT3 flat-six)
       if (p.scream) {
@@ -487,9 +512,16 @@ export class EngineDSP {
         // from about 45% of the rev range, not only at the very top
         const build = clamp01((revN - .45) / .4);
         const sw = (wTop * wTop * .65 + build * build * .5) * (.25 + .75 * load) * p.scream[2];
-        o += wail * sw * .085;
+        o += wail * sw * .085 * vw.ex;
       }
-      if (p.mech) o += run(this.topF, nz * (v0 + v1) * .5) * .06 * revN * p.mech; // valvetrain / gear-driven mechanical rasp
+      if (p.mech) o += run(this.topF, nz * (v0 + v1) * .5) * .06 * revN * p.mech * vw.mech; // valvetrain / gear-driven mechanical rasp
+      // straight-cut gearbox whine (race gearboxes only): loudest on drive and on the overrun
+      if (whine > 0 && this.gear > 0) {
+        this.whinePh = (this.whinePh + rpm / 60 * WHINE_TEETH[Math.min(10, this.gear)] * dt) % 1;
+        const wp = this.whinePh * 6.2832;
+        const lv = whine * .011 * (.35 + .65 * Math.max(load, this.overrun ? .55 : 0)) * clamp01((rpm - 1200) / 1800) * vw.mech;
+        o += (Math.sin(wp) + .3 * Math.sin(2 * wp + .7) + .12 * Math.sin(3 * wp + 1.9)) * lv;
+      }
 
       // ---- intake: runner resonance gated by the firing events + induction roar with boost ----
       const intakeLvl = (p.intake ? p.intake[1] : .6) * (t.intake ?? .35);
@@ -497,11 +529,12 @@ export class EngineDSP {
         if (fired) this.intakePh = 1;
         this.intakePh *= 1 - dt * 90;
         const gatedNz = nz * this.intakePh * (.2 + .8 * thr);
-        o += run(this.intakeF, gatedNz) * intakeLvl * (.25 + .75 * revN) * .5;
-        if (this.boostN > .02) o += run(this.roarF, nz) * this.boostN * this.boostN * intakeLvl * .16 * (.3 + .7 * thr);
+        o += run(this.intakeF, gatedNz) * intakeLvl * (.25 + .75 * revN) * .5 * vw.in;
+        if (this.boostN > .02) o += run(this.roarF, nz) * this.boostN * this.boostN * intakeLvl * .16 * (.3 + .7 * thr) * vw.in;
       }
 
       // ---- forced induction ----
+      const oPre = o;
       if (turboAmt > 0 || t51) {
         const b = this.boostN, b2 = b * b;
         // a big single spools slower and whistles lower; the stock twins are higher and thinner
@@ -545,7 +578,10 @@ export class EngineDSP {
         o += (Math.sin(this.blowerPh * 6.2832) * .6 + Math.sin(this.blowerPh * 12.566) * .25) * (p.blower || 1) * (.15 + .85 * load) * rn * .005 * (t.turbo ?? .8);
       }
 
+      o = oPre + (o - oPre) * vw.turbo;   // turbo, blow-off and blower, scaled for the listening position
+
       // ---- per side: DC block, gentle top, soft clip ----
+      { const mid = (o0 + o1) * .5, side = (o0 - o1) * .5 * vw.width; o0 = mid + side; o1 = mid - side; }
       const g = this.gain * outGain;
       let L = o0 + o, R = o1 + o;
       const dL = L - B0.dcIn + .996 * B0.dc; B0.dcIn = L; B0.dc = dL;
