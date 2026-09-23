@@ -1218,9 +1218,18 @@ function updateCatchUp(dt, list) {
   if (d.baseVmax) d.s.vmax = d.baseVmax + G.catch * CATCHUP.maxKmh;
 }
 // every driver in the session, so traffic knows not to change lanes into any of us
+// Every driver on the road, for the traffic: where they are, how fast they are going and how big
+// their car is. block = they are actually in the lane (not crashed), so traffic queues behind them.
 function allPlayers() {
-  const out = state === "home" ? [] : [{ x: G.x, z: G.z }];
-  if (mode === "online") for (const r of remotes.values()) if (r.s && !r.s.cr) out.push({ x: r.s.x, z: r.s.z });
+  const out = [];
+  if (state !== "home") {
+    const B = BODIES[G.def.body];
+    out.push({ x: G.x, z: G.z, v: G.dt?.v || 0, L: B.L, W: B.W, block: state === "drive" || state === "ended", me: true });
+  }
+  if (mode === "online") for (const r of remotes.values()) if (r.s && !r.s.cr) {
+    const B = BODIES[carById(r.carId).body] || BODIES.sedan;
+    out.push({ x: r.s.x, z: r.s.z, v: r.s.v || 0, L: B.L, W: B.W, block: true });
+  }
   return out;
 }
 
@@ -1810,6 +1819,13 @@ function frame(now) {
   glows.begin();
   lights.length = 0;
   traffic.setPlayers(allPlayers());
+  // cars stuck behind a slow driver lean on the horn - loudest right behind you
+  for (const h of traffic.step(simDt, T)) {
+    const d = Math.hypot(h.x - G.x, h.z - G.z);
+    if (d > 150) continue;
+    audio.honk?.(Math.max(-1, Math.min(1, (h.x - G.x) / 12)), h.heavy, Math.min(1, 16 / Math.max(6, d)) * (h.me ? 1 : .6));
+    if (h.flash) traffic.react(h.key, true);
+  }
 
   if (state === "ready" && mode === "online" && partyRound) {
     const recap = lastResults && lastResults.round === partyRound - 1 ? `${lastResults.win ? "🏆 " + lastResults.by + " wins" : "💥 " + lastResults.by + " crashed"} — ${lastResults.scores.map((p) => `${p.name} ${p.score.toLocaleString()}`).join(" · ")}` : net.room ? net.room.players.map((p) => p.name).join(" · ") : "";

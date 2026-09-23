@@ -3,7 +3,7 @@
 // into the neighbouring lane; the swerve only happens when that lane is provably clear.
 import * as THREE from "three";
 import { makeTrafficCar, makeTrafficBike, BODIES } from "./cars.js";
-import { hash, laneX, LANES, ROAD_HALF, tunnelAmount } from "./world.js";
+import { hash, laneX, LANES, LW, ROAD_HALF, tunnelAmount } from "./world.js";
 
 export const TRAFFIC_LEVELS = { Chill: .24, Normal: .38, Heavy: .5, Insane: .64 };
 // Each lane cruises at its own speed, fastest on the inside (the yellow-line side) and slowest on
@@ -24,6 +24,9 @@ const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "va
 const SCENE_S = 560, SCENE_P = .3, SCENE_X = ROAD_HALF + .9;
 const PARKED = ["sedan", "hatch", "suv", "pickup", "van", "coupe", "muscle", "sedan", "suv"];
 const ONE = [0], TWO = [-1, 1];
+// Following a driver who is holding the lane up (an intelligent-driver model): a comfortable pull
+// away and a comfortable brake, a hard limit for emergencies, a standstill gap and a time gap.
+const IDM = { a: 2.2, b: 3.5, bMax: 9, s0: 4, th: 1.0, catchUp: 4 };
 // How far a driver drifts ahead of or behind their slot while easing on and off the throttle (see
 // raw()). Two cars in adjacent slots of one lane are at least 26.7 m bumper to bumper (42 m pitch,
 // minus spawn jitter, minus half of each car's length - two 5.3 m cars is the tightest pair; a bus
@@ -54,6 +57,90 @@ export class Traffic {
     this.reacts = new Map();  // key -> { t, flash }: drivers you just cut off (local only, cosmetic)
     this.bikeX = new Map();   // last x of each motorbike, for its lean
     this.copLights = [];
+    // Cars held up by a player: key -> { z, v, acc, dir, lane, j, honkT }. A held car has left its
+    // schedule and drives itself (see step()) until it has caught back up with it.
+    this.held = new Map();
+  }
+  // a car's scheduled forward speed at time T (its lane speed plus its own easing on and off)
+  vAt(c, T) { return c.v - c.amp * c.w * Math.cos(T * c.w + c.ph); }
+
+  // Traffic behind a slow or stopped player backs up behind them, and anyone stuck behind leans on
+  // the horn. Every car runs to its schedule until something in its lane - a player going slower than
+  // it, or a car already queued behind one - is too close to keep that schedule. From then on it
+  // drives itself: brakes, queues nose to tail, pulls away when the lane clears, and runs a little
+  // quicker than its lane until it is back on schedule, when it rejoins it exactly. Every client runs
+  // this for every player, so a party sees the same queues. Returns this frame's horn blasts.
+  step(dt, T) {
+    const ev = [];
+    if (!(dt > 0)) return ev;
+    if (!this.players.length) { this.held.clear(); return ev; }
+    let z0 = Infinity, z1 = -Infinity;
+    for (const p of this.players) { z0 = Math.min(z0, p.z); z1 = Math.max(z1, p.z); }
+    const bands = Array.from({ length: LANES }, () => []);
+    for (const c of this.query(T, z0 - 300, z1 + 600)) {
+      if (c.parked || this.bumped.has(c.key)) continue;
+      const li = Math.max(0, Math.min(LANES - 1, Math.round((c.x - laneX(0)) / LW)));
+      bands[li].push({ c, z: c.z, v: c.held ? c.held.v : this.vAt(c, T), L: c.L });
+    }
+    for (const p of this.players) {
+      if (!p.block) continue;
+      for (let li = 0; li < LANES; li++) if (Math.abs(p.x - laneX(li)) < LW / 2 + (p.W || 1.9) / 2 - .4) bands[li].push({ p, z: p.z, v: Math.max(0, p.v || 0), L: p.L || 4.6 });
+    }
+    const seen = new Set();
+    for (const band of bands) {
+      band.sort((a, b) => a.z - b.z);              // front of the lane first (forward is -z)
+      let lead = null;
+      for (const e of band) {
+        if (e.c) { this.follow(e, lead, T, dt, ev); seen.add(e.c.key); }
+        lead = e;
+      }
+    }
+    // anyone who fell out of range is far behind everyone and out of sight: back onto the schedule
+    for (const k of this.held.keys()) if (!seen.has(k)) this.held.delete(k);
+    return ev;
+  }
+  follow(e, lead, T, dt, ev) {
+    const c = e.c, zDet = c.zDet, vDet = this.vAt(c, T);
+    let hs = c.held;
+    // who is holding this lane up: a player directly ahead, or the queue in front of one
+    e.player = lead ? lead.p || lead.player || null : null;
+    e.depth = lead ? (lead.p ? 1 : (lead.depth || 0) + 1) : 0;
+    const accel = (z, v, v0) => {
+      let a = IDM.a * (1 - Math.pow(v / Math.max(1, v0), 4));
+      if (lead) {
+        const gap = Math.max(.1, (z - c.L / 2) - (lead.z + lead.L / 2));
+        const s = IDM.s0 + Math.max(0, v * IDM.th + (v * (v - lead.v)) / (2 * Math.sqrt(IDM.a * IDM.b)));
+        a -= IDM.a * (s / gap) ** 2;
+      }
+      return Math.max(-IDM.bMax, Math.min(IDM.a, a));
+    };
+    if (!hs) {
+      // on schedule: only step off it when keeping it would mean closing in on a player or on a car
+      // that is already held up. A car part-way through a lane change finishes it on schedule.
+      if (!lead || !(lead.p || lead.c?.held) || c.sig || Math.abs(c.x - laneX(c.lane)) > .6 || accel(zDet, vDet, vDet) > -1.2) return;
+      const [dir, lane, j] = c.key.split(":").map(Number);
+      hs = { z: zDet, v: vDet, acc: 0, dir, lane, j, honkT: .5 + Math.random() };
+      this.held.set(c.key, hs);
+      c.held = hs;
+    }
+    const v0 = hs.z > zDet + 1 ? vDet + IDM.catchUp : vDet;
+    hs.acc = accel(hs.z, hs.v, v0);
+    hs.v = Math.max(0, Math.min(v0, hs.v + hs.acc * dt));
+    hs.z -= hs.v * dt;
+    // never ahead of its own schedule, and never into the vehicle in front
+    hs.z = Math.max(hs.z, zDet);
+    if (lead) hs.z = Math.max(hs.z, lead.z + (lead.L + c.L) / 2 + 1.2);
+    c.z = e.z = hs.z; e.v = hs.v;
+    // held up by a slow player: horn. The car right behind keeps at it; further back, now and then.
+    const p = e.player;
+    if (p && hs.v < vDet * .6 && (p.v || 0) < vDet * .75) {
+      if ((hs.honkT -= dt) <= 0) {
+        ev.push({ key: c.key, x: c.x, z: hs.z, heavy: c.body === "truck" || c.body === "bus", me: !!p.me, depth: e.depth, flash: e.depth === 1 && Math.random() < .3 });
+        hs.honkT = e.depth === 1 ? .9 + Math.random() * 1.5 : 2.5 + Math.random() * 4.5;
+      }
+    } else hs.honkT = Math.max(hs.honkT, .4 + Math.random() * .6);
+    // caught back up with the schedule and nothing ahead in the way: rejoin it exactly
+    if (hs.z - zDet < .3 && hs.acc > -.3) { this.held.delete(c.key); c.held = null; }
   }
   // A driver you cut off: brake lights, and maybe a flash of the headlights. Cosmetic and local -
   // their position stays deterministic.
@@ -65,7 +152,7 @@ export class Traffic {
     this.base = TRAFFIC_LEVELS[level] ?? TRAFFIC_LEVELS.Heavy;
     this.ramp = ramp;
     for (const [, m] of this.active) this.release(m);
-    this.active.clear(); this.bumped.clear(); this.blocked.clear(); this.reacts.clear(); this.bikeX.clear();
+    this.active.clear(); this.bumped.clear(); this.blocked.clear(); this.reacts.clear(); this.bikeX.clear(); this.held.clear();
   }
   // Capped well below full: even on Insane a lane keeps real gaps in it.
   density(j) { return Math.min(.62, this.base + (this.ramp ? Math.min(.16, Math.max(0, -j * S) / 30000) : .06)); }
@@ -137,7 +224,11 @@ export class Traffic {
     return ok;
   }
   resolve(c, T) {
-    c.z = this.zAt(c, T);
+    // where its schedule puts it, and where it really is if it is held up (see step())
+    c.zDet = this.zAt(c, T);
+    const hs = this.held.get(c.key);
+    c.held = hs || null;
+    c.z = hs ? hs.z : c.zDet;
     const baseX = laneX(c.lane);
     // a driver's own hand on the wheel: some track the lane dead straight, others drift a bit more
     const bike = c.body === "bike";
@@ -145,7 +236,7 @@ export class Traffic {
     c.x = baseX + Math.sin(T * wobF + c.ph * 1.7) * wobA;
     c.sig = 0;
     const target = SWERVE_TARGET[c.lane];
-    if (target !== undefined && c.h(8) < .45 && c.body !== "bus") {
+    if (!hs && target !== undefined && c.h(8) < .45 && c.body !== "bus") {
       const P = 15 + c.h(9) * 14, phase = T + c.h(10) * P, tl = ((phase % P) + P) % P;
       if (tl < WIN) {
         const T0 = T - tl;
@@ -173,6 +264,12 @@ export class Traffic {
         this.resolve(c, T);
         if (c.z >= zAhead && c.z <= zBehind) out.push(c);
       }
+    }
+    // a held car can be far behind its schedule, outside the slots searched above
+    for (const [key, hs] of this.held) {
+      if (hs.z < zAhead || hs.z > zBehind || out.some((o) => o.key === key)) continue;
+      const c = this.raw(hs.dir, hs.lane, hs.j);
+      if (c) { this.resolve(c, T); out.push(c); }
     }
     for (let j = Math.floor((zAhead - 40) / SCENE_S); j <= Math.ceil((zBehind + 40) / SCENE_S); j++) {
       const sc = this.rawScene(j);
@@ -321,7 +418,7 @@ export class Traffic {
       // brake lights: drivers brake as they ease back in their slot (the strongest part of each slow-down),
       // and anyone you have just cut off stands on the brakes
       const r = this.reacts.get(c.key);
-      const braking = !b && ((c.amp * c.w * c.w > .06 && Math.sin(T * c.w + c.ph) < -.72) || (r && r.t < 1.1));
+      const braking = !b && (c.held ? c.held.acc < -.4 || c.held.v < 1.5 : c.amp * c.w * c.w > .06 && Math.sin(T * c.w + c.ph) < -.72 || (r && r.t < 1.1));
       if (braking) for (const s of sides) glows.add(c.x + s * hw, B.tl[1], tz, 1, .07, .05, one ? 1.1 : 1.35);
       else if (night) for (const s of sides) glows.add(c.x + s * hw, B.tl[1], tz, 1, .08, .05, .9);
       // ...and flashes its headlights at you, twice
