@@ -508,6 +508,27 @@ export class AudioManager {
       oscs.forEach((o) => o.stop(this.ctx.currentTime + 0.2));
     }
   }
+  // Someone leaning on the horn at you: a car's two-tone horn (one long blast or two short ones,
+  // each car its own pitch) or a truck's air horn. vol falls off with distance.
+  honk(pan, heavy = false, vol = 1) {
+    if (!this.ready) return;
+    const ctx = this.ctx, t0 = ctx.currentTime + .02;
+    const p = ctx.createStereoPanner(); p.pan.value = Math.max(-1, Math.min(1, pan));
+    const lp = ctx.createBiquadFilter(); lp.frequency.value = heavy ? 1400 : 2200;
+    const g = ctx.createGain(); g.gain.value = 0;
+    lp.connect(g).connect(p).connect(this.fx);
+    const pitch = .9 + Math.random() * .22;
+    const freqs = heavy ? [185, 233, 277] : [415 * pitch, 523 * pitch];
+    const beeps = heavy ? [[0, .9]] : Math.random() < .45 ? [[0, .45]] : [[0, .16], [.24, .2]];
+    const peak = (heavy ? .075 : .06) * vol;
+    for (const [at, len] of beeps) {
+      g.gain.setValueAtTime(0, t0 + at); g.gain.linearRampToValueAtTime(peak, t0 + at + .015);
+      g.gain.setValueAtTime(peak, t0 + at + len); g.gain.linearRampToValueAtTime(0, t0 + at + len + .04);
+    }
+    const last = beeps[beeps.length - 1], end = t0 + last[0] + last[1] + .1;
+    for (const f of freqs) { const o = ctx.createOscillator(); o.type = "sawtooth"; o.frequency.value = f; o.connect(lp); o.start(t0); o.stop(end); }
+    setTimeout(() => p.disconnect(), (end - ctx.currentTime + .3) * 1000);
+  }
   truckHorn(pan) {
     if (!this.ready) return;
     [185, 233].forEach((f) => this.tone({ type: "sawtooth", f0: f, f1: f * 0.97, a: 0.02, d: 0.7, peak: 0.07, pan }));

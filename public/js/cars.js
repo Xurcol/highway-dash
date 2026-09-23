@@ -623,6 +623,53 @@ export function makeTrafficCar(bodyKey, color) {
   return grp;
 }
 
+// ---------- motorbike (traffic only) ----------
+// Built front-to-back along -z, the way a traffic car sits after its turn, rider included. Paint is
+// the tank, fairing, tail and the rider's helmet; the rest is trim.
+BODIES.bike = { L: 2.15, W: .8, bottom: .3, r: .32, wheels: [.74, -.72], hl: [1.0, .98], tl: [-1.02, .86], top: 1.62, bike: true };
+let bikeGeos = null;
+function buildBike() {
+  const bx = (w, h, d, x, y, z, rx, col) => colorize(new THREE.BoxGeometry(w, h, d).rotateX(rx).translate(x, y, z), C(col));
+  const tire = 0x16181c, metal = 0x9aa0a8, frame = 0x2a2d33, gear = 0x1b1d22, white = 0xffffff;
+  const wheel = (z) => [colorize(new THREE.TorusGeometry(.29, .075, 8, 22).rotateY(Math.PI / 2).translate(0, .32, z), C(tire)),
+    colorize(new THREE.CylinderGeometry(.13, .13, .09, 12).rotateZ(Math.PI / 2).translate(0, .32, z), C(metal))];
+  const paint = [
+    bx(.36, .22, .46, 0, .86, -.2, .12, white),                                            // tank
+    bx(.44, .42, .34, 0, .95, -.64, -.4, white),                                           // front fairing
+    bx(.26, .14, .5, 0, .86, .52, -.18, white),                                            // tail
+    colorize(new THREE.SphereGeometry(.16, 12, 10).translate(0, 1.6, -.18), C(white)),     // helmet
+  ];
+  const trim = [
+    ...wheel(-.74), ...wheel(.72),
+    bx(.32, .3, .5, 0, .5, .02, 0, frame),                                                 // engine
+    bx(.12, .1, 1.0, 0, .72, -.05, .15, frame),                                            // frame spine
+    colorize(new THREE.CylinderGeometry(.05, .06, .55, 10).rotateX(Math.PI / 2).translate(.17, .42, .5), C(metal)), // exhaust
+    ...[-1, 1].map((s) => colorize(new THREE.CylinderGeometry(.028, .028, .72, 6).rotateX(-.35).translate(s * .09, .66, -.62), C(metal))), // forks
+    bx(.66, .035, .035, 0, 1.02, -.46, 0, tire),                                           // handlebar
+    bx(.28, .07, .42, 0, .9, .2, 0, 0x121316),                                             // seat
+    bx(.34, .2, .03, 0, 1.2, -.76, -.5, 0x2b3440),                                         // screen
+    bx(.38, .56, .26, 0, 1.26, 0, -.55, gear),                                             // rider: torso over the tank
+    ...[-1, 1].flatMap((s) => [
+      bx(.13, .13, .46, s * .16, .98, -.02, .2, gear),                                     // thigh
+      bx(.11, .42, .11, s * .2, .72, -.24, .25, gear),                                     // shin
+      bx(.09, .09, .5, s * .22, 1.2, -.3, .45, gear),                                      // arm
+    ]),
+    bx(.2, .08, .05, 0, 1.6, -.33, 0, 0x0a0c10),                                           // visor
+  ];
+  const lights = [bx(.14, .1, .04, 0, .98, -.82, 0, 0xfff6e8), bx(.16, .05, .03, 0, .88, .79, 0, 0xff1e1e)];
+  return { paint: mergeGeometries(paint), trim: mergeGeometries(trim), lights: mergeGeometries(lights) };
+}
+export function makeTrafficBike(color) {
+  const g = (bikeGeos ||= buildBike()), grp = new THREE.Group();
+  const paint = new THREE.Mesh(g.paint, bodyMaterial(color));
+  grp.add(paint, new THREE.Mesh(g.trim, MATS.trim), new THREE.Mesh(g.lights, MATS.lights));
+  grp.children.forEach((m, i) => { m.castShadow = i < 2; m.receiveShadow = false; });
+  grp.add(contactShadow(BODIES.bike.L, BODIES.bike.W));
+  grp.userData = { body: "bike", L: BODIES.bike.L, W: BODIES.bike.W };
+  paint.userData.setColor = (c) => (paint.material = bodyMaterial(c));
+  return grp;
+}
+
 // Player / remote car: separate animated wheels and controllable lights.
 // Paint finishes: each is a set of physical material parameters, not a texture.
 export const FINISHES = {

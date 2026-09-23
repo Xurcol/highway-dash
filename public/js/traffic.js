@@ -2,8 +2,8 @@
 // players in a party see identical traffic without syncing it. Some cars signal and swerve
 // into the neighbouring lane; the swerve only happens when that lane is provably clear.
 import * as THREE from "three";
-import { makeTrafficCar, BODIES } from "./cars.js";
-import { hash, laneX, LANES } from "./world.js";
+import { makeTrafficCar, makeTrafficBike, BODIES } from "./cars.js";
+import { hash, laneX, LANES, ROAD_HALF, tunnelAmount } from "./world.js";
 
 export const TRAFFIC_LEVELS = { Chill: .24, Normal: .38, Heavy: .5, Insane: .64 };
 // Each lane cruises at its own speed, fastest on the inside (the yellow-line side) and slowest on
@@ -17,7 +17,13 @@ const SAME_V = LANE_MPH.map((m) => m * MPH);
 // chain of cars 20-odd metres apart, and five lanes of it read as a wall.
 const S = 42;
 const PALETTE = [0xf2f2f2, 0x1d1f24, 0x9aa1aa, 0xc62828, 0x1e5bd8, 0xf2c230, 0x2e7d4f, 0x6d3fb0, 0xe0701c, 0x7a1f2b, 0x5b6f86, 0xd8cbb0];
-const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "van", "suv", "coupe", "muscle", "sedan", "suv", "hatch", "m340i", "q50", "x5m", "charger", "golfr", "c63", "rs6", "x3m"];
+const SMALL = ["hatch", "sedan", "sedan", "suv", "sedan", "hatch", "pickup", "van", "suv", "coupe", "muscle", "sedan", "suv", "hatch", "m340i", "q50", "x5m", "charger", "golfr", "c63", "rs6", "x3m", "bike", "bike"];
+// Roadside scenes on the right shoulder, one chance every SCENE_S metres: a police stop (a car pulled
+// over with a cruiser behind it, light bar going) or a breakdown with its hazards on. They stand
+// still, sit clear of the slow lane, and are a pure function of the seed like everything else here.
+const SCENE_S = 560, SCENE_P = .3, SCENE_X = ROAD_HALF + .9;
+const PARKED = ["sedan", "hatch", "suv", "pickup", "van", "coupe", "muscle", "sedan", "suv"];
+const ONE = [0], TWO = [-1, 1];
 // How far a driver drifts ahead of or behind their slot while easing on and off the throttle (see
 // raw()). Two cars in adjacent slots of one lane are at least 26.7 m bumper to bumper (42 m pitch,
 // minus spawn jitter, minus half of each car's length - two 5.3 m cars is the tightest pair; a bus
@@ -45,7 +51,13 @@ export class Traffic {
     this.lightPool = [];
     this.players = [];        // every driver in the session, so nobody gets cut off
     this.blocked = new Map(); // maneuver id -> true, latched so a decision never flickers
+    this.reacts = new Map();  // key -> { t, flash }: drivers you just cut off (local only, cosmetic)
+    this.bikeX = new Map();   // last x of each motorbike, for its lean
+    this.copLights = [];
   }
+  // A driver you cut off: brake lights, and maybe a flash of the headlights. Cosmetic and local -
+  // their position stays deterministic.
+  react(key, flash) { this.reacts.set(key, { t: 0, flash }); }
   // main.js hands us the local player plus every remote one each frame
   setPlayers(list) { this.players = list; }
   setSeed(seed, level = "Heavy", ramp = true) {
@@ -53,7 +65,7 @@ export class Traffic {
     this.base = TRAFFIC_LEVELS[level] ?? TRAFFIC_LEVELS.Heavy;
     this.ramp = ramp;
     for (const [, m] of this.active) this.release(m);
-    this.active.clear(); this.bumped.clear(); this.blocked.clear();
+    this.active.clear(); this.bumped.clear(); this.blocked.clear(); this.reacts.clear(); this.bikeX.clear();
   }
   // Capped well below full: even on Insane a lane keeps real gaps in it.
   density(j) { return Math.min(.62, this.base + (this.ramp ? Math.min(.16, Math.max(0, -j * S) / 30000) : .06)); }
@@ -128,7 +140,8 @@ export class Traffic {
     c.z = this.zAt(c, T);
     const baseX = laneX(c.lane);
     // a driver's own hand on the wheel: some track the lane dead straight, others drift a bit more
-    const wobA = .08 + c.h(13) * .18, wobF = .16 + c.h(14) * .22;
+    const bike = c.body === "bike";
+    const wobA = (bike ? .2 : .08) + c.h(13) * (bike ? .3 : .18), wobF = .16 + c.h(14) * .22;
     c.x = baseX + Math.sin(T * wobF + c.ph * 1.7) * wobA;
     c.sig = 0;
     const target = SWERVE_TARGET[c.lane];
@@ -161,19 +174,49 @@ export class Traffic {
         if (c.z >= zAhead && c.z <= zBehind) out.push(c);
       }
     }
+    for (let j = Math.floor((zAhead - 40) / SCENE_S); j <= Math.ceil((zBehind + 40) / SCENE_S); j++) {
+      const sc = this.rawScene(j);
+      if (sc) for (const c of sc) if (c.z >= zAhead && c.z <= zBehind) out.push(c);
+    }
+    return out;
+  }
+  // The keys look like lane keys ("9:n:j") so a knocked one goes round the party like any other car.
+  rawScene(j) {
+    const seed = this.seed, h = (i) => hash(seed + 31337 + i * 7919, 9, j);
+    if (h(0) > SCENE_P) return null;
+    const z = j * SCENE_S + (h(1) - .5) * 200;
+    if (tunnelAmount(z) > 0 || tunnelAmount(z + 20) > 0) return null;
+    const body = PARKED[(h(3) * PARKED.length) | 0], stop = h(2) < .55;
+    const car = (i, b, dz, extra) => ({ key: `9:${i}:${j}`, h, body: b, dir: 9, lane: -1, j, v: 0, amp: 0, w: 0, x: SCENE_X, z: z + dz, sig: 0,
+      L: BODIES[b].L, W: BODIES[b].W, color: PALETTE[(h(4 + i) * PALETTE.length) | 0], parked: true, ...extra });
+    const out = [car(0, body, 0, { hazard: !stop })];
+    // the cruiser stops a car length behind (+z is behind)
+    if (stop) out.push(car(1, "sedan", BODIES[body].L / 2 + 2.4 + BODIES.sedan.L / 2, { model: "cop", color: 0x121418, cop: true }));
     return out;
   }
   // true when no same-direction car occupies lane space around z
   laneClear(T, x, z, ahead = 45, behind = 25) {
     return !this.query(T, z - ahead - 20, z + behind + 20, [1]).some((c) => Math.abs(c.x - x) < 3.4 && c.z > z - ahead && c.z < z + behind);
   }
-  release(m) { m.visible = false; const p = this.pool.get(m.userData.body) || []; p.push(m); this.pool.set(m.userData.body, p); }
-  acquire(body, color) {
-    const p = this.pool.get(body);
+  release(m) { m.visible = false; m.rotation.z = 0; const p = this.pool.get(m.userData.body) || []; p.push(m); this.pool.set(m.userData.body, p); }
+  acquire(model, color) {
+    const p = this.pool.get(model);
     let m = p && p.pop();
-    if (!m) { m = makeTrafficCar(body, color); this.scene.add(m); }
-    m.children[0].userData.setColor(color);
+    if (!m) { m = model === "bike" ? makeTrafficBike(color) : model === "cop" ? this.makeCop() : makeTrafficCar(model, color); this.scene.add(m); }
+    if (model !== "cop") m.children[0].userData.setColor(color);
     m.visible = true;
+    return m;
+  }
+  // a cruiser for the roadside stops: a dark sedan with a light bar the update loop flashes
+  makeCop() {
+    const m = makeTrafficCar("sedan", 0x121418), bar = new THREE.Group();
+    const red = new THREE.MeshBasicMaterial({ color: 0xff2030, toneMapped: false }), blue = new THREE.MeshBasicMaterial({ color: 0x2050ff, toneMapped: false });
+    const base = new THREE.Mesh(new THREE.BoxGeometry(1.1, .09, .3), new THREE.MeshStandardMaterial({ color: 0x111111 }));
+    const r = new THREE.Mesh(new THREE.BoxGeometry(.5, .1, .26), red), b = new THREE.Mesh(new THREE.BoxGeometry(.5, .1, .26), blue);
+    r.position.set(-.27, .07, 0); b.position.set(.27, .07, 0);
+    bar.add(base, r, b); bar.position.set(0, BODIES.sedan.top + .04, .35);
+    m.add(bar);
+    m.userData.body = "cop"; m.userData.bar = { red, blue };
     return m;
   }
   // Knocked cars are shared: the crashing player broadcasts (key, speed, side, kick) so that
@@ -188,7 +231,7 @@ export class Traffic {
   bumpRemote(key, impactV, kick, age = 0) {
     if (this.bumped.has(key) || !/^-?\d+:\d+:-?\d+$/.test(key)) return;
     this.bump({ key }, impactV, Math.sign(kick.vx) || 1, kick);
-    const b = this.bumped.get(key), lane = +key.split(":")[1], cv = SAME_V[Math.min(SAME_V.length - 1, lane)] || 30;
+    const b = this.bumped.get(key), lane = +key.split(":")[1], cv = key.startsWith("9:") ? 0 : SAME_V[Math.min(SAME_V.length - 1, lane)] || 30;
     for (let t = 0; t < Math.min(3, age); t += .05) {
       b.t += .05; b.vx *= Math.exp(-.1); b.vz *= Math.exp(-.075); b.vr *= Math.exp(-.1);
       b.dx += b.vx * .05; b.dz += b.vz * .05 + cv * .05 * Math.min(1, b.t); b.rot += b.vr * .05;
@@ -226,12 +269,13 @@ export class Traffic {
     const cars = this.query(T, focusZ - 900, focusZ + 80);
     const seen = new Set();
     this.cars.length = 0;
-    let lightN = 0;
-    const blink = Math.floor(T * 2.8) % 2 === 0;
+    let lightN = 0, copN = 0;
+    const blink = Math.floor(T * 2.8) % 2 === 0, strobe = Math.floor(T * 7) % 2 === 0;
+    for (const [k, r] of this.reacts) if ((r.t += dt) > 1.6) this.reacts.delete(k);
     for (const c of cars) {
       seen.add(c.key);
       let m = this.active.get(c.key);
-      if (!m) { m = this.acquire(c.body, c.color); this.active.set(c.key, m); }
+      if (!m) { m = this.acquire(c.model || c.body, c.color); this.active.set(c.key, m); }
       let rot = 0;
       const b = this.bumped.get(c.key);
       if (b) {
@@ -241,18 +285,48 @@ export class Traffic {
       }
       m.position.set(c.x, 0, c.z);
       m.rotation.y = rot;
+      if (c.body === "bike") {
+        // riders lean into their weave
+        const last = this.bikeX.get(c.key), vx = last === undefined || dt <= 0 ? 0 : (c.x - last) / dt;
+        this.bikeX.set(c.key, c.x);
+        m.rotation.z += (Math.max(-.35, Math.min(.35, -vx * .3)) - m.rotation.z) * Math.min(1, dt * 5);
+      }
       this.cars.push(c);
       m.visible = !(hidden && hidden.has(c.key));
       if (!m.visible) continue;
 
-      const B = BODIES[c.body], hw = c.W / 2 - .3;
+      const B = BODIES[c.body], one = c.body === "bike", hw = one ? 0 : c.W / 2 - .3, sides = one ? ONE : TWO;
+      const tz = c.z + c.L / 2 + .05, fz = c.z - c.L / 2 - .05;
       if (c.sig && blink && Math.abs(c.z - focusZ) < 300) {
-        const side = (SWERVE_TARGET[c.lane] > c.lane ? 1 : -1) * c.sig;
-        glows.add(c.x + side * hw, B.tl[1], c.z + c.L / 2 + .05, 1, .55, .05, 1.2);
-        glows.add(c.x + side * hw, B.hl[1], c.z - c.L / 2 - .05, 1, .55, .05, 1.0);
+        const side = (SWERVE_TARGET[c.lane] > c.lane ? 1 : -1) * c.sig, sx = one ? .22 : hw;
+        glows.add(c.x + side * sx, B.tl[1], tz, 1, .55, .05, 1.2);
+        glows.add(c.x + side * sx, B.hl[1], fz, 1, .55, .05, 1.0);
       }
+      if (c.parked) {
+        // hazards on a breakdown; a light bar going on a cruiser, bright enough to see from far off
+        if (c.hazard && blink) for (const s of sides) { glows.add(c.x + s * hw, B.tl[1], tz, 1, .55, .05, 1.2); glows.add(c.x + s * hw, B.hl[1], fz, 1, .55, .05, 1.0); }
+        if (c.cop && m.userData.bar) {
+          const bar = m.userData.bar, y = B.top + .14;
+          bar.red.color.setRGB(strobe ? 3 : .12, .06, .08); bar.blue.color.setRGB(.06, .12, strobe ? .12 : 3);
+          glows.add(c.x - .3, y, c.z + .35, strobe ? 1 : .1, .06, .08, 2.4);
+          glows.add(c.x + .3, y, c.z + .35, .06, .12, strobe ? .1 : 1, 2.4);
+          if (copN < 2 && Math.abs(c.z - camPos.z) < 220) {
+            const L = this.copLights[copN++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -1, 0), color: new THREE.Color(), intensity: 6, range: 16, cosOuter: -2, cosInner: -1.9 };
+            L.pos.set(c.x - 1.2, y + .4, c.z); L.color.setRGB(strobe ? 1 : .12, .08, strobe ? .12 : 1);
+            lights.push(L);
+          }
+        }
+        continue;
+      }
+      // brake lights: drivers brake as they ease back in their slot (the strongest part of each slow-down),
+      // and anyone you have just cut off stands on the brakes
+      const r = this.reacts.get(c.key);
+      const braking = !b && ((c.amp * c.w * c.w > .06 && Math.sin(T * c.w + c.ph) < -.72) || (r && r.t < 1.1));
+      if (braking) for (const s of sides) glows.add(c.x + s * hw, B.tl[1], tz, 1, .07, .05, one ? 1.1 : 1.35);
+      else if (night) for (const s of sides) glows.add(c.x + s * hw, B.tl[1], tz, 1, .08, .05, .9);
+      // ...and flashes its headlights at you, twice
+      if (r?.flash && r.t < .62 && r.t % .31 < .17) for (const s of sides) glows.add(c.x + s * (one ? 0 : c.W / 2 - .35), B.hl[1], fz, 1, .97, .9, 2.6);
       if (night) {
-        for (const s of [-1, 1]) glows.add(c.x + s * hw, B.tl[1], c.z + c.L / 2 + .05, 1, .08, .05, .9);
         if (lightN < 8 && c.z < camPos.z && c.z > camPos.z - 160) {
           const L = this.lightPool[lightN++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -.12, -1).normalize(), color: new THREE.Color(1, .95, .85), intensity: 4, range: 45, cosOuter: Math.cos(.5), cosInner: Math.cos(.22) };
           L.pos.set(c.x, B.hl[1] + .1, c.z - c.L / 2 - .3);
@@ -260,6 +334,6 @@ export class Traffic {
         }
       }
     }
-    for (const [key, m] of this.active) if (!seen.has(key)) { this.release(m); this.active.delete(key); this.bumped.delete(key); }
+    for (const [key, m] of this.active) if (!seen.has(key)) { this.release(m); this.active.delete(key); this.bumped.delete(key); this.bikeX.delete(key); }
   }
 }
