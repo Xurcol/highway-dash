@@ -84,6 +84,7 @@ export class MusicPlayer extends EventTarget {
     if (!this.tracks.length) return;
     const wrap = ((i % this.tracks.length) + this.tracks.length) % this.tracks.length;
     if (wrap !== this.index) { this.index = wrap; this.audio.src = this.track.url; this.emit("track"); }
+    this.onPlay?.();
     this.audio.play().catch(() => { });
     this.publish();
   }

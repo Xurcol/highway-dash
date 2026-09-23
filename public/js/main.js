@@ -680,6 +680,7 @@ function crash(hitCar) {
   // tell the party which traffic car got knocked, so everyone sees the same wreck
   if (kick && mode === "online" && net.room) net.send({ t: "event", kind: "bump", v: Math.round(v), d: `${kick.key}|${kick.vx.toFixed(2)}|${kick.vr.toFixed(2)}|${getT().toFixed(2)}` });
   audio.crash(Math.min(1, v / 50));
+  audio.musicHit?.();
   G.crashT = 0; G.shake = 1;
   G.engine?.params(G.dt.s.idle, 0, 0);
   if (respawnMode()) { if (!freeMode()) { G.score *= .9; ui.toast("Crashed — respawning (-10% score)", [], "warn"); } else ui.toast("Respawning", [], "info"); G.combo = 0; if (mode === "online") net.send({ t: "event", kind: "crash", v: Math.floor(G.score) }); return; }
@@ -1810,6 +1811,7 @@ function frame(now) {
       renderShowroom(rect);
     }
     audio.update(0, 0, false);
+    audio.musicEnv?.({ home: true, on: P.settings.musicFx !== false });
     return;
   }
 
@@ -1875,7 +1877,10 @@ function frame(now) {
   sky.update(dt, camera, focus, state === "drive" ? G.dt.v : 0, audio);
   world.update(focus, sky, glows, lights, dt);
   sky.tunnel = world.tunnel;
-  if (audio.ready) { audio.setTunnel(state === "home" ? 0 : world.tunnel); audio.setEnv(state === "home" ? 0 : cityAt(G.z)); }
+  if (audio.ready) {
+    audio.setTunnel(state === "home" ? 0 : world.tunnel); audio.setEnv(state === "home" ? 0 : cityAt(G.z));
+    audio.musicEnv?.({ tunnel: world.tunnel, city: cityAt(G.z), view: G.engine?.lastView || "exterior", paused, on: P.settings.musicFx !== false });
+  }
   traffic.update(simDt, T, G.z, sky.lampsOn, glows, lights, camera.position, state === "home" ? null : shieldHidden());
   const peerList = mode === "online" ? updateRemotes(T, dt) : null;
   if (!paused) updateCatchUp(simDt, peerList);

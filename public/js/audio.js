@@ -325,6 +325,7 @@ export class AudioManager {
     this.squeal2 = this.loop(this.noiseBuf, "bandpass", 2300, 12);
     this.scrub = this.loop(this.brownBuf, "bandpass", 420, 1.6);
 
+    if (this.musicEl) this.attachMusic(this.musicEl);
     try {
       await ctx.audioWorklet.addModule(new URL("./engine-worklet.js", import.meta.url));
       this.worklet = true;
@@ -354,6 +355,67 @@ export class AudioManager {
     this.slap[1].delayTime.setTargetAtTime(.078 + city * .058, t, .4);
   }
   engine(profile) { return new SmartEngine(this, profile); }
+
+  // ---------- the music player, heard in the game world ----------
+  // The player's own tracks (media.js) are routed through here once audio is running, so the music
+  // lives in the same place as the car: it rings round a tunnel on the same impulse the engine uses,
+  // slaps off city walls, comes through the glass when the camera is outside the car and plays clean
+  // in the hood cam, goes muffled behind the pause menu, and a crash knocks it dull for a moment.
+  // It goes straight to the speakers rather than through the game's master volume and compressor,
+  // so the music slider still sets its level and the engine never pumps it.
+  attachMusic(el) {
+    if (!this.ctx || this.music || !el) return;
+    const ctx = this.ctx;
+    let src;
+    try { src = ctx.createMediaElementSource(el); } catch { return; }
+    const body = ctx.createBiquadFilter(); body.type = "peaking"; body.frequency.value = 170; body.Q.value = .8; body.gain.value = 0;
+    const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 20000; lp.Q.value = .6;
+    const duck = ctx.createGain(), dry = ctx.createGain(), out = ctx.createGain();
+    src.connect(body).connect(lp).connect(duck);
+    duck.connect(dry).connect(out);
+    // tunnel: its own convolver on the engine's tunnel impulse, plus a flutter echo off the walls
+    const verb = ctx.createConvolver(); verb.buffer = this.tunnelVerb.buffer;
+    const wet = ctx.createGain(); wet.gain.value = 0;
+    duck.connect(wet).connect(verb).connect(out);
+    const echo = ctx.createDelay(1); echo.delayTime.value = .11;
+    const efb = ctx.createGain(); efb.gain.value = .35;
+    const elp = ctx.createBiquadFilter(); elp.type = "lowpass"; elp.frequency.value = 2600;
+    const echoSend = ctx.createGain(); echoSend.gain.value = 0;
+    duck.connect(echoSend).connect(echo).connect(elp); elp.connect(efb).connect(echo); elp.connect(out);
+    // city: one dull slap-back off the buildings, each ear its own
+    const slapSend = ctx.createGain(); slapSend.gain.value = 0;
+    const slp = ctx.createBiquadFilter(); slp.type = "lowpass"; slp.frequency.value = 3000;
+    duck.connect(slapSend).connect(slp);
+    for (const [side, d0] of [[-1, .12], [1, .135]]) {
+      const d = ctx.createDelay(.4), p = ctx.createStereoPanner(); d.delayTime.value = d0; p.pan.value = side * .8;
+      slp.connect(d).connect(p).connect(out);
+    }
+    out.connect(ctx.destination);
+    this.music = { body, lp, duck, dry, wet, echoSend, slapSend, hitT: -9 };
+  }
+  // Called every frame. view is the camera's listening position (see updateCamera in main.js).
+  musicEnv({ tunnel = 0, city = 0, view = "exterior", paused = false, home = false, on = true }) {
+    const m = this.music;
+    if (!m) return;
+    const t = this.ctx.currentTime, set = (p, v, k = .2) => p.setTargetAtTime(v, t, k);
+    if (!on) { tunnel = city = 0; view = "interior"; paused = false; }
+    // outside the car you hear its stereo through the glass: a little of the top gone from the chase
+    // cam, more from the far one; in the hood cam it is right there. The cabin lifts the low end.
+    const glass = home || view === "interior" ? 0 : view === "far" ? 1 : .55;
+    let cut = 20000 * Math.pow(4200 / 20000, glass), level = 1 - glass * .12;
+    if (paused) { cut = Math.min(cut, 850); level *= .7; }
+    // a crash: the music drops away to a dull thud and comes back over a second and a half
+    const hit = on ? Math.max(0, 1 - (t - m.hitT) / 1.6) : 0;
+    if (hit > 0) { cut = Math.min(cut, 260 + (1 - hit) ** 2 * 6000); level *= 1 - .55 * hit; }
+    set(m.lp.frequency, cut, hit > 0 ? .05 : .2);
+    set(m.body.gain, home ? 0 : (view === "interior" ? 2.5 : 1.5) * (on ? 1 : 0));
+    set(m.duck.gain, level, hit > 0 ? .03 : .2);
+    set(m.dry.gain, 1 - tunnel * .3, .3);
+    set(m.wet.gain, tunnel * .6, .3);
+    set(m.echoSend.gain, tunnel * .28, .3);
+    set(m.slapSend.gain, home ? 0 : .02 + city * .12, .5);
+  }
+  musicHit() { if (this.music) this.music.hitT = this.ctx.currentTime; }
 
   makeNoise(sec, brown = false) {
     const b = this.ctx.createBuffer(1, this.ctx.sampleRate * sec, this.ctx.sampleRate), d = b.getChannelData(0);

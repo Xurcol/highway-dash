@@ -96,6 +96,10 @@ export class UI {
     this.wireTune();
     this.wireNet();
     this.music = new MusicPlayer();
+    // the audio engine picks the music up when it starts, so tracks play in the game's acoustics;
+    // starting a track also starts (or wakes) the audio, which needs this user gesture
+    ctx.audio.musicEl = this.music.audio;
+    this.music.onPlay = () => ctx.audio.init?.();
     this.wireMedia();
     this.wireAdmin();
   }
@@ -1475,6 +1479,8 @@ export class UI {
     $("mwNext").onclick = () => m.next();
     $("mwPrev").onclick = () => m.prev();
     $("mediaVol").value = m.audio.volume;
+    $("mediaFx").checked = P.settings.musicFx !== false;
+    $("mediaFx").onchange = (e) => { P.settings.musicFx = e.target.checked; save(); };
     $("mediaVol").oninput = (e) => m.setVolume(+e.target.value);
     $("mediaBar").onclick = (e) => { const r = e.currentTarget.getBoundingClientRect(); m.seek((e.clientX - r.left) / r.width); };
     for (const ev of ["track", "state", "list"]) m.addEventListener(ev, () => this.renderMedia());

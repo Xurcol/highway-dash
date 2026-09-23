@@ -670,6 +670,9 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .daily-bonus.done{border-style:solid;border-color:var(--good);background:color-mix(in srgb,var(--good) 10%,var(--surface))}
 
 /* ---------- music player ---------- */
+.media-fx{align-items:flex-start;margin-top:var(--s3);font-size:var(--t-sm)}
+.media-fx input{margin-top:2px;flex:0 0 auto}
+.media-fx b{color:var(--ink)}
 .media-box{width:min(720px,100%)}
 .media-main{display:flex;gap:var(--s5);align-items:center}
 .media-art{width:180px;height:180px;flex:none;border-radius:var(--r3);background:var(--surface-2);
