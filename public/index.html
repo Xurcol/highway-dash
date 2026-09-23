@@ -447,50 +447,63 @@
 </section>
 
 <section id="tune" class="modal" hidden>
-  <div class="panel modal-box tune-box">
-    <button class="close" data-close>✕</button>
-    <h2>🔧 TUNING <small id="tuneCar"></small></h2>
-    <div class="tune-head">
-      <div class="tune-engine" id="tuneEngine"></div>
-      <div class="tune-nums" id="tuneNums"></div>
-    </div>
-    <div class="tune-tabs">
-      <button class="tab on" data-tab="map">ENGINE MAP</button>
-      <button class="tab" data-tab="parts">UPGRADE SHOP</button>
-      <div class="spacer"></div>
-      <button class="btn accent" id="applyBest" hidden>APPLY BEST</button>
+  <!-- The workshop: sections down the left, the one being worked on in the middle, and a dyno on
+       the right that always shows where the build stands - and where a part you are looking at
+       would take it before you pay for it. -->
+  <div class="panel modal-box ws">
+    <header class="ws-head">
+      <div class="ws-title">
+        <span class="ws-kicker">WORKSHOP</span>
+        <h2 id="tuneCar"></h2>
+        <div class="ws-engine" id="tuneEngine"></div>
+      </div>
       <div class="wallet">🪙 <b id="tuneCoins">0</b></div>
-    </div>
-    <div class="tune-grid">
-      <div class="tune-col">
-        <div id="tabMap">
+      <button class="close" data-close aria-label="Close">✕</button>
+    </header>
+    <div class="ws-body">
+      <nav class="ws-nav" id="tuneNav" aria-label="Workshop sections"></nav>
+      <div class="ws-main" id="tuneMain">
+        <div class="ws-pane" id="paneParts"></div>
+        <div class="ws-pane" id="paneEcu" hidden>
+          <div class="pane-head"><h3>ECU MAP</h3><p>Boost, timing, fuel, rev limit and gearing. Changes are a draft until you flash them on the dyno.</p></div>
           <div id="ecuGate" class="gate" hidden></div>
-          <div id="tunePresets" class="presets"></div>
-          <div id="tuneSliders"></div>
-          <h3>DRIVER AIDS <small>free to change</small></h3>
-          <div id="tuneAids"></div>
-          <h3>EXHAUST CHARACTER</h3>
-          <div id="tuneExhaust"></div>
-          <label class="toggle"><input type="checkbox" id="tBrap"> Upshift crackle when hot &amp; loaded</label>
-          <div class="muted small" style="margin-top:8px">Sound when you lift off W</div>
-          <div class="chips" id="tRelease"></div>
-          <div id="tuneApplyBar" class="apply-bar" hidden></div>
+          <div id="tunePresets" class="stages"></div>
+          <div id="tuneSliders" class="mgroup"></div>
         </div>
-        <div id="tabParts" hidden></div>
+        <div class="ws-pane" id="paneSound" hidden>
+          <div class="pane-head"><h3>EXHAUST SOUND</h3><p>How the exhaust behaves off the throttle. The engine's own voice stays - this shapes its character.</p></div>
+          <div id="tuneExhaust" class="mgroup"></div>
+          <div class="mcard">
+            <label class="mswitch"><input type="checkbox" id="tBrap"><span><b>Upshift crackle</b><small>A crack on the gearchange when the engine is hot and loaded</small></span></label>
+            <div class="mcard-row"><div><b>When you lift off W</b><small>What the turbo does with the boost it was holding</small></div><div class="chips" id="tRelease"></div></div>
+          </div>
+        </div>
+        <div class="ws-pane" id="paneLooks" hidden>
+          <div class="pane-head"><h3>PAINT &amp; STYLE</h3><p>Pick anything to preview it on the car. Nothing is charged until you save.</p></div>
+          <div class="mcard">
+            <div class="looks-label">PAINT</div>
+            <div class="swatches" id="swatches"></div>
+            <label class="custom-pick">Custom colour <input type="color" id="paintPick"></label>
+          </div>
+          <div class="mcard"><div id="styleBox" class="style-box"></div></div>
+        </div>
+        <div id="tuneApplyBar" class="apply-bar" hidden></div>
       </div>
-      <div class="tune-col" id="customCol">
-        <h3>PAINT</h3>
-        <div class="swatches" id="swatches"></div>
-        <label class="custom-pick">Custom <input type="color" id="paintPick"></label>
-        <h3>STYLE</h3>
-        <div id="styleBox" class="style-box"></div>
-      </div>
-      <div class="tune-col">
+      <aside class="ws-dyno" aria-label="Dyno">
+        <div class="dy-power" id="dyPower"></div>
+        <div class="dy-chart-box">
+          <canvas id="dyChart" class="dy-chart"></canvas>
+          <div class="dy-legend"><span class="lg-hp">Power</span><span class="lg-nm">Torque</span><span class="lg-stock">Stock</span><span class="lg-next" id="dyLegNext" hidden>Preview</span></div>
+        </div>
+        <div class="dy-stats" id="dyStats"></div>
+        <div class="dy-stress" id="dyStress"></div>
         <div id="tuneWarn" class="tune-warn" hidden></div>
-        <h3>FITTED</h3>
-        <div id="tuneFitted" class="fitted"></div>
-        <div class="row" style="margin-top:14px"><button class="btn accent" id="tuneRev">HOLD TO REV</button><button class="btn ghost" id="tuneReset">RESET TO STOCK</button></div>
-      </div>
+        <div class="dy-actions">
+          <button class="btn accent" id="tuneRev">HOLD TO REV</button>
+          <button class="btn ghost" id="tuneReset">RESET</button>
+        </div>
+        <button class="btn primary wide" id="applyBest" hidden>UPGRADE EVERYTHING</button>
+      </aside>
     </div>
   </div>
 </section>

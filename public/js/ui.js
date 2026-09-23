@@ -5,7 +5,8 @@ import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAIN
 import { FINISHES, TINTS, STANCES, FITMENT } from "./cars.js";
 import { stylePrice, STYLE_PRICES } from "./economy.js";
 import { SOUND_LABELS } from "./engine-dsp.js";
-import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, isForced, summary, summaryCache, defaultTune, maxBoostFor, peakHp, stageMap, DRIVE_LAYOUT } from "./tuning.js";
+import { ENGINES, PARTS, TUNE_RANGE, engineOf, isBoosted, isForced, summary, summaryCache, defaultTune, maxBoostFor, peakHp, stageMap, DRIVE_LAYOUT,
+  normalizeTune, partOpt, driveOf } from "./tuning.js";
 import { partPrice, TUNING_PRICES, COSMETIC_PRICES, fmtCoins, CAR_PRICES } from "./economy.js";
 import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
@@ -24,6 +25,51 @@ const SOLO_BLURB = {
   timeattack: "Two minutes. Crashes cost you 10% of your score.",
 };
 const TOAST_KINDS = ["info", "success", "warn", "error"];
+// ---------- workshop layout ----------
+// The sections down the left of the workshop. The parts sections list the PARTS kinds they hold.
+const svg = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`;
+const WS_ICONS = {
+  engine: svg('<path d="M3 10h2V8h3l2-2h5l2 3h2v2h2v6h-2v2h-3l-2 2H9l-2-2H5v-3H3z"/><path d="M10 12h4"/>'),
+  drive: svg('<circle cx="12" cy="12" r="3.2"/><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3M5.3 5.3l2.1 2.1M16.6 16.6l2.1 2.1M5.3 18.7l2.1-2.1M16.6 7.4l2.1-2.1"/>'),
+  chassis: svg('<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.5"/><path d="M12 3v5.5M12 15.5V21M3 12h5.5M15.5 12H21"/>'),
+  ecu: svg('<rect x="6" y="6" width="12" height="12" rx="2"/><path d="M9.5 2.5v3.5M14.5 2.5v3.5M9.5 18v3.5M14.5 18v3.5M2.5 9.5H6M2.5 14.5H6M18 9.5h3.5M18 14.5h3.5"/><path d="M10 10h4v4h-4z"/>'),
+  sound: svg('<path d="M4 9.5v5h4l5 4v-13l-5 4z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a7.5 7.5 0 0 1 0 11"/>'),
+  looks: svg('<path d="M12 3s6 6.4 6 10.8A6 6 0 0 1 6 13.8C6 9.4 12 3 12 3z"/><path d="M9.5 14.5a2.6 2.6 0 0 0 2.5 2.5"/>'),
+};
+const WS_SECTIONS = [
+  { id: "engine", label: "Engine", kinds: ["intake", "exhaust", "catalyst", "turbo", "intercooler", "fuel", "remap", "internals"],
+    blurb: "Parts that make power. Pick one to see it on the dyno before you buy it." },
+  { id: "drive", label: "Drivetrain", kinds: ["transmission", "drivetrain", "diff", "tires"],
+    blurb: "How the power gets to the road: shift speed, traction and the launch." },
+  { id: "chassis", label: "Chassis", kinds: ["suspension", "brakes", "aero", "weight"],
+    blurb: "Turn-in, stopping power and weight." },
+  { id: "ecu", label: "ECU map" },
+  { id: "sound", label: "Exhaust sound" },
+  { id: "looks", label: "Paint & style" },
+];
+const PART_BLURB = {
+  intake: "More air in: a little power and a sharper induction sound.",
+  exhaust: "Freer flow, less back-pressure and a louder tailpipe.",
+  catalyst: "Fewer restrictions after the turbo. More pops, hotter exhaust gas.",
+  turbo: "Sets the boost ceiling. A bigger turbo makes more power but spools later.",
+  intercooler: "Cooler charge air, so high boost doesn't knock.",
+  fuel: "Higher octane and ethanol resist knock, so the map can run harder.",
+  remap: "The factory calibration, up to a full race map.",
+  internals: "Forged parts take more boost and timing before the engine knocks.",
+  transmission: "Quicker gearchanges: less time without drive between gears.",
+  drivetrain: "Drive all four wheels. The biggest single gain off the line.",
+  diff: "Stops the inside wheel spinning away the power.",
+  tires: "Grip. Launches and corners both need it.",
+  suspension: "Sharper turn-in and less body roll.",
+  brakes: "Stopping power.",
+  aero: "More grip through the turns, at the cost of a little drag.",
+  weight: "Less mass: quicker everywhere, including the launch.",
+};
+// sliders in the workshop fill up to their thumb (see .ws input[type=range] in style.css)
+const fillRange = (r) => r.style.setProperty("--p", ((+r.value - +r.min) / ((+r.max - +r.min) || 1)) * 100 + "%");
+// round a chart axis to a readable step
+const niceStep = (v) => [25, 50, 100, 200, 250, 500, 1000].find((s) => s >= v) || 1000;
+
 export class UI {
   constructor(ctx) {
     this.ctx = ctx; this.initSettingsTabs();
@@ -108,7 +154,7 @@ export class UI {
     if (id === "online") { this.renderOnline(); if ((this.onlineTab || "public") === "public") this.net.send?.({ t: "publicRefresh" }); }
     if (id === "settings") this.renderSettings();
     if (id === "camEdit") this.renderCamEdit();
-    if (id === "tune") this.renderTune();
+    if (id === "tune") { this.pick = null; this.renderTune(); }
     this.ctx.audio.ui();
   }
   toggleModal(id) { if (!$(id).hidden) this.closeModals(); else this.openModal(id); }
@@ -563,6 +609,7 @@ export class UI {
       this.renderStyle(car);
     });
     // sliders only refresh their own readout and the save bar, so dragging isn't interrupted
+    box.querySelectorAll("input[type=range]").forEach(fillRange);
     box.querySelectorAll("input[data-fit]").forEach((inp) => inp.oninput = () => {
       const k = inp.dataset.fit, v = +inp.value;
       this.setStyleDraft(car, k, v);
@@ -925,40 +972,41 @@ export class UI {
   // access, and committing a new map costs a dyno session.
   wireTune() {
     this.ENGINE_CONTROLS = [
-      { key: "boost", label: "Target boost", fmt: (v) => v.toFixed(1) + " psi", boosted: true, hint: "Air pressure the ECU aims for. More boost = more torque, more heat, more stress." },
-      { key: "wastegate", label: "Wastegate duty", fmt: (v) => Math.round(v * 100) + "%", boosted: true, hint: "Higher duty holds the gate shut: spools earlier, overshoots more, holds boost up top." },
-      { key: "timing", label: "Ignition timing", fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1) + "°", hint: "Advance makes power until it knocks - then the ECU pulls timing and you LOSE power." },
-      { key: "afr", label: "Target AFR", fmt: (v) => v.toFixed(1) + ":1", hint: "Richer is safer and cooler, leaner makes a little more power until it knocks." },
-      { key: "revLimit", label: "Rev limit", fmt: (v) => Math.round(v) + " rpm", hint: "Raising it keeps a gear alive longer, but the curve is already falling up there." },
-      { key: "final", label: "Final drive", fmt: (v) => v.toFixed(2), hint: "Shorter (higher number) = more wheel torque, lower top speed." },
-      { key: "gearing", label: "Gear spread", fmt: (v) => v.toFixed(2) + "x " + (v > 1.005 ? "shorter" : v < .995 ? "taller" : "stock"), hint: "Scales every gear. Above 1 = shorter: more wheel torque and revs, less speed per 1000 rpm." },
-    ];
-    this.AID_CONTROLS = [
+      { key: "boost", group: "Boost", label: "Target boost", fmt: (v) => v.toFixed(1) + " psi", boosted: true, hint: "Air pressure the ECU aims for. More boost = more torque, more heat, more stress." },
+      { key: "wastegate", group: "Boost", label: "Wastegate duty", fmt: (v) => Math.round(v * 100) + "%", boosted: true, hint: "Holding the gate shut spools earlier and holds boost up top, but overshoots more." },
+      { key: "timing", group: "Ignition & fuel", label: "Ignition timing", fmt: (v) => (v > 0 ? "+" : "") + v.toFixed(1) + "°", hint: "Advance makes power until it knocks - then the ECU pulls timing and you lose power." },
+      { key: "afr", group: "Ignition & fuel", label: "Target AFR", fmt: (v) => v.toFixed(1) + ":1", hint: "Richer is safer and cooler; leaner makes a little more power until it knocks." },
+      { key: "revLimit", group: "Revs & gearing", label: "Rev limit", fmt: (v) => Math.round(v).toLocaleString() + " rpm", hint: "Keeps a gear alive longer, but the curve is already falling up there." },
+      { key: "final", group: "Revs & gearing", label: "Final drive", fmt: (v) => v.toFixed(2), hint: "Shorter (higher number) = more wheel torque and a quicker launch, lower top speed." },
+      { key: "gearing", group: "Revs & gearing", label: "Gear spread", fmt: (v) => v.toFixed(2) + "x " + (v > 1.005 ? "shorter" : v < .995 ? "taller" : "stock"), hint: "Scales every gear. Above 1 = shorter: more pull, less speed per 1000 rpm." },
     ];
     this.EXHAUST_CONTROLS = [
-      { key: "burble", label: "Decel fuel cut", fmt: (v) => Math.round(v * 100) + "%" },
-      { key: "burbleVol", label: "Burble loudness", fmt: (v) => Math.round(v * 100) + "%" },
-      { key: "aggr", label: "Aggressiveness", fmt: (v) => (v < .5 ? "Docile" : v < .9 ? "Mild" : v < 1.2 ? "Stock" : v < 1.6 ? "Angry" : "Unhinged") },
-      { key: "decay", label: "Burble length", fmt: (v) => (v <= .12 ? "single bang" : v.toFixed(1) + "s") },
-      { key: "mix", label: "Pop style", fmt: (v) => (v < .35 ? "burble" : v > .65 ? "crackle" : "mixed") },
-      { key: "engineBrake", label: "Engine braking", fmt: (v) => Math.round(v * 100) + "%" },
+      { key: "burble", group: "Overrun", label: "Decel fuel cut", fmt: (v) => Math.round(v * 100) + "%", hint: "How much fuel the engine keeps firing off the throttle: how often it pops." },
+      { key: "burbleVol", group: "Overrun", label: "Burble loudness", fmt: (v) => Math.round(v * 100) + "%", hint: "How loud the pops and bangs are." },
+      { key: "decay", group: "Overrun", label: "Burble length", fmt: (v) => (v <= .12 ? "single bang" : v.toFixed(1) + " s"), hint: "How long it keeps crackling after you lift. All the way down: one big bang." },
+      { key: "mix", group: "Overrun", label: "Pop style", fmt: (v) => (v < .35 ? "burble" : v > .65 ? "crackle" : "mixed"), hint: "Deep, round burble or sharp, snapping crackle." },
+      { key: "aggr", group: "Character", label: "Aggressiveness", fmt: (v) => (v < .5 ? "Docile" : v < .9 ? "Mild" : v < 1.2 ? "Stock" : v < 1.6 ? "Angry" : "Unhinged"), hint: "Drive and rasp in the exhaust note." },
+      { key: "engineBrake", group: "Character", label: "Engine braking", fmt: (v) => Math.round(v * 100) + "%", hint: "How hard the car slows when you come off the throttle." },
     ];
-    this.tuneTab = "map";
+    this.tuneSec = "engine";
+    this.pick = null;
     this.draft = null;
     this.holdToRev($("tuneRev"));
     $("tBrap").onchange = (e) => this.editTune({ brap: e.target.checked });
     $("tuneReset").onclick = () => {
       if (!confirm("Reset this car's tune to stock? Parts you bought stay in the garage.")) return;
       this.tunePrev = summary(carById(this.view), carTune(this.view));
-      resetTune(this.view); this.draft = null; this.afterTune();
+      resetTune(this.view); this.draft = null; this.pick = null; this.afterTune();
     };
-    document.querySelectorAll("#tune .tab").forEach((b) => b.onclick = () => { this.tuneTab = b.dataset.tab; this.renderTune(); });
     $("tRelease").innerHTML = "";
     for (const [val, label] of [["flutter", "Turbo flutter"], ["bov", "Blow-off valve"], ["off", "Off"]]) {
       const b = document.createElement("button"); b.textContent = label; b.dataset.v = val;
       b.onclick = () => this.editTune({ release: val });
       $("tRelease").appendChild(b);
     }
+    $("tune").addEventListener("input", (e) => { if (e.target.type === "range") fillRange(e.target); });
+    // the dyno chart is drawn at the size it is shown
+    addEventListener("resize", () => { if (!$("tune").hidden) this.renderTune(); });
   }
   // the tune the player is looking at: what's fitted, plus anything they've dialled in but not paid for
   effTune() { return { ...carTune(this.view), ...(this.draft || {}) }; }
@@ -1030,101 +1078,191 @@ export class UI {
     this.afterTune();
   }
 
+  // unsaved ECU/exhaust edits that differ from what is flashed
+  draftKeys(fitted) { return this.draft ? Object.keys(this.draft).filter((k) => fitted[k] !== this.draft[k]) : []; }
+
   renderTune() {
-    const car = carById(this.view), t = this.effTune(), e = engineOf(car), boosted = isForced(e, t);
-    const fitted = carTune(this.view), hasEcu = ownsEcu(this.view);
-    const sum = summary(car, t), stock = summary(car, defaultTune(car));
+    const car = carById(this.view), e = engineOf(car);
+    const fitted = carTune(this.view), t = this.effTune(), boosted = isForced(e, t), hasEcu = ownsEcu(this.view);
+    if (this.pick && (this.pick.car !== car.id || t[this.pick.kind] === this.pick.key)) this.pick = null;
+    // The dyno compares the build as it stands with where it is heading: a part picked in the shop,
+    // or map changes not flashed yet.
+    const next = this.pick ? normalizeTune(car, { ...t, [this.pick.kind]: this.pick.key }) : this.draftKeys(fitted).length ? t : null;
     $("tuneCar").textContent = car.name;
     $("tuneCoins").textContent = fmtCoins(P.coins);
-    // only offered when you can actually afford every upgrade it would buy
-    const bp = this.bestPlan(), ab = $("applyBest");
-    ab.hidden = !bp.plan.length || P.coins < bp.total;
-    ab.textContent = bp.total ? `APPLY BEST · 🪙 ${fmtCoins(bp.total)}` : "APPLY BEST";
-    ab.onclick = () => this.applyBest();
-    $("tuneEngine").innerHTML = `<b>${esc(e.label)}</b><small>${e.disp.toFixed(1)}L · ${e.cyl} cyl · ${isBoosted(e) ? (e.induction === "super" ? "supercharged" : e.turbos > 1 ? "twin-turbo" : "turbo") : boosted ? "turbo conversion" : "naturally aspirated"} · audio locked to this engine</small>`;
-    document.querySelectorAll("#tune .tab").forEach((b) => b.classList.toggle("on", b.dataset.tab === this.tuneTab));
-    $("tabMap").hidden = this.tuneTab !== "map";
-    $("tabParts").hidden = this.tuneTab !== "parts";
+    const ind = isBoosted(e) ? (e.induction === "super" ? "supercharged" : e.turbos > 1 ? "twin-turbo" : "turbo") : boosted ? "turbo conversion" : "naturally aspirated";
+    $("tuneEngine").innerHTML = `<b>${esc(e.label)}</b> · ${e.disp.toFixed(1)} L ${e.cyl}-cyl · ${ind}`;
 
-    // headline numbers, with the previous value beside anything that just changed
-    const fresh = performance.now() - (this.tuneStamp || 0) < 6000 ? this.tunePrev : null;
-    const cell = (label, val, prev, fmt) => {
-      const changed = fresh && Math.abs(prev - val) > Math.max(.01, Math.abs(val) * .002);
-      return `<div class="tnum ${changed ? "chg" : ""}"><span>${label}</span><b>${changed ? `<i>${fmt(prev)}</i> → ` : ""}${fmt(val)}</b></div>`;
-    };
-    const f0 = (v) => Math.round(v).toLocaleString(), f1 = (v) => v.toFixed(1);
-    $("tuneNums").innerHTML =
-      cell("Power", sum.hp, fresh?.hp, (v) => `${f0(v)} hp`) +
-      cell("Torque", sum.nm, fresh?.nm, (v) => `${f0(v)} Nm`) +
-      (boosted ? cell("Peak boost", sum.peakBoost, fresh?.peakBoost, (v) => `${f1(v)} psi`) : "") +
-      cell("Top speed", sum.topKmh, fresh?.topKmh, (v) => `${f0(v * MPH)} mph`) +
-      cell("0-60", sum.zeroTo60, fresh?.zeroTo60, (v) => `${v.toFixed(2)} s`) +
-      `<div class="tnum stress ${sum.stress.toLowerCase()}"><span>Engine stress</span><b>${sum.stress}</b></div>` +
-      `<div class="tnum"><span>vs stock</span><b>${sum.hp >= stock.hp ? "+" : ""}${f0(sum.hp - stock.hp)} hp</b></div>`;
+    this.renderTuneNav(fitted, e, hasEcu);
+    const sec = WS_SECTIONS.find((s) => s.id === this.tuneSec) || WS_SECTIONS[0];
+    $("paneParts").hidden = !sec.kinds;
+    $("paneEcu").hidden = sec.id !== "ecu";
+    $("paneSound").hidden = sec.id !== "sound";
+    $("paneLooks").hidden = sec.id !== "looks";
+    if (sec.kinds) this.renderParts(car, t, boosted, e, sec);
+    if (sec.id === "ecu") this.renderEcu(car, t, boosted, hasEcu, fitted);
+    if (sec.id === "sound") {
+      this.mrows("tuneExhaust", this.EXHAUST_CONTROLS, t, false, fitted, car, true);
+      $("tBrap").checked = t.brap;
+      [...$("tRelease").children].forEach((b) => b.classList.toggle("on", b.dataset.v === t.release));
+    }
+    this.renderApplyBar(fitted);
+    this.renderDyno(car, fitted, next);
+    $("tune").querySelectorAll("input[type=range]").forEach(fillRange);
+  }
 
-    const warn = $("tuneWarn"), msgs = [];
-    if (sum.pulled > 0.5) msgs.push(`Knock: the ECU is pulling ${sum.pulled}° of timing. Richer fuel, less boost or a better intercooler will give the power back.`);
-    if (sum.egt > 950) msgs.push(`EGT ${sum.egt}°C is very high — richen the AFR.`);
-    if (sum.stress === "Extreme") msgs.push("This tune is way past what the block was built for.");
+  // the section list, each with how far along that part of the build is
+  renderTuneNav(fitted, e, hasEcu) {
+    const boosted = isForced(e, fitted), dirty = this.draftKeys(fitted);
+    const html = WS_SECTIONS.map((s, i) => {
+      let sub, frac = null;
+      if (s.kinds) {
+        const kinds = s.kinds.filter((k) => this.kindOpen(k, e, boosted));
+        let done = 0, lvl = 0;
+        for (const k of kinds) {
+          const keys = Object.keys(PARTS[k].opts).filter((o) => this.optFits(k, o, e)), at = Math.max(0, keys.indexOf(fitted[k]));
+          if (at > 0) done++;
+          lvl += at / (keys.length - 1);
+        }
+        sub = `${done} of ${kinds.length} upgraded`;
+        frac = kinds.length ? lvl / kinds.length : 0;
+      } else if (s.id === "ecu") sub = !hasEcu ? "Locked" : this.ENGINE_CONTROLS.some((c) => dirty.includes(c.key)) ? "Unsaved changes" : "Custom map";
+      else if (s.id === "sound") sub = this.EXHAUST_CONTROLS.some((c) => dirty.includes(c.key)) || dirty.includes("brap") || dirty.includes("release") ? "Unsaved changes" : "Burble & crackle";
+      else sub = "Paint, wheels, stance";
+      const cls = (s.id === this.tuneSec ? " on" : "") + (s.id === "ecu" && !hasEcu ? " lock" : "") + (sub === "Unsaved changes" ? " dirty" : "");
+      return (i === 3 ? '<div class="nav-sep"></div>' : "") +
+        `<button class="nv${cls}" data-sec="${s.id}">${WS_ICONS[s.id]}<b>${s.label}</b><small>${sub}</small>${frac !== null ? `<span class="nv-bar"><i style="width:${Math.round(frac * 100)}%"></i></span>` : ""}</button>`;
+    }).join("");
+    const nav = $("tuneNav");
+    nav.innerHTML = html;
+    nav.querySelectorAll(".nv").forEach((b) => b.onclick = () => {
+      if (this.tuneSec === b.dataset.sec) return;
+      this.tuneSec = b.dataset.sec; this.pick = null;
+      $("tuneMain").scrollTop = 0;
+      this.ctx.audio.ui();
+      this.renderTune();
+    });
+  }
+  // can this car take anything but the stock part of this kind?
+  kindOpen(kind, e, boosted) {
+    if (PARTS[kind].forcedOnly && (!boosted || e.induction === "super")) return false;
+    return Object.keys(PARTS[kind].opts).filter((k) => this.optFits(kind, k, e)).length > 1;
+  }
+
+  renderEcu(car, t, boosted, hasEcu, fitted) {
+    const gate = $("ecuGate");
+    gate.hidden = hasEcu;
+    if (!hasEcu) {
+      const can = P.coins >= TUNING_PRICES.ecu;
+      gate.innerHTML = `<div class="gate-body">${WS_ICONS.ecu}<div><b>ECU access locked</b><p>Boost, timing, fuel, rev limit and gearing need a flashed ECU on this car.</p></div>
+        <button class="btn ${can ? "accent" : "ghost"}" id="ecuBuy" ${can ? "" : "disabled"}>${can ? `UNLOCK · 🪙 ${fmtCoins(TUNING_PRICES.ecu)}` : `NEED ${fmtCoins(TUNING_PRICES.ecu - P.coins)} MORE`}</button></div>`;
+      $("ecuBuy").onclick = () => this.buyEcuUI();
+    }
+    // one-click stage maps, computed from this car's parts and fuel (still a paid dyno session to apply)
+    $("tunePresets").innerHTML = hasEcu ? [[1, "Street", "Plenty of knock margin"], [2, "Fast road", "Most of the headroom"], [3, "On the edge", "Right up to knock"]]
+      .map(([s, a, b]) => `<button class="stage" data-s="${s}"><small>AUTO-MAP</small><b>STAGE ${s}</b><span>${a}</span><small>${b}</small></button>`).join("") : "";
+    $("tunePresets").querySelectorAll("button").forEach((b) => b.onclick = () => { this.editTune(stageMap(car, t, +b.dataset.s)); this.toast(`Stage ${b.dataset.s} map loaded — flash it to keep it`); });
+    this.mrows("tuneSliders", this.ENGINE_CONTROLS, t, !hasEcu, fitted, car, boosted);
+  }
+
+  // A column of labelled sliders, grouped. While one is being dragged the rows are not rebuilt
+  // (that would drop the drag) - only their readouts are refreshed.
+  mrows(hostId, list, t, disabled, fitted, car, boosted) {
+    const host = $(hostId), active = document.activeElement;
+    if (active?.type === "range" && host.contains(active) && host.querySelector(".mrow")) {
+      host.querySelectorAll(".mrow").forEach((row) => {
+        const c = list.find((x) => x.key === row.dataset.k);
+        row.querySelector(".mv").textContent = c.fmt(+t[c.key]);
+        row.classList.toggle("chg", fitted[c.key] !== t[c.key]);
+      });
+      return;
+    }
+    let html = "", group = null;
+    for (const c of list) {
+      if (c.boosted && !boosted) continue;
+      if (c.group !== group) { group = c.group; html += `<h4>${group}</h4>`; }
+      const [lo, hi, step] = this.tuneRange(car, c.key);
+      html += `<label class="mrow${disabled ? " off" : ""}${fitted[c.key] !== t[c.key] ? " chg" : ""}" data-k="${c.key}">
+        <span class="mrow-l"><b>${c.label}</b><small>${c.hint}</small></span>
+        <input type="range" min="${lo}" max="${hi}" step="${step}" value="${t[c.key]}" ${disabled ? "disabled" : ""}>
+        <b class="mv">${c.fmt(+t[c.key])}</b></label>`;
+    }
+    host.innerHTML = html;
+    host.querySelectorAll(".mrow input").forEach((inp) => inp.oninput = () => this.editTune({ [inp.closest(".mrow").dataset.k]: +inp.value }));
+  }
+
+  // pending map/exhaust changes: what they cost and the only button that takes money for them
+  renderApplyBar(fitted) {
+    const bar = $("tuneApplyBar"), n = this.draftKeys(fitted).length;
+    bar.hidden = !n;
+    if (!n) return;
+    const canPay = P.coins >= TUNING_PRICES.session;
+    bar.innerHTML = `<div><b>${n} unsaved change${n > 1 ? "s" : ""}</b><small>Flashing is a dyno session · ${fmtCoins(TUNING_PRICES.session)} coins</small></div>
+      <button class="btn ghost" id="tuneRevert">REVERT</button>
+      <button class="btn ${canPay ? "primary" : "ghost"}" id="tuneApply" ${canPay ? "" : "disabled"}>${canPay ? `FLASH · 🪙 ${fmtCoins(TUNING_PRICES.session)}` : "NOT ENOUGH COINS"}</button>`;
+    $("tuneRevert").onclick = () => { this.draft = null; this.renderTune(); };
+    $("tuneApply").onclick = () => this.applyDraft();
+  }
+
+  // ---- the dyno: power, the curves, the numbers that matter, and how hard the engine is working ----
+  renderDyno(car, fitted, next) {
+    const e = engineOf(car), cur = summaryCache(car, fitted), stock = summaryCache(car, defaultTune(car));
+    const nx = next ? summaryCache(car, next) : null;
+    const f0 = (v) => Math.round(v).toLocaleString();
+    // just bought something: say what it did for a few seconds
+    const was = performance.now() - (this.tuneStamp || 0) < 6000 ? this.tunePrev : null;
+    const dHp = nx ? nx.hp - cur.hp : 0, dWas = was ? cur.hp - was.hp : 0;
+    const sgn = (d) => (d > 0 ? "+" : "−") + f0(Math.abs(d));
+    const sub = nx && dHp ? `<em class="${dHp < 0 ? "down" : ""}">${sgn(dHp)} hp</em> with this change`
+      : dWas ? `<em class="${dWas < 0 ? "down" : ""}">${sgn(dWas)} hp</em> from your last change`
+      : cur.hp - stock.hp >= 1 ? `<em>+${f0(cur.hp - stock.hp)} hp</em> over stock` : "Factory power";
+    $("dyPower").innerHTML = `<div class="dy-k">PEAK POWER</div>
+      <div class="dy-big"><b>${f0(cur.hp)}</b>${nx && dHp ? `<span class="ar">→</span><b class="nx${dHp < 0 ? " worse" : ""}">${f0(nx.hp)}</b>` : ""}<span class="u">hp</span></div>
+      <div class="dy-sub">${sub} · ${f0((nx || cur).hpRpm)} rpm</div>`;
+
+    // dir: 1 = higher is better, -1 = lower is better, 0 = neither
+    const mass = (tt) => specOf(car).mass * partOpt("weight", tt.weight).mass;
+    const tiles = [
+      ["Torque", cur.nm, nx?.nm, (v) => `${f0(v)} Nm`, 1, "nm"],
+      ["0-60 mph", cur.zeroTo60, nx?.zeroTo60, (v) => `${v.toFixed(2)} s`, -1, "zeroTo60"],
+      ["Top speed", cur.topKmh * MPH, nx && nx.topKmh * MPH, (v) => `${f0(v)} mph`, 1, "topKmh"],
+      isForced(e, next || fitted) ? ["Peak boost", cur.peakBoost, nx?.peakBoost, (v) => `${v.toFixed(1)} psi`, 0, "peakBoost"]
+        : ["Rev limit", fitted.revLimit, next?.revLimit, (v) => `${f0(v)} rpm`, 0],
+      ["Weight", mass(fitted), next && mass(next), (v) => `${f0(v)} kg`, -1],
+      ["Driven wheels", driveOf(car, fitted).toUpperCase(), next && driveOf(car, next).toUpperCase(), (v) => v, 0],
+    ];
+    $("dyStats").innerHTML = tiles.map(([label, v, nv, fmt, dir, key]) => {
+      const show = nv != null && fmt(nv) !== fmt(v);
+      const cls = !show || !dir || typeof nv !== "number" ? "" : dir * (nv - v) > 0 ? "up" : "down";
+      const chg = was && key && fmt(key === "topKmh" ? was[key] * MPH : was[key]) !== fmt(v);
+      return `<div class="ds${chg ? " chg" : ""}"><span>${label}</span><b>${fmt(v)}</b>${show ? `<em class="${cls}">→ ${fmt(nv)}</em>` : ""}</div>`;
+    }).join("");
+
+    const lv = ["Low", "Medium", "High", "Extreme"], at = lv.indexOf(cur.stress), to = nx ? lv.indexOf(nx.stress) : at;
+    const st = $("dyStress");
+    st.className = "dy-stress " + lv[to].toLowerCase();
+    st.innerHTML = `<div class="st-top"><span>ENGINE STRESS</span><b>${cur.stress}${to !== at ? ` → ${nx.stress}` : ""}</b></div>
+      <div class="st-bar">${lv.map((_, j) => `<i class="${j <= to ? "on" : ""}"></i>`).join("")}</div>`;
+
+    const s = nx || cur, msgs = [];
+    if (s.pulled > 0.5) msgs.push(`Knock: the ECU is pulling ${s.pulled}° of timing. Richer fuel, less boost or a better intercooler gives the power back.`);
+    if (s.egt > 950) msgs.push(`EGT ${s.egt}°C is very high — richen the AFR.`);
+    if (s.stress === "Extreme") msgs.push("This tune is way past what the block was built for.");
+    const warn = $("tuneWarn");
     warn.hidden = !msgs.length;
     warn.innerHTML = msgs.map((m) => `<div>${m}</div>`).join("");
 
-    // ---- engine map ----
-    const gate = $("ecuGate");
-    gate.hidden = hasEcu;
-    if (!hasEcu) gate.innerHTML = `<div class="gate-body"><b>ECU access locked</b><p class="muted small">Boost, timing, fuel, rev limit and gearing need a flashed ECU on this car.</p>
-      <button class="btn ${P.coins >= TUNING_PRICES.ecu ? "accent" : "ghost"}" id="ecuBuy" ${P.coins >= TUNING_PRICES.ecu ? "" : "disabled"}>${P.coins >= TUNING_PRICES.ecu ? `UNLOCK — ${fmtCoins(TUNING_PRICES.ecu)}` : `NEED ${fmtCoins(TUNING_PRICES.ecu - P.coins)} MORE`}</button></div>`;
-    if (!hasEcu) $("ecuBuy").onclick = () => this.buyEcuUI();
+    // only offered when you can afford every upgrade it would buy
+    const bp = this.bestPlan(), ab = $("applyBest");
+    ab.hidden = !bp.plan.length || P.coins < bp.total;
+    ab.textContent = bp.total ? `UPGRADE EVERYTHING · 🪙 ${fmtCoins(bp.total)}` : "FIT THE BEST PARTS YOU OWN";
+    ab.onclick = () => this.applyBest();
 
-    const rows = (host, list, tune, disabled) => {
-      // while a slider is being dragged, rebuilding the rows would drop the drag - just refresh the readouts
-      const active = document.activeElement;
-      if (active?.type === "range" && $(host).contains(active) && $(host).children.length) {
-        let i = 0;
-        for (const c of list) {
-          if (c.boosted && !boosted) continue;
-          const row = $(host).children[i++];
-          if (row) row.querySelector("b").textContent = c.fmt(+tune[c.key]);
-        }
-        return;
-      }
-      $(host).innerHTML = "";
-      for (const c of list) {
-        if (c.boosted && !boosted) continue;
-        const [lo, hi, step] = this.tuneRange(car, c.key);
-        const row = document.createElement("label");
-        row.className = "slider tune-slider" + (disabled ? " off" : "");
-        row.innerHTML = `<span title="${esc(c.hint || "")}">${c.label}</span><input type="range" min="${lo}" max="${hi}" step="${step}" value="${tune[c.key]}" ${disabled ? "disabled" : ""}><b>${c.fmt(+tune[c.key])}</b>`;
-        row.querySelector("input").oninput = (ev) => this.editTune({ [c.key]: +ev.target.value });
-        $(host).appendChild(row);
-      }
-    };
-    rows("tuneSliders", this.ENGINE_CONTROLS, t, !hasEcu);
-    rows("tuneExhaust", this.EXHAUST_CONTROLS, t, false);
-    // driver aids apply straight away and cost nothing
-    rows("tuneAids", this.AID_CONTROLS, t, false);
-    $("tuneAids").querySelectorAll("input").forEach((inp, i) => inp.oninput = (ev) => { setTune(this.view, { [this.AID_CONTROLS[i].key]: +ev.target.value }); this.afterTune(); });
-    // one-click stage maps, computed from this car's parts and fuel (still a paid dyno session to apply)
-    $("tunePresets").innerHTML = hasEcu ? `<span>AUTO-MAP</span>${[1, 2, 3].map((s) => `<button data-s="${s}">STAGE ${s}</button>`).join("")}<small>Safe maps for your parts &amp; fuel</small>` : "";
-    $("tunePresets").querySelectorAll("button").forEach((b) => b.onclick = () => { this.editTune(stageMap(car, t, +b.dataset.s)); this.toast(`Stage ${b.dataset.s} map loaded — press APPLY to flash it`); });
-    $("tBrap").checked = t.brap;
-    [...$("tRelease").children].forEach((b) => b.classList.toggle("on", b.dataset.v === t.release));
-
-    // ---- pending map changes ----
-    const bar = $("tuneApplyBar");
-    const dirty = this.draft && Object.keys(this.draft).some((k) => fitted[k] !== this.draft[k]);
-    bar.hidden = !dirty;
-    if (dirty) {
-      const canPay = P.coins >= TUNING_PRICES.session;
-      bar.innerHTML = `<div><b>Unsaved map</b><small>Dyno session — ${fmtCoins(TUNING_PRICES.session)} coins</small></div>
-        <button class="btn ghost" id="tuneRevert">REVERT</button>
-        <button class="btn ${canPay ? "primary" : "ghost"}" id="tuneApply" ${canPay ? "" : "disabled"}>${canPay ? `APPLY — ${fmtCoins(TUNING_PRICES.session)}` : "NOT ENOUGH COINS"}</button>`;
-      $("tuneRevert").onclick = () => { this.draft = null; this.renderTune(); };
-      $("tuneApply").onclick = () => this.applyDraft();
-    }
-
-    this.renderShop(car, t, boosted, e);
-    this.renderFitted(t);
+    $("dyLegNext").hidden = !nx;
+    this.drawDyno(
+      { c: stock.curve, lim: defaultTune(car).revLimit },
+      { c: cur.curve, lim: fitted.revLimit },
+      nx && { c: nx.curve, lim: next.revLimit });
   }
 
   // A factory-turbo upgrade only bolts to an engine that already has a turbo; a conversion kit
@@ -1139,33 +1277,68 @@ export class UI {
     return true;
   }
 
-  // ---- upgrade shop: price, what it does, what it costs, and whether you can afford it ----
-  renderShop(car, t, boosted, e) {
-    const host = $("tabParts");
-    host.innerHTML = "";
-    const baseHp = peakHp(car, t);
-    for (const [kind, def] of Object.entries(PARTS)) {
+  // ---- upgrade shop: one card per part, its options laid out as levels ----
+  // Picking a level previews it on the dyno; the card then offers to buy or fit it.
+  renderParts(car, t, boosted, e, sec) {
+    const host = $("paneParts"), baseHp = peakHp(car, t);
+    let html = `<div class="pane-head"><h3>${sec.label.toUpperCase()}</h3><p>${sec.blurb}</p></div>`;
+    for (const kind of sec.kinds) {
+      const def = PARTS[kind], keys = Object.keys(def.opts).filter((k) => this.optFits(kind, k, e));
       const locked = def.forcedOnly && (!boosted || e.induction === "super");
-      const group = document.createElement("div");
-      group.className = "shop-group" + (locked ? " locked" : "");
-      group.innerHTML = `<div class="shop-head"><b>${def.label}</b>${locked ? `<span class="muted small">not available on this engine</span>` : ""}</div>`;
-      for (const [key, opt] of Object.entries(def.opts)) {
-        if (!this.optFits(kind, key, e)) continue;
-        const price = partPrice(kind, key);
-        const owned = ownsPart(car.id, kind, key), on = t[kind] === key;
-        const afford = P.coins >= price;
-        const effect = this.partEffect(kind, key, car, t, baseHp);
-        const row = document.createElement("div");
-        row.className = "shop-row" + (on ? " on" : "") + (locked ? " off" : "");
-        const label = kind === "turbo" && !isBoosted(e) && opt.naLabel ? opt.naLabel : opt.label;
-        row.innerHTML = `<div class="sr-main"><b>${esc(label)}</b><span class="sr-effect">${effect}</span></div>
-          <div class="sr-buy">${price ? `<span class="price">🪙 ${fmtCoins(price)}</span>` : `<span class="price free">Included</span>`}
-          <button class="btn ${on ? "ghost" : owned ? "primary" : afford ? "accent" : "ghost"}" ${on || locked || (!owned && !afford) ? "disabled" : ""}>${on ? "FITTED" : owned ? "FIT" : afford ? "BUY" : "NEED " + fmtCoins(price - P.coins)}</button></div>`;
-        if (!on && !locked && (owned || afford)) row.querySelector("button").onclick = () => this.buyPartUI(kind, key);
-        group.appendChild(row);
+      const onKey = keys.includes(t[kind]) ? t[kind] : keys[0];
+      const nm = (k) => { const o = def.opts[k]; return kind === "turbo" && !isBoosted(e) && o.naLabel ? o.naLabel : o.label; };
+      const sel = !locked && this.pick?.kind === kind ? this.pick.key : null;
+      const blurb = kind === "turbo" && !isBoosted(e) ? "Bolt a turbo onto the engine. Unlocks boost, the intercooler and anti-lag." :
+        kind === "drivetrain" && keys.length < 2 ? "This car already drives all four wheels." : PART_BLURB[kind];
+      const n = keys.length;
+      const tiles = keys.map((k, i) => {
+        const price = partPrice(kind, k), owned = ownsPart(car.id, kind, k), on = k === onKey, fx = this.tierEffect(kind, k, car, t, baseHp);
+        const status = on ? "FITTED" : !price ? "Included" : owned ? "Owned" : `🪙 ${fmtCoins(price)}`;
+        const pips = n > 2 ? `<span class="pips">${Array.from({ length: n - 1 }, (_, j) => `<i class="${j < i ? "on" : ""}"></i>`).join("")}</span>` : "";
+        const cls = (on ? " fitted" : "") + (k === sel ? " sel" : "") + (owned && price && !on ? " owned" : "");
+        const tp = on ? "" : !price || owned ? " have" : P.coins >= price ? " cost" : " poor";
+        return `<button class="tier${cls}" data-k="${k}" ${locked ? "disabled" : ""}>${pips}<span class="tn">${esc(nm(k))}</span><span class="te ${fx.cls}">${fx.text}</span><span class="tp${tp}">${status}</span></button>`;
+      }).join("");
+      let act = "";
+      if (sel) {
+        const price = partPrice(kind, sel), owned = ownsPart(car.id, kind, sel) || !price, afford = P.coins >= price;
+        act = `<div class="pc-act"><div><b>${esc(nm(sel))}</b><small>${this.partEffect(kind, sel, car, t, baseHp) || "&nbsp;"}</small></div>
+          <button class="btn ghost" data-cancel>CANCEL</button>
+          <button class="btn ${owned ? "primary" : afford ? "accent" : "ghost"}" data-buy ${owned || afford ? "" : "disabled"}>${owned ? "FIT IT" : afford ? `BUY &amp; FIT · 🪙 ${fmtCoins(price)}` : `NEED ${fmtCoins(price - P.coins)} MORE`}</button></div>`;
       }
-      host.appendChild(group);
+      html += `<div class="pc${locked ? " locked" : ""}${sel ? " sel" : ""}" data-kind="${kind}">
+        <div class="pc-head"><b>${def.label}</b><span class="pc-now">${locked ? "Needs a turbo" : `Fitted: <em>${esc(nm(onKey))}</em>`}</span></div>
+        <p class="pc-blurb">${blurb}</p><div class="tiers">${tiles}</div>${act}</div>`;
     }
+    host.innerHTML = html;
+    host.querySelectorAll(".pc").forEach((card) => {
+      const kind = card.dataset.kind;
+      card.querySelectorAll(".tier").forEach((b) => b.onclick = () => {
+        const k = b.dataset.k;
+        this.pick = t[kind] === k || (this.pick?.kind === kind && this.pick.key === k) ? null : { car: car.id, kind, key: k };
+        this.ctx.audio.ui();
+        this.renderTune();
+      });
+      card.querySelector("[data-cancel]")?.addEventListener("click", () => { this.pick = null; this.renderTune(); });
+      card.querySelector("[data-buy]")?.addEventListener("click", () => { const k = this.pick.key; this.pick = null; this.buyPartUI(kind, k); });
+    });
+  }
+  // the short line on a level tile: what it does against what is fitted now
+  tierEffect(kind, key, car, t, baseHp) {
+    const o = PARTS[kind].opts[key];
+    if (kind === "drivetrain") {
+      if (!o.drive) return { text: `Factory ${(DRIVE_LAYOUT[car.id] || "rwd").toUpperCase()}`, cls: "" };
+      return { text: `0-60 ${summaryCache(car, { ...t, drivetrain: key }).zeroTo60.toFixed(2)} s`, cls: "up" };
+    }
+    if (o.drag === undefined && (o.flow !== undefined || o.maxBoost !== undefined || o.eff !== undefined || o.knock !== undefined || o.power !== undefined)) {
+      if (t[kind] === key) return { text: `${baseHp} hp`, cls: "" };
+      const d = peakHp(car, { ...t, [kind]: key }) - baseHp;
+      // fuel, internals and the intercooler buy knock headroom: the power comes when the map uses it
+      if (!d) return { text: o.knock > 1 || o.eff ? "More knock headroom" : "No change", cls: "" };
+      return { text: `${d > 0 ? "+" : "−"}${Math.abs(d)} hp`, cls: d > 0 ? "up" : "down" };
+    }
+    const txt = this.partEffect(kind, key, car, t, baseHp);
+    return { text: txt, cls: /^(Standard|Factory)/.test(txt) ? "" : "up" };
   }
   // what a part actually does, computed from the same model the physics uses
   partEffect(kind, key, car, t, baseHp) {
@@ -1189,11 +1362,64 @@ export class UI {
     }
     return "";
   }
-  renderFitted(t) {
-    $("tuneFitted").innerHTML = Object.entries(PARTS)
-      .filter(([kind]) => t[kind] && t[kind] !== "stock")
-      .map(([kind, def]) => `<div class="fit-row"><span>${def.label}</span><b>${esc(def.opts[t[kind]].label)}</b></div>`).join("")
-      || `<div class="muted small">Everything is standard. Open the upgrade shop to fit parts.</div>`;
+  // Power and torque against revs: stock dashed and dim, the build solid, a previewed change dashed white.
+  drawDyno(stock, cur, next) {
+    const cv = $("dyChart"), w = cv.clientWidth, h = cv.clientHeight;
+    if (!w || !h) return;
+    const dpr = Math.min(2, devicePixelRatio || 1);
+    if (cv.width !== Math.round(w * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr); }
+    const g = cv.getContext("2d");
+    g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    g.clearRect(0, 0, w, h);
+    const series = [stock, cur, next].filter(Boolean), x0 = 1000;
+    const x1 = Math.max(...series.map((s) => s.lim));
+    let top = 0;
+    for (const s of series) for (const p of s.c) if (p.rpm <= s.lim) top = Math.max(top, p.hp, p.nm);
+    const step = niceStep(top / 4), yMax = Math.ceil((top * 1.06) / step) * step;
+    const L = 34, R = 8, T = 10, B = 18;
+    const X = (r) => L + ((r - x0) / (x1 - x0)) * (w - L - R), Y = (v) => T + (1 - v / yMax) * (h - T - B);
+    g.font = "600 10px Barlow, sans-serif";
+    g.lineWidth = 1;
+    for (let v = 0; v <= yMax; v += step) {
+      const y = Math.round(Y(v)) + .5;
+      g.strokeStyle = "rgba(255,255,255,.06)"; g.beginPath(); g.moveTo(L, y); g.lineTo(w - R, y); g.stroke();
+      g.fillStyle = "#6e7889"; g.textAlign = "right"; g.fillText(String(v), L - 6, y + 3);
+    }
+    for (let r = 2000; r <= x1; r += 2000) {
+      const x = Math.round(X(r)) + .5;
+      g.strokeStyle = "rgba(255,255,255,.04)"; g.beginPath(); g.moveTo(x, T); g.lineTo(x, h - B); g.stroke();
+      g.fillStyle = "#6e7889"; g.textAlign = "center"; g.fillText(r / 1000 + "k", x, h - 5);
+    }
+    const pts = (s) => s.c.filter((p) => p.rpm >= x0 && p.rpm <= s.lim);
+    const line = (s, key, color, width, dash = []) => {
+      const P = pts(s);
+      if (!P.length) return;
+      g.beginPath(); g.moveTo(X(P[0].rpm), Y(P[0][key]));
+      for (const p of P) g.lineTo(X(p.rpm), Y(p[key]));
+      g.strokeStyle = color; g.lineWidth = width; g.setLineDash(dash); g.lineJoin = "round"; g.stroke(); g.setLineDash([]);
+    };
+    // the build's power curve sits on a soft fill
+    const C = pts(cur);
+    if (C.length) {
+      const grd = g.createLinearGradient(0, T, 0, h - B);
+      grd.addColorStop(0, "rgba(47,216,245,.24)"); grd.addColorStop(1, "rgba(47,216,245,0)");
+      g.beginPath(); g.moveTo(X(C[0].rpm), Y(0));
+      for (const p of C) g.lineTo(X(p.rpm), Y(p.hp));
+      g.lineTo(X(C[C.length - 1].rpm), Y(0)); g.closePath(); g.fillStyle = grd; g.fill();
+    }
+    line(stock, "nm", "rgba(139,92,246,.4)", 1.2, [3, 3]);
+    line(stock, "hp", "rgba(168,177,196,.45)", 1.2, [3, 3]);
+    line(cur, "nm", "#8b5cf6", 2);
+    line(cur, "hp", "#2fd8f5", 2.4);
+    if (next) { line(next, "nm", "rgba(214,200,255,.95)", 1.6, [5, 3]); line(next, "hp", "#ffffff", 1.8, [5, 3]); }
+    // mark the peak
+    const pk = (next ? pts(next) : C).reduce((a, p) => (p.hp > a.hp ? p : a), { hp: -1 });
+    if (pk.hp > 0) {
+      const x = X(pk.rpm), y = Y(pk.hp);
+      g.fillStyle = next ? "#fff" : "#2fd8f5"; g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#f1f4fa"; g.textAlign = x > w - 70 ? "right" : "left";
+      g.fillText(`${Math.round(pk.hp)} hp`, x + (x > w - 70 ? -7 : 7), Math.max(T + 8, y - 6));
+    }
   }
 
   // per-car limits: the block decides the rev ceiling, the turbo decides the boost ceiling
