@@ -11,6 +11,7 @@ import { partPrice, TUNING_PRICES, COSMETIC_PRICES, fmtCoins, CAR_PRICES } from 
 import { TIME_PRESETS, SKY_STYLES, WEATHERS } from "./sky.js";
 import { TRAFFIC_LEVELS } from "./traffic.js";
 import { MusicPlayer } from "./media.js";
+import { FLAME_COLORS } from "./flames.js";
 
 const $ = (id) => document.getElementById(id);
 const MPH = 0.621371; // the game shows mph only
@@ -573,6 +574,10 @@ export class UI {
       ["tint", "Window tint", Object.entries(TINTS).map(([k, v]) => ({ v: k, label: v.label }))],
       ["lightTint", "Tint lights", [{ v: false, label: "Off" }, { v: true, label: "On" }]],
       ["glow", "Underglow", [{ v: null, label: "Off" }, ...sw([0x3dd6ff, 0xff2d95, 0x7cff5a, 0xb27dff, 0xffd12a, 0xff4a55])]],
+      // exhaust flame colour: each swatch is drawn hot-white in the middle, like the flame itself
+      ["flame", "Flames", [{ v: null, label: "Stock" }, ...Object.entries(FLAME_COLORS).map(([k, f]) => ({ v: k, label: f.label,
+        sw: f.rgb ? `radial-gradient(circle at 38% 38%,#fff 0 16%,rgb(${f.rgb.map((x) => Math.round(x * 255))}) 58%,rgb(${f.rgb.map((x) => Math.round(x * 110))}))`
+          : "conic-gradient(#ff4040,#ffd23b,#3bff6a,#3bd8ff,#6a4bff,#ff3bd8,#ff4040)" }))]],
     ];
   }
   setStyleDraft(car, key, val) {

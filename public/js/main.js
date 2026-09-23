@@ -134,6 +134,7 @@ const showCam = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
 // the showroom draws straight to the screen with no bloom or HDR buffer, so the flames go in dimmer
 // there or every colour clips to white
 const showFlames = new Flames(show, 400), showFlame = showFlames.emitter();
+let showFlamePreview = null;   // { id, flame } while a flame colour is being previewed in the style panel
 showFlames.gain = .35;
 {
   const pm = new THREE.PMREMGenerator(renderer);
@@ -1122,6 +1123,7 @@ function updateRemotes(T, dt) {
     r.glow.material.opacity = s.cr ? 0 : .55 + Math.sin(performance.now() / 300) * .2;
     if (!r.flame) r.flame = flames.emitter();
     flames.pose(r.flame, s.x, s.z, s.ry || 0, s.vx || 0, -(s.v || 0), B);
+    r.flame.style = typeof cfg.st?.flame === "string" ? cfg.st.flame : null;
     list.push({ r, dist, s, id });
     if (sky.lampsOn && !s.cr) {
       for (const k of [-1, 1]) {
@@ -1466,6 +1468,7 @@ function updateDrive(dt, T) {
   // car is. With no audio running there are no pops to follow, so the burble model fires them.
   audio.tires?.(0, 0, kmh);
   flames.pose(playerFlame, G.x, G.z, G.yaw, G.vx, -v, B);
+  playerFlame.style = carStyle(def.id).flame ?? null;
   if (G.flameT > 0) {
     G.flameT -= dt;
     if (!audio.ready && Math.random() < dt * 14) flames.fire(playerFlame, 1 + (G.flameSize || 1) * 1.5, (G.flameSize || 1) > 1.5);
@@ -1752,7 +1755,9 @@ function frame(now) {
       if (!dragging && P.settings.spin !== false) showSpin += dt * .25;
       if (showCar) {
         showCar.group.rotation.y = showSpin;
-        showFlames.pose(showFlame, 0, 0, showSpin, 0, 0, BODIES[carById(shownId || showCarId).body] || BODIES.charger, DISC_TOP);
+        const sid = shownId || showCarId;
+        showFlames.pose(showFlame, 0, 0, showSpin, 0, 0, BODIES[carById(sid).body] || BODIES.charger, DISC_TOP);
+        showFlame.style = showFlamePreview?.id === sid ? showFlamePreview.flame : carStyle(sid).flame ?? null;
         showCar.setLights?.(0, false, false, 0);   // headlights and DRLs stay lit so the look can be previewed
         frameShowCam(carById(shownId || showCarId).body, rect.width / rect.height);
       }
@@ -1977,8 +1982,9 @@ const ui = new UI({
   useCustomCam: () => { camMode = CUSTOM_CAM; P.settings.cam = camMode; G.snapCam = true; save(); ui.toast(CAMS[camMode], [], "info"); },
   SOLO_MODES, PARTY_MODES,
   // preview: shown on the garage car only, nothing saved or charged
-  previewStyle: (id, style) => { if (showCarId === id) showTarget()?.applyStyle?.(style); },
+  previewStyle: (id, style) => { if (showCarId === id) showTarget()?.applyStyle?.(style); showFlamePreview = { id, flame: style.flame ?? null }; },
   styleCar: (id) => {
+    showFlamePreview = null;
     if (showCarId === id) showTarget()?.applyStyle?.(carStyle(id));
     if (G.car && G.def.id === id) G.car.applyStyle?.(carStyle(id));
     G.cfgDirty = 1;

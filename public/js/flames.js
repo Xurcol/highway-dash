@@ -12,11 +12,29 @@ import * as THREE from "three";
 
 // colour over a particle's life, [at, r, g, b]: blue-white at the pipe, then yellow, orange, red
 const COOL = [[0, .55, .7, 1], [.1, 1, .92, .72], [.3, 1, .62, .22], [.62, 1, .3, .06], [1, .32, .05, .01]];
+// The flame colour is a style option. Each colour gets the same shape of ramp as the natural flame:
+// near-white at the pipe, the colour itself through the middle, then darkening out.
+const rampOf = (c) => {
+  const w = (k) => c.map((x) => x + (1 - x) * k);
+  return [[0, ...w(.72)], [.12, ...w(.38)], [.32, ...c], [.62, ...c.map((x) => x * .55)], [1, ...c.map((x) => x * .12)]];
+};
+export const FLAME_COLORS = {
+  blue: { label: "Race blue", rgb: [.22, .5, 1] },
+  green: { label: "Boron green", rgb: [.25, 1, .35] },
+  purple: { label: "Violet", rgb: [.62, .26, 1] },
+  pink: { label: "Hot pink", rgb: [1, .28, .7] },
+  red: { label: "Crimson", rgb: [1, .13, .08] },
+  ice: { label: "Ice white", rgb: [.75, .9, 1] },
+  rainbow: { label: "Rainbow" },                 // a new colour for every bang
+};
+const RAMPS = Object.fromEntries(Object.entries(FLAME_COLORS).filter(([, f]) => f.rgb).map(([k, f]) => [k, rampOf(f.rgb)]));
+// fully saturated colour at hue h (0..1)
+const hue = (h) => [0, 8, 4].map((n) => { const k = (n + h * 12) % 12; return .5 - .5 * Math.max(-1, Math.min(k - 3, 9 - k, 1)); });
 const _c = [0, 0, 0];
-function cool(u) {
+function cool(u, R = COOL) {
   let i = 1;
-  while (i < COOL.length - 1 && u > COOL[i][0]) i++;
-  const a = COOL[i - 1], b = COOL[i], k = Math.min(1, Math.max(0, (u - a[0]) / (b[0] - a[0])));
+  while (i < R.length - 1 && u > R[i][0]) i++;
+  const a = R[i - 1], b = R[i], k = Math.min(1, Math.max(0, (u - a[0]) / (b[0] - a[0])));
   _c[0] = a[1] + (b[1] - a[1]) * k; _c[1] = a[2] + (b[2] - a[2]) * k; _c[2] = a[3] + (b[3] - a[3]) * k;
   return _c;
 }
@@ -30,6 +48,8 @@ class Emitter {
     this.vel = [0, 0];              // the car's own velocity (x, z)
     this.jets = [];
     this.heat = 0;
+    this.style = null;              // a FLAME_COLORS key, or null for the natural flame
+    this.ramp = COOL;               // the colour of the last jet (the pipe flash and the light follow it)
     this.light = { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -1, 0), color: new THREE.Color(1, .42, .1), intensity: 0, range: 7, cosOuter: -2, cosInner: -1.9 };
   }
 }
@@ -92,22 +112,24 @@ export class Flames {
     if (!(amp >= .3)) return;
     const n = Math.min(1, (amp - .25) / 5) ** .7;
     if (e.jets.length >= 6) e.jets.shift();
-    const dur = .03 + n * .06 + (big ? .05 : 0);
-    e.jets.push({ t: 0, dur, n, big, count: 4 + n * 16 + (big ? 10 : 0), acc: 0 });
+    const dur = .025 + n * .04 + (big ? .03 : 0);
+    const ramp = e.style === "rainbow" ? rampOf(hue(Math.random())) : RAMPS[e.style] || COOL;
+    e.jets.push({ t: 0, dur, n, big, ramp, count: 3 + n * 9 + (big ? 5 : 0), acc: 0 });
   }
   spawn(e, tip, j, dt) {
     const p = this.P[this.head]; this.head = (this.head + 1) % this.cap;
-    const n = j.n, R = Math.random, spread = .1 + n * .12;
-    const sp = (9 + R() * 16) * (.75 + n * .5);                 // m/s out of the pipe, relative to the car
+    const n = j.n, R = Math.random, spread = .07 + n * .07;
+    const sp = (5 + R() * 8) * (.7 + n * .5);                   // m/s out of the pipe, relative to the car
     const a = (R() - .5) * 2 * spread;
     const dx = e.back[0] + e.side[0] * a, dz = e.back[1] + e.side[1] * a, dy = .05 + (R() - .5) * spread;
     p.vx = e.vel[0] + dx * sp; p.vy = dy * sp; p.vz = e.vel[1] + dz * sp;
     // the air right behind a moving car is dragged along with it, so the flame trails rather than
     // being left hanging in the road
-    p.ax = e.vel[0] * .7; p.az = e.vel[1] * .7;
-    p.life = (.05 + R() * .06) * (1 + n * 1.2) * (j.big ? 1.4 : 1);
-    p.s0 = .07 + n * .08; p.s1 = (.22 + n * .45) * (j.big ? 1.35 : 1) * (.8 + R() * .4);
-    p.br = 2.2 + n * 4 + (j.big ? 1.5 : 0);
+    p.ax = e.vel[0] * .85; p.az = e.vel[1] * .85;
+    p.life = (.035 + R() * .045) * (1 + n * .8) * (j.big ? 1.25 : 1);
+    p.s0 = .04 + n * .03; p.s1 = (.1 + n * .16) * (j.big ? 1.25 : 1) * (.8 + R() * .4);
+    p.br = 2.4 + n * 3.5 + (j.big ? 1 : 0);
+    p.ramp = j.ramp;
     p.seed = R();
     const f = R() * dt;                                        // spread the frame's batch along its path
     p.age = f; p.x = tip[0] + p.vx * f; p.y = tip[1] + p.vy * f; p.z = tip[2] + p.vz * f;
@@ -134,24 +156,26 @@ export class Flames {
         const env = Math.max(0, 1 - j.t / j.dur);
         heat = Math.max(heat, (.35 + j.n) * env);
         flash = Math.max(flash, j.n);
+        e.ramp = j.ramp;
         if (j.t >= j.dur) e.jets.splice(k, 1);
       }
       e.heat = heat > e.heat ? heat : e.heat * Math.exp(-dt * 18);
       if (e.heat > .03) {
-        // the flash at the mouth of each pipe, blue-white while the jet is still coming out
-        const fl = e.heat * this.gain * (.8 + Math.random() * .4), s = .16 + flash * .3;
-        for (const t of e.tips) put(t[0] + e.back[0] * .06, t[1], t[2] + e.back[1] * .06, 2.4 * fl, 2.3 * fl, 2.6 * fl, s, Math.random());
+        // the flash at the mouth of each pipe, the white-hot end of the flame's colour
+        const fl = e.heat * this.gain * (.8 + Math.random() * .4) * 2.5, s = .09 + flash * .13, hot = e.ramp[0];
+        for (const t of e.tips) put(t[0] + e.back[0] * .05, t[1], t[2] + e.back[1] * .05, hot[1] * fl, hot[2] * fl, hot[3] * fl, s, Math.random());
         if (lights && e.tips.length) {
           const L = e.light;
           L.pos.set(0, 0, 0);
           for (const t of e.tips) { L.pos.x += t[0]; L.pos.z += t[2]; }
           L.pos.x = L.pos.x / e.tips.length + e.back[0] * .5; L.pos.z = L.pos.z / e.tips.length + e.back[1] * .5; L.pos.y = e.tips[0][1] + .25;
-          L.intensity = e.heat * 7 * (.75 + Math.random() * .5); L.range = 5 + e.heat * 4;
+          L.color.setRGB(e.ramp[2][1], e.ramp[2][2], e.ramp[2][3]);
+          L.intensity = e.heat * 4.5 * (.75 + Math.random() * .5); L.range = 4 + e.heat * 3;
           lights.push(L);
         }
       }
     }
-    const kd = 1 - Math.exp(-9 * dt);
+    const kd = 1 - Math.exp(-12 * dt);
     for (const p of this.P) {
       if (p.age >= p.life) continue;
       if (dt > 0) {
@@ -160,7 +184,7 @@ export class Flames {
         p.vx += (p.ax - p.vx) * kd; p.vz += (p.az - p.vz) * kd; p.vy += -p.vy * kd + 1.8 * dt;
         p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
       }
-      const u = p.age / p.life, c = cool(u), b = p.br * this.gain * (1 - u) ** 1.3 * (.85 + Math.random() * .3);
+      const u = p.age / p.life, c = cool(u, p.ramp), b = p.br * this.gain * (1 - u) ** 1.3 * (.85 + Math.random() * .3);
       put(p.x, p.y, p.z, c[0] * b, c[1] * b, c[2] * b, p.s0 + (p.s1 - p.s0) * Math.sqrt(u), p.seed);
     }
     const g = this.points.geometry;
