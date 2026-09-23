@@ -16,10 +16,14 @@ class EngineVoice {
       // stereo: the synth runs one pipe per side (see engine-dsp.js)
       this.node = new AudioWorkletNode(ctx, "engine-processor", { outputChannelCount: [2] });
       this.post = (m) => this.node.port.postMessage(m);
+      this.node.port.onmessage = (e) => { if (e.data?.t === "fire") this.fire(e.data.a, e.data.big); };
     } else {
       const dsp = new EngineDSP(ctx.sampleRate);
       this.node = ctx.createScriptProcessor(1024, 0, 2);
-      this.node.onaudioprocess = (e) => dsp.process(e.outputBuffer.getChannelData(0), e.outputBuffer.getChannelData(1));
+      this.node.onaudioprocess = (e) => {
+        dsp.process(e.outputBuffer.getChannelData(0), e.outputBuffer.getChannelData(1));
+        if (dsp.fireA > 0) { this.fire(dsp.fireA, dsp.fireBig); dsp.fireA = 0; dsp.fireBig = 0; }
+      };
       this.post = (m) => dsp.message(m);
     }
     // distance: air takes the top off a far-away car (only remote voices ever move this)
@@ -28,6 +32,8 @@ class EngineVoice {
     this.post({ type: "profile", name: profile });
   }
   setDistance(d) { this.far.frequency.setTargetAtTime(distanceCutoff(d), this.am.ctx.currentTime, .08); }
+  // a pop just left the synth: tell whoever draws the flames, as it reaches the speakers
+  fire(amp, big) { if (this.onFire) fireLater(this.am.ctx, 0, () => this.onFire?.(amp, !!big)); }
   setProfile(name) { this.post({ type: "profile", name }); }
   params(a, b, c) { this.post({ type: "params", ...asState(a, b, c) }); }
   event(type, info) { this.post({ type, ...(info || {}) }); }
@@ -38,6 +44,12 @@ class EngineVoice {
     this.out.gain.setTargetAtTime(vol, t, 0.05);
   }
   dispose() { this.node.disconnect(); this.far.disconnect(); this.pan.disconnect(); }
+}
+// Runs cb when a sound scheduled `delay` s from now is actually heard: the audio is computed ahead
+// of the speakers by the output latency, and a flame that goes up before its bang looks wrong.
+function fireLater(ctx, delay, cb) {
+  const ms = (delay + (ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * 1000;
+  if (ms < 4) cb(); else setTimeout(cb, ms);
 }
 // Air absorbs treble with distance: full range up close, about 2.5 kHz at 140 m.
 const distanceCutoff = (d) => Math.max(2500, Math.min(20000, 20000 * Math.exp(-Math.max(0, d - 8) / 64)));
@@ -182,15 +194,20 @@ class SampleVoice {
     g.cancelScheduledValues(t); g.setValueAtTime(v, t);
     g.linearRampToValueAtTime(v * depth, t + .01); g.linearRampToValueAtTime(v, t + dur);
   }
+  // one afterfire one-shot, and the flame that goes with it (gain ~.3-3 here lines up with the synth's pop levels at x1.6)
+  pop(gain, delay, big = false) {
+    this.shot(this.bank.pops, gain, delay);
+    if (this.onFire) fireLater(this.ctx, delay, () => this.onFire?.(gain * 1.6, big));
+  }
   // a varied train of real pops: count, level, spacing and pitch all come from the intensity model
   burst(count, amp, gap, spread) {
     // matches the synth: at the minimum burble length it is one bang, not a train
-    if ((this.tuneState.decay ?? 1.1) <= .12) { const v = this.tuneState.burbleVol ?? 1; return this.shot(this.bank.pops, Math.min(POP_GAIN * v * 1.6, (amp * 4 + .5) * POP_GAIN * v), .01); }
+    if ((this.tuneState.decay ?? 1.1) <= .12) { const v = this.tuneState.burbleVol ?? 1; return this.pop(Math.min(POP_GAIN * v * 1.6, (amp * 4 + .5) * POP_GAIN * v), .01, true); }
     let at = .02 + Math.random() * .03;
     for (let i = 0; i < count; i++) {
       const k = i / Math.max(1, count - 1);
       const vol = this.tuneState.burbleVol ?? 1;
-      this.shot(this.bank.pops, Math.min(POP_GAIN * vol, amp * 3 * POP_GAIN * vol * (.5 + Math.random() * .7) * (1 - k * .6)), at);
+      this.pop(Math.min(POP_GAIN * vol, amp * 3 * POP_GAIN * vol * (.5 + Math.random() * .7) * (1 - k * .6)), at);
       at += (gap + Math.random() * spread) * (1 + k * .8);
       if (at > Math.max(.3, this.tuneState.decay) * 1.15) break;
     }
@@ -225,6 +242,7 @@ class SmartEngine {
   use(voice) {
     if (this.voice) this.voice.dispose();
     this.voice = voice;
+    voice.onFire = (amp, big) => this.onFire?.(amp, big);   // set onFire on this facade to see every pop
     const s = this.state;
     if (s.tune) voice.tune(s.tune, s.mode);
     if (s.pan) voice.setPan(s.pan[0], s.pan[1]);
@@ -451,11 +469,16 @@ export class AudioManager {
     this.noiseShot({ f0: 350, f1: big ? 1600 : 1100, q: 0.9, a: 0.1, d: 0.3, peak: big ? 0.28 : 0.16, pan });
     this.noiseShot({ type: "lowpass", f0: 260, f1: 80, q: 0.5, a: 0.05, d: 0.35, peak: big ? 0.4 : 0.22, pan, buf: this.brownBuf });
   }
-  closeCall(combo) {
+  // tier 0..3 = near miss .. insane: closer passes ring extra notes on top; a streak milestone
+  // (x5, x10 ...) finishes with a quick rising run
+  closeCall(combo, tier = 0, streak = false) {
     if (!this.ready) return;
     const base = 660 * Math.pow(2, Math.min(combo - 1, 12) / 12);
     this.tone({ type: "triangle", f0: base, d: 0.12, peak: 0.16 });
     this.tone({ type: "triangle", f0: base * 1.5, d: 0.25, peak: 0.14, delay: 0.07 });
+    if (tier >= 2) this.tone({ type: "triangle", f0: base * 2, d: 0.3, peak: 0.1, delay: 0.14 });
+    if (tier >= 3) this.tone({ type: "sine", f0: base * 3, d: 0.4, peak: 0.07, delay: 0.21 });
+    if (streak) [1, 1.26, 1.5, 2].forEach((m, i) => this.tone({ type: "square", f0: base * m, d: 0.09, peak: 0.045, delay: 0.3 + i * 0.07 }));
   }
   tick(on) {
     if (!this.ready) return;

@@ -198,6 +198,9 @@ export class EngineDSP {
     this.gear = 1; this.warmth = 1; this.overrun = false;
     this.crank = 0;
     this.cut = 0; this.crackle = 0; this.blip = 0;
+    // the loudest pop/bang that started sounding since the last read, and whether one was a bang:
+    // the worklet reports it to the main thread, which lights the exhaust flames off it
+    this.fireA = 0; this.fireBig = 0;
     this.pulses = []; this.pops = []; this.chirps = []; this.thumps = [];
     this.seed = (Math.random() * 1e9) | 0;
     this.rumble = 0;
@@ -458,6 +461,7 @@ export class EngineDSP {
         const P = this.pops[k];
         P.t += dt;
         if (P.t < 0) continue;
+        if (!P.lit) { P.lit = 1; if (P.amp > this.fireA) this.fireA = P.amp; if (P.big) this.fireBig = 1; }
         if (P.t > P.dur * 4) { this.pops.splice(k, 1); continue; }
         const e = Math.exp(-P.t / (P.dur * .25));
         const body = P.amp * 1.3 * (e - Math.exp(-P.t / .0008)) + nz * e * P.amp * .3;

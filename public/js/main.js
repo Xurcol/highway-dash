@@ -7,6 +7,7 @@ import { CARS, BODIES, specOf, DetailedCar } from "./cars.js";
 import { Drivetrain } from "./vehicle.js";
 import { AudioManager } from "./audio.js";
 import { Glows, uploadLights, lampUniforms, setLampBudget } from "./lights.js";
+import { Flames } from "./flames.js";
 import { createNet, RemoteView, NET } from "./net.js";
 import { carStyle } from "./profile.js";
 import { P, save, carById, carColor, carSound, carTune, carAudio, earn, walletHooks, MEDALS, addXp, medalCount } from "./profile.js";
@@ -32,6 +33,11 @@ const sky = new SkySystem(renderer, scene);
 const world = new World(renderer, scene);
 const traffic = new Traffic(scene);
 const glows = new Glows(scene);
+// exhaust flames on the road (yours and other drivers'); the garage turntable has its own set
+const flames = new Flames(scene), playerFlame = flames.emitter();
+// Point sprites are sized in pixels, so they need the camera's pixels-per-metre: this matches the
+// glow sprites' .9 x height at the game camera's 62 degrees, and scales for any other lens.
+const pxScale = (hPx, cam) => hPx * .54 / Math.tan(cam.fov * Math.PI / 360);
 // Tyre smoke: a pooled, soft, lit-by-nothing particle cloud that grows and fades as it drifts back.
 const smoke = (() => {
   const N = 260, pos = new Float32Array(N * 3), size = new Float32Array(N), alpha = new Float32Array(N), P = [];
@@ -125,6 +131,10 @@ resize();
 // showroom (garage preview + thumbnails)
 const show = new THREE.Scene();
 const showCam = new THREE.PerspectiveCamera(30, 1, 0.1, 200);
+// the showroom draws straight to the screen with no bloom or HDR buffer, so the flames go in dimmer
+// there or every colour clips to white
+const showFlames = new Flames(show, 400), showFlame = showFlames.emitter();
+showFlames.gain = .35;
 {
   const pm = new THREE.PMREMGenerator(renderer);
   show.environment = pm.fromScene(new RoomEnvironment(), 0.04).texture;
@@ -384,6 +394,8 @@ const LOADER_TIPS = [
   "Q and E work the gear lever — N and D, even in automatic.",
   "Press M to switch between automatic and manual shifting.",
   "Threading a gap at speed pays a close-call bonus. Chain them for a combo.",
+  "The closer the pass, the bigger the bonus: under a foot of air is INSANE.",
+  "Split two cars at once to thread the needle, or dodge a car changing lanes for a bonus.",
   "Hold S against full W while rolling to trigger anti-lag: the revs bounce off the limiter and the car holds its speed.",
   "C cycles the cameras: chase, far, hood and bumper.",
   "Every car in the garage has its own engine, gearbox and tuning options.",
@@ -592,7 +604,10 @@ async function ensureAudio() {
   await audio.init();
   audio.vol = { master: P.settings.volMaster, engine: P.settings.volEngine, fx: P.settings.volFx };
   audio.applyVolumes();
-  if (!G.engine) G.engine = audio.engine(carSound(G.def.id));
+  if (!G.engine) {
+    G.engine = audio.engine(carSound(G.def.id));
+    G.engine.onFire = (amp, big) => { if (state === "drive" || state === "ended") flames.fire(playerFlame, amp, big); };
+  }
 }
 
 let joinHint = null;   // where the other drivers were when we entered a running server
@@ -1074,6 +1089,7 @@ net.addEventListener("peerLeft", (e) => {
   const r = remotes.get(e.detail);
   if (!r) return;
   scene.remove(r.car.group); r.car.dispose(); r.voice?.params(900, 0, 0);
+  if (r.flame) flames.remove(r.flame);
   remotes.delete(e.detail);
 });
 function updateRemotes(T, dt) {
@@ -1104,6 +1120,8 @@ function updateRemotes(T, dt) {
     r.arrow.position.y = B.top + 1.15 + Math.sin(performance.now() / 250) * .15;
     r.arrow.scale.setScalar(1 + dist * .006);
     r.glow.material.opacity = s.cr ? 0 : .55 + Math.sin(performance.now() / 300) * .2;
+    if (!r.flame) r.flame = flames.emitter();
+    flames.pose(r.flame, s.x, s.z, s.ry || 0, s.vx || 0, -(s.v || 0), B);
     list.push({ r, dist, s, id });
     if (sky.lampsOn && !s.cr) {
       for (const k of [-1, 1]) {
@@ -1123,6 +1141,11 @@ function updateRemotes(T, dt) {
       const snd = cfg?.engine || carSound(r.carId);
       if (!r.voice) r.voice = audio.engine(snd);
       if (r.snd !== snd) { r.snd = snd; r.voice.setProfile(snd); }
+      r.voice.onFire = (amp, big) => { if (remotes.get(id) === r && r.car.group.visible && !r.s?.cr) flames.fire(r.flame, amp, big); };
+      // a snap lift off the throttle is what sets an exhaust crackling; their synced pedal shows it
+      const thrNow = s.thr || 0;
+      if ((r.thrWas ?? 0) > .5 && thrNow < .15) r.voice.event("lift", { rpm: s.rpm || 900, load: r.ldWas ?? 1, gear: s.g || 1, boost: (s.bo ?? 0) / 100, release: 10 });
+      r.thrWas = thrNow; r.ldWas = s.ld ?? thrNow;
       // Doppler: an engine closing on you sounds higher, one pulling away lower. Everyone drives
       // towards -z; u points from you to them.
       const dx = s.x - G.x, dz = s.z - G.z, dd = Math.max(1, Math.hypot(dx, dz)), ux = dx / dd, uz = dz / dd;
@@ -1335,6 +1358,41 @@ function updateModeHud(T) {
 const tmpV = new THREE.Vector3();
 const lights = [];
 
+// Close calls are graded by how much air was left between the cars, and a pass can pick up tags for
+// how it was done. Each grade has a handful of words so a long streak doesn't keep printing the same
+// line. gap is metres of daylight, side to side; mul scales the base points.
+const CC_TIERS = [
+  { gap: .3, mul: 3.5, words: ["INSANE!", "PAINT SWAP!", "HAIR'S BREADTH!", "MIRROR KISS!", "NO WAY!"] },
+  { gap: .6, mul: 2.25, words: ["RAZOR CLOSE!", "INCHES!", "WHISKER!", "TIGHT!", "SO CLOSE!"] },
+  { gap: .95, mul: 1.5, words: ["CLOSE CALL!", "SLICK!", "NICE!", "CLEAN!", "SMOOTH!"] },
+  { gap: 1.35, mul: 1, words: ["NEAR MISS", "CLOSE ONE", "SQUEEZED BY", "NICE PASS", "SLIPPED BY"] },
+];
+// Streak names, shown on the pass that reaches them; past 50 every tenth pass is a HIGHWAY GOD.
+const CC_STREAKS = { 5: "ON FIRE", 10: "UNSTOPPABLE", 15: "RAMPAGE", 20: "GODLIKE", 25: "LEGENDARY", 30: "UNREAL", 40: "ABSOLUTE MADNESS", 50: "HIGHWAY GOD" };
+let ccLastWord = "";
+function gradeCloseCall(c, gap, dx, kmh, T, B) {
+  const i = CC_TIERS.findIndex((t) => gap < t.gap), tier = CC_TIERS[i];
+  const pool = tier.words.filter((w) => w !== ccLastWord);
+  const word = ccLastWord = pool[(Math.random() * pool.length) | 0];
+  const tags = [];
+  let bonus = 0;
+  const tag = (name, pts) => { tags.push(name); bonus += pts; };
+  // a car on the other side went by in the same breath: you split the pair
+  const other = T - (G.passAt[dx > 0 ? "l" : "r"] ?? -1e9);
+  if (other >= 0 && other < .5) tag("THREAD THE NEEDLE", 40);
+  // half a second ago you were pointed straight at it
+  if (Math.abs(G.xLag - c.x) < (c.W + B.W) / 2 - .15) tag("LAST SECOND", 25);
+  if (c.sig) tag("DODGED", 25);                                  // it was pulling across lanes
+  if (c.body === "truck" || c.body === "bus") tag("BIG RIG", 10);
+  if (Math.abs(G.x) > ROAD_HALF) tag("SHOULDER RUN", 15);                // more than half the car off the road
+  if (kmh >= 250) tag("HIGH SPEED", 15);
+  if ((sky.w?.rain || 0) > .4) tag("IN THE WET", 10);
+  const n = G.combo;
+  const streak = CC_STREAKS[n] || (n > 50 && n % 10 === 0 ? "HIGHWAY GOD" : "");
+  const pts = Math.round(20 * tier.mul) + bonus + (n - 1) * 10;
+  return { word, tier: CC_TIERS.length - 1 - i, combo: n, pts, tags, streak };
+}
+
 function updateDrive(dt, T) {
   const d = G.dt, def = G.def, B = BODIES[def.body];
   const thrIn = held("KeyW", "ArrowUp") ? 1 : 0, brkIn = held("KeyS", "ArrowDown") ? 1 : 0;   // Space is look-back now
@@ -1403,18 +1461,14 @@ function updateDrive(dt, T) {
   G.z -= v * dt;
   G.dist += Math.max(0, v) * dt;   // reversing does not rack up distance
   G.yaw += (-Math.atan2(G.vx, Math.max(v, 6)) * .9 - G.yaw) * Math.min(1, dt * 10);
-  // exhaust flames (the tyres never slip, so there is no tyre smoke or squeal)
+  // exhaust flames (the tyres never slip, so there is no tyre smoke or squeal). The engine voice
+  // fires them itself, one per pop it plays (G.engine.onFire); this only keeps the pipes where the
+  // car is. With no audio running there are no pops to follow, so the burble model fires them.
   audio.tires?.(0, 0, kmh);
+  flames.pose(playerFlame, G.x, G.z, G.yaw, G.vx, -v, B);
   if (G.flameT > 0) {
     G.flameT -= dt;
-    // the tailpipes sit at the rear of the car, so the flame position turns with the car
-    // every tip flares together, and a bigger bang throws a longer flame
-    const tips = B.exhaust || [[-B.L / 2, .3, .45]];
-    const big = Math.min(2, G.flameSize || 1);
-    if (Math.random() < .35 + .3 * big) for (const e of tips) {
-      const p = carPt(G.x, G.z, G.yaw, (e[2] || 0) * .92, B.L / 2 + .15);
-      glows.add(p[0], (e[1] || .3), p[1], 1, (.5 + Math.random() * .3) * big, .15, (.55 + Math.random() * .85) * big);
-    }
+    if (!audio.ready && Math.random() < dt * 14) flames.fire(playerFlame, 1 + (G.flameSize || 1) * 1.5, (G.flameSize || 1) > 1.5);
   }
 
   // score
@@ -1428,6 +1482,11 @@ function updateDrive(dt, T) {
   if (G.comboT <= 0) G.combo = 0;
   if (G.ghostT > 0) G.ghostT -= dt;
   if (G.shieldT > 0) G.shieldT -= dt;
+
+  // where the car was about half a second ago (snapped across respawns and teleports)
+  if (G.xLag === undefined || Math.abs(G.x - G.xLag) > 6) G.xLag = G.x;
+  G.xLag += (G.x - G.xLag) * Math.min(1, dt / .45);
+  G.passAt ||= {};
 
   // traffic interaction
   const near = traffic.query(T, G.z - 60, G.z + 30, [1]);
@@ -1454,12 +1513,14 @@ function updateDrive(dt, T) {
       if (gap < 1.35 && kmh > 90 && G.ghostT <= 0) {
         G.combo = G.comboT > 0 ? G.combo + 1 : 1;
         G.comboT = 2.5; G.closeCalls++; G.bestCombo = Math.max(G.bestCombo || 0, G.combo);
-        G.score += 20 + (G.combo - 1) * 10;
-        ui.closeCall(G.combo);
-        audio.closeCall(G.combo);
+        const cc = gradeCloseCall(c, gap, dx, kmh, T, B);
+        G.score += cc.pts;
+        ui.closeCall(cc);
+        audio.closeCall(G.combo, cc.tier, !!cc.streak);
         if ((c.body === "truck" || c.body === "bus") && Math.random() < .35) audio.truckHorn(Math.sign(dx) * .6);
         if (G.combo % 5 === 0) net.send({ t: "event", kind: "combo", v: G.combo });
       }
+      if (gap < 2.2) G.passAt[dx > 0 ? "r" : "l"] = T;
     }
   }
   for (const k of G.prevDz.keys()) if (!seen.has(k)) G.prevDz.delete(k);
@@ -1691,9 +1752,11 @@ function frame(now) {
       if (!dragging && P.settings.spin !== false) showSpin += dt * .25;
       if (showCar) {
         showCar.group.rotation.y = showSpin;
+        showFlames.pose(showFlame, 0, 0, showSpin, 0, 0, BODIES[carById(shownId || showCarId).body] || BODIES.charger, DISC_TOP);
         showCar.setLights?.(0, false, false, 0);   // headlights and DRLs stay lit so the look can be previewed
         frameShowCam(carById(shownId || showCarId).body, rect.width / rect.height);
       }
+      showFlames.update(dt, null, pxScale(rect.height * renderer.getPixelRatio(), showCam));
       renderShowroom(rect);
     }
     audio.update(0, 0, false);
@@ -1715,6 +1778,7 @@ function frame(now) {
   if (state === "ended") { // coast to a stop after the round ended
     G.dt.v *= Math.exp(-simDt * 1.4); G.z -= G.dt.v * simDt;
     G.car.group.position.set(G.x, 0, G.z); G.car.update(G.dt.v * simDt, 0);
+    flames.pose(playerFlame, G.x, G.z, G.yaw, 0, -G.dt.v, BODIES[G.def.body]);
   }
   if (state === "drive" && !paused) updateDrive(simDt, T);
   if (!paused && (state === "drive" || state === "crashed")) police.update(simDt, T);
@@ -1758,6 +1822,7 @@ function frame(now) {
   traffic.update(simDt, T, G.z, sky.lampsOn, glows, lights, camera.position, state === "home" ? null : shieldHidden());
   const peerList = mode === "online" ? updateRemotes(T, dt) : null;
   if (!paused) updateCatchUp(simDt, peerList);
+  flames.update(simDt, lights, pxScale(renderer.domElement.height, camera));
   uploadLights(lights, camera);
   glows.end(renderer.domElement.height);
   smoke.update(paused ? 0 : dt);
@@ -1875,7 +1940,10 @@ async function revHold(sound, carId = P.equipped, on = true) {
   await audio.init();
   audio.vol = { master: P.settings.volMaster, engine: P.settings.volEngine, fx: P.settings.volFx, wind: P.settings.volWind };
   audio.applyVolumes();
-  if (!revVoice) revVoice = audio.engine(sound);
+  if (!revVoice) {
+    revVoice = audio.engine(sound);
+    revVoice.onFire = (amp, big) => { if (state === "home") showFlames.fire(showFlame, amp, big); };
+  }
   if (on) {
     revVoice.setProfile(sound);
     revVoice.tune(carAudio(carId), P.settings.driveMode);

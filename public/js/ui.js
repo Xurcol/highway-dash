@@ -37,6 +37,7 @@ export class UI {
     this.el = {
       score: $("score"), best: $("best"), speed: $("speed"), dist: $("dist"), gear: $("gear"), gearMode: $("gearMode"),
       sigL: $("sigL"), sigR: $("sigR"), speedUp: $("speedUp"), ghost: $("ghostNote"), combo: $("combo"), catchUp: $("catchUp"),
+      ccWord: $("ccWord"), ccSub: $("ccSub"), ccStreak: $("ccStreak"), ccTags: $("ccTags"),
     };
     this.chatInput = $("chatInput");
     this.wireCommon();
@@ -219,9 +220,15 @@ export class UI {
     t.dataset.timer = setTimeout(() => t.remove(), actions.length ? 12000 : 3200);
   }
   notify(msg, kind) { this.toast(msg, [], kind); }
-  closeCall(combo) {
-    const c = this.el.combo;
-    c.textContent = `CLOSE CALL! x${combo}`;
+  // tier 0 (a near miss) .. 3 (insane) sets the colour and size; tags are the extras the pass earned
+  closeCall({ word, tier, combo, pts, tags, streak }) {
+    const e = this.el, c = e.combo;
+    c.dataset.tier = tier;
+    e.ccWord.textContent = word;
+    e.ccSub.textContent = `x${combo}  ·  +${pts}`;
+    e.ccStreak.textContent = streak;
+    e.ccStreak.hidden = !streak;
+    e.ccTags.replaceChildren(...tags.map((t) => { const s = document.createElement("span"); s.textContent = t; return s; }));
     c.classList.remove("on"); void c.offsetWidth; c.classList.add("on");
   }
   // Keeps the last 60 lines. Closed, only the newest few show and they fade; with the input open the

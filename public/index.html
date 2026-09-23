@@ -115,7 +115,12 @@
   </div>
   <div class="score"><div id="score">0</div><div id="best">BEST 0</div></div>
   <div id="speedUp" class="speedup">SPEED UP!</div>
-  <div id="combo" class="combo">CLOSE CALL! x1</div>
+  <div id="combo" class="combo" data-tier="0" aria-live="polite">
+    <i id="ccStreak" class="cc-streak" hidden></i>
+    <b id="ccWord">NEAR MISS</b>
+    <span id="ccSub" class="cc-sub"></span>
+    <div id="ccTags" class="cc-tags"></div>
+  </div>
   <!-- one gauge: the rev arc around the speed, the gear under it; signals only show when on -->
   <div class="cluster" id="cluster">
     <i id="sigL" class="sig l" aria-hidden="true"></i>
