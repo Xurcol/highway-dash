@@ -829,6 +829,9 @@ h1,h2,.tab,.mode-hud{font-family:var(--display)}
 /* the exit: a slow fade (the song is faded out over the first 2.4 s of it, see loader.finish) */
 .loader.out{opacity:0;pointer-events:none;transition:opacity 3s cubic-bezier(.4,0,.2,1)}
 .loader-video{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;pointer-events:none}
+/* the website version's clip, from YouTube: the player sized to cover the screen (the clip is 1.65:1) and never clickable */
+.loader-yt{position:absolute;inset:0;overflow:hidden;pointer-events:none;background:#000}
+.loader-yt iframe{position:absolute;top:50%;left:50%;width:max(100vw,165vh);height:max(100vh,60.6vw);transform:translate(-50%,-50%);border:0;pointer-events:none}
 .loader-scrim{position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(90% 75% at 50% 50%,rgba(6,8,14,.38) 0%,rgba(6,8,14,.82) 100%)}
 .loader-video[hidden],.loader-video[hidden]+.loader-scrim{display:none}

@@ -94,7 +94,7 @@ function loadScript(src) {
   return new Promise((resolve, reject) => { const s = document.createElement("script"); s.src = src; s.async = true; s.onerror = reject; s.onload = resolve; document.head.appendChild(s); });
 }
 let ytApi = null, spApi = null;
-const youtubeAPI = () => (ytApi ||= new Promise((resolve, reject) => {
+export const youtubeAPI = () => (ytApi ||= new Promise((resolve, reject) => {
   if (window.YT?.Player) return resolve(window.YT);
   const prev = window.onYouTubeIframeAPIReady;
   window.onYouTubeIframeAPIReady = () => { prev?.(); resolve(window.YT); };
