@@ -436,7 +436,7 @@ const loader = (() => {
   // its end screen never shows. It is muted until the first click or key press (browsers allow no
   // sound before one); then its own sound is the loading music, ducked on the sign-in screen and faded
   // out with everything else, like the song file locally. If YouTube can't play it, the screen stays.
-  const BG_ID = "cSYG5vZVkoA";
+  const BG_ID = "zYCtcTwk4bw";            // Yeat - EARNËD IT (official music video)
   const ytPlayer = (slot, videoId, playerVars, events) => youtubeAPI().then((YT) => new YT.Player(slot, {
     videoId, host: "https://www.youtube-nocookie.com", events,
     playerVars: { controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, rel: 0, playsinline: 1, modestbranding: 1, ...playerVars },
@@ -511,6 +511,7 @@ const loader = (() => {
       this.stage("Ready", "", 1);
       clearInterval(tipTimer);
       document.querySelector(".loader-box").classList.add("away");
+      el.classList.add("signing");
       // no clip to play behind the card (the public build ships none): the screen turns see-through
       // and the real garage - the car turning on its stand - becomes the background, under a blur
       if (video.hidden && !bgHost) el.classList.add("live");
