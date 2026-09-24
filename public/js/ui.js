@@ -28,6 +28,7 @@ const fmtK = (n) => (n >= 1000 ? (n / 1000).toFixed(n % 1000 ? 1 : 0).replace(/\
 const SOLO_BLURB = {
   classic: "One life. One crash ends the run.",
   freedrive: "No timer and no run to lose — crash and you just respawn.",
+  city: "Free roam in 3D: downtown, traffic lights, and the ring expressway with its on and off ramps. Shift is the handbrake; hold S to reverse.",
   police: "Outrun the cops. Escape to raise the heat and the bounty.",
   timeattack: "Two minutes. Crashes cost you 10% of your score.",
 };
@@ -535,13 +536,12 @@ export class UI {
           options.map(([v, text]) => `<option value="${v}"${String(v) === String(current) ? " selected" : ""}>${text}</option>`).join("") +
         `</select></label>`;
       const bots = (P.settings.bots | 0);
-      const rows = [
-        sel("MODE", "mode", Object.entries(this.ctx.SOLO_MODES), cur),
-        sel("BOTS", "bots", [0, 1, 2, 3, 4, 5].map((n) => [n, n ? String(n) : "Off"]), bots),
-      ];
+      const rows = [sel("MODE", "mode", Object.entries(this.ctx.SOLO_MODES), cur)];
+      // the bots race the highway; City Drive has its own traffic instead
+      if (cur !== "city") rows.push(sel("BOTS", "bots", [0, 1, 2, 3, 4, 5].map((n) => [n, n ? String(n) : "Off"]), bots));
       // Free Drive is the open-ended mode, so the two things worth changing before you set off get
       // their own row here rather than being buried in Settings.
-      if (cur === "freedrive") {
+      if (cur === "freedrive" || cur === "city") {
         // the time is a slider elsewhere, so it can sit between two presets; show that honestly
         const presets = Object.entries(TIME_PRESETS).map(([label, h]) => [h, label]);
         const near = presets.find(([h]) => Math.abs(P.settings.hour - h) < .05);

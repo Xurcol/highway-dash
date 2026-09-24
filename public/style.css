@@ -811,6 +811,11 @@ h1,h2,.tab,.mode-hud{font-family:var(--display)}
 .party-badge{bottom:64px}
 .show-off{top:64px}
 /* ---------- mode HUD ---------- */
+/* City Drive's minimap: heading-up, bottom right */
+.city-map{position:absolute;right:var(--s4);bottom:var(--s4);width:190px;height:190px;border-radius:50%;
+  background:rgba(8,8,10,.4);box-shadow:0 10px 30px -10px rgba(0,0,0,.8);pointer-events:none}
+.city-map[hidden]{display:none}
+@media (max-width:700px){.city-map{width:120px;height:120px;bottom:auto;top:76px;right:var(--s3)}}
 .mode-hud{position:absolute;top:92px;left:50%;transform:translateX(-50%);background:var(--glass);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--r2);
   padding:7px 16px;font:italic 700 var(--t-lg)/1 var(--display);letter-spacing:.04em;white-space:nowrap}
 /* ---------- party settings ---------- */

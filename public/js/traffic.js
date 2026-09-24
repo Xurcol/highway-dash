@@ -370,6 +370,11 @@ export class Traffic {
   laneClear(T, x, z, ahead = 45, behind = 25) {
     return !this.query(T, z - ahead - 20, z + behind + 20, [1]).some((c) => Math.abs(c.x - x) < 3.4 && c.z > z - ahead && c.z < z + behind);
   }
+  // put every car away (City Drive has its own traffic)
+  hideAll() {
+    for (const m of this.active.values()) this.release(m);
+    this.active.clear(); this.cars.length = 0; this.bumped.clear();
+  }
   release(m) { m.visible = false; m.rotation.z = 0; const p = this.pool.get(m.userData.body) || []; p.push(m); this.pool.set(m.userData.body, p); }
   acquire(model, color) {
     const p = this.pool.get(model);

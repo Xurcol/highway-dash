@@ -470,6 +470,11 @@ export class World {
     this.lightPool = [];
   }
 
+  // City Drive hides the whole highway world while it runs
+  setVisible(on) {
+    this.road.visible = this.ground.visible = on;
+    for (const b of this.batchList) b.mesh.visible = on;
+  }
   rebuild(k0) {
     const B = this.b;
     this.batchList.forEach((b) => b.begin());

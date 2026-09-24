@@ -37,7 +37,9 @@ export function pushState(peer, m) {
 // Remote car state at round time T. Between updates: cubic Hermite on position using the reported
 // velocities (no corners at each packet). Past the newest update: dead-reckon forward so the car is
 // drawn where it is now, not where it was ~150 ms ago.
-const LERP_FIELDS = ["ry", "v", "vx", "rpm", "thr", "roll", "pitch", "y"];
+// vz is the car's own z velocity. Highway packets without it (older clients) mean "straight up the
+// road at v", which is what -v stands in for below.
+const LERP_FIELDS = ["ry", "v", "vx", "vz", "rpm", "thr", "roll", "pitch", "y"];
 // `out` is a caller-owned object that gets reused every frame. Sampling used to spread a fresh
 // ~24-field object (twice, counting RemoteView) per peer per frame; at 60 fps with a full party that
 // was thousands of short-lived objects a second, and the GC pauses they caused were the visible
@@ -57,7 +59,7 @@ export function sampleState(peer, T, out = {}) {
     const h0 = 2 * k3 - 3 * k2 + 1, h1 = (k3 - 2 * k2 + k) * span, h2 = -2 * k3 + 3 * k2, h3 = (k3 - k2) * span;
     Object.assign(out, c);
     const hard = a.cr || c.cr;   // a crashed car is tumbling, not driving: don't fit a velocity curve
-    out.z = hard ? a.z + (c.z - a.z) * k : h0 * a.z + h1 * -a.v + h2 * c.z + h3 * -c.v;
+    out.z = hard ? a.z + (c.z - a.z) * k : h0 * a.z + h1 * (a.vz ?? -a.v) + h2 * c.z + h3 * (c.vz ?? -c.v);
     out.x = hard ? a.x + (c.x - a.x) * k : h0 * a.x + h1 * (a.vx || 0) + h2 * c.x + h3 * (c.vx || 0);
     for (const f of LERP_FIELDS) if (typeof a[f] === "number" && typeof c[f] === "number") out[f] = a[f] + (c[f] - a[f]) * k;
     return out;
@@ -65,7 +67,7 @@ export function sampleState(peer, T, out = {}) {
   const dt = Math.min(NET.extrapolate, T - a.T);
   Object.assign(out, a);
   if (!a.cr) {
-    out.z = a.z - a.v * dt;
+    out.z = a.z + (a.vz ?? -a.v) * dt;
     out.x = a.x + (a.vx || 0) * dt * Math.max(0, 1 - dt * 1.5);
   }
   out.stale = T - a.T;
@@ -100,7 +102,7 @@ export class RemoteView {
     // velocity says it should, the error stays where it is, so there is no steady-state lag; when a
     // late packet contradicts a dead-reckoned guess, that unexplained jump is absorbed and decays.
     const excessX = (s.x - this.disp.x) - (s.vx || 0) * dt;
-    const excessZ = (s.z - this.disp.z) + (s.v || 0) * dt;
+    const excessZ = (s.z - this.disp.z) - (s.vz ?? -(s.v || 0)) * dt;
     this.disp.x = s.x; this.disp.z = s.z;
     if (Math.abs(excessZ) > NET.snap || Math.abs(excessX) > 12) this.ex = this.ez = 0; // respawn / new round
     else {

@@ -113,7 +113,7 @@ function joinRoom(ws, r) {
   notifyFriends(ws.user);
 }
 const LEVELS = ["Chill", "Normal", "Heavy", "Insane"];
-const ROOM_MODES = ["crash", "target", "timed", "free"];
+const ROOM_MODES = ["crash", "target", "timed", "free", "city"];
 const cleanText = (s, n) => String(s ?? "").replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
 const clampNum = (v, lo, hi, d = 0) => { v = +v; return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
 // ---- party rounds: everyone starts together on the same seed; the first crash ends the round for all ----

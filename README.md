@@ -33,6 +33,12 @@ Then open http://localhost:3000.
 | L | Leaderboard |
 | Enter | Chat (online) |
 | Tab | Player list (online) |
+| Shift | Handbrake (City Drive) |
+| S at a standstill | Reverse (City Drive); W drives on again |
+
+## City Drive
+
+A free-roam 3D mode (solo, or as a server mode): a downtown grid with signalised junctions, sidewalks, towers that get taller towards the middle, and traffic that obeys the lights, queues, zip-merges and honks at you if you sit in its way. An elevated six-lane ring expressway runs round downtown, with a diamond interchange on every side, so you can take an on-ramp, merge, and leave again by any exit. Engine sound echoes off the buildings, and booms under the ring. A heading-up minimap sits bottom right. The city's traffic runs on each player's own machine; players see each other.
 
 ## Cars, sound & tuning
 
@@ -47,7 +53,7 @@ Open **MULTIPLAYER**. There is no sign-up: your name and driver code are kept in
 - **Public servers** lists every public server that is live right now, with its mode, traffic, player count and the relay ping. Press JOIN; nobody has to invite you.
 - **Create server** makes a public or private (code-only) server: name, max players (2-8), game mode, traffic, and optionally a fixed time of day and weather.
 - **Private & friends** keeps the original party code, friend list, invites and Quick Play.
-- **Modes:** Free Drive (no rounds, no finish, join and leave any time), Last One Standing, First To Score, Timed Battle.
+- **Modes:** Free Drive (no rounds, no finish, join and leave any time), City Drive (the same, in the 3D city), Last One Standing, First To Score, Timed Battle.
 - **In a server:** Enter opens chat, Tab lists players, G switches vehicle, Esc opens the session menu (Leave Server). Chat commands: `/players`, `/tp <player>` (also `/teleport`, `/goto`; Free Drive servers only), `/help`.
 - **Switching cars** works in every mode, on the road, without leaving the run or the server. Other players see the change immediately.
 - Traffic is deterministic from the server seed and time, so everyone sees the same cars with nothing streamed.

@@ -347,12 +347,13 @@ export class AudioManager {
   }
   setReverb(amount) { if (this.ctx) this.reverbSend.gain.setTargetAtTime(amount, this.ctx.currentTime, 0.5); }
   // city 0..1: how built-up the roadside is (world.cityAt). Open highway still has its barriers.
-  setEnv(city) {
+  // boost 0..1: City Drive's street canyons, walls of glass and stone on both sides - a harder slap.
+  setEnv(city, boost = 0) {
     if (!this.slap) return;
     const t = this.ctx.currentTime;
-    this.slapSend.gain.setTargetAtTime(.07 + city * .23, t, .4);
-    this.slap[0].delayTime.setTargetAtTime(.07 + city * .048, t, .4);    // ~12 m barrier -> ~20 m building face
-    this.slap[1].delayTime.setTargetAtTime(.078 + city * .058, t, .4);
+    this.slapSend.gain.setTargetAtTime(.07 + city * .23 + boost * .14, t, .4);
+    this.slap[0].delayTime.setTargetAtTime(.07 + city * .048 + boost * .01, t, .4);    // ~12 m barrier -> ~20 m building face
+    this.slap[1].delayTime.setTargetAtTime(.078 + city * .058 + boost * .014, t, .4);
   }
   engine(profile) { return new SmartEngine(this, profile); }
 

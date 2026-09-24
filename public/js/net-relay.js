@@ -24,7 +24,7 @@ const BROKERS = [
 ];
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_ROOM = 8, MIN_ROOM = 2;
-const ROOM_MODES = ["crash", "target", "timed", "free"];
+const ROOM_MODES = ["crash", "target", "timed", "free", "city"];
 const LISTING_TTL = 3 * 60 * 1000;      // a listing nobody has refreshed for this long is dead
 const cleanText = (s, n) => String(s ?? "").replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
 const num = (v, lo, hi, d = 0) => { v = +v; return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
