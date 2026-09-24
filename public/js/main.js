@@ -430,56 +430,73 @@ const loader = (() => {
   video.addEventListener("error", videoMissing);
   const SONG_VOL = .55;
   let songLevel = SONG_VOL;                    // where the song sits now (the account screen ducks it)
-  // ---- the clip from YouTube (website version) ----
-  // Played through YouTube's own embedded player, sized to cover the screen under the scrim. It is
-  // muted until the first click or key press (browsers allow no sound before one); after that its
-  // sound is the loading music - ducked on the sign-in screen and faded out with everything else,
-  // exactly like the song file. It jumps back to the start just before the end, so the player never
-  // shows its end screen. If YouTube can't play it here, the screen simply stays as it was.
-  const YT_ID = "cSYG5vZVkoA";
-  let yt = null, ytOk = false, ytHost = null, ytLoop = 0, ytVol = SONG_VOL, heard = false;
+  // ---- the website version: two YouTube players ----
+  // The website ships without the clip and song files, so both come from YouTube, through its own
+  // embedded players. The clip (BG_ID) covers the screen under the scrim, muted for good, and jumps
+  // back to its start just before the end so its end screen never shows. The song (SONG_ID, the
+  // official audio upload) plays in a small "now playing" card - YouTube wants a player you can see,
+  // at least 200x200 - and is the loading music: it starts from the top on the first click or key
+  // press (browsers allow no sound before one), loops, ducks on the sign-in screen and fades out with
+  // everything else, exactly like the song file does locally. If YouTube can't play one of them here,
+  // that part simply isn't there.
+  const BG_ID = "cSYG5vZVkoA", SONG_ID = "inq1xJL6YdY";
+  const ytPlayer = (slot, videoId, playerVars, events) => youtubeAPI().then((YT) => new YT.Player(slot, {
+    videoId, host: "https://www.youtube-nocookie.com", events,
+    playerVars: { controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, rel: 0, playsinline: 1, modestbranding: 1, ...playerVars },
+  }));
+  let bg = null, bgHost = null, bgLoop = 0;
   function startYouTube() {
-    if (ytHost) return;
-    ytHost = document.createElement("div"); ytHost.className = "loader-yt";
-    const slot = document.createElement("div"); ytHost.appendChild(slot);
-    video.after(ytHost);
-    youtubeAPI().then((YT) => {
-      if (!ytHost) return;
-      yt = new YT.Player(slot, {
-        videoId: YT_ID, host: "https://www.youtube-nocookie.com",
-        playerVars: { autoplay: 1, mute: 1, controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, rel: 0, playsinline: 1, modestbranding: 1 },
-        events: {
-          onReady: (e) => {
-            ytOk = true;
-            e.target.mute(); e.target.playVideo();
-            if (heard) ytSong.play().catch(() => { });
-            ytLoop = setInterval(() => { const d = yt?.getDuration?.() || 0, t = yt?.getCurrentTime?.() || 0; if (d > 1 && t > d - .35) yt.seekTo(0, true); }, 100);
-          },
-          onStateChange: (e) => { if (e.data === 0) { yt.seekTo(0, true); yt.playVideo(); } },
-          onError: () => ytSong.removeAttribute(),
-        },
-      });
-    }).catch(() => { ytHost?.remove(); ytHost = null; });
+    if (bgHost) return;
+    bgHost = document.createElement("div"); bgHost.className = "loader-yt";
+    const slot = document.createElement("div"); bgHost.appendChild(slot);
+    video.after(bgHost);
+    ytPlayer(slot, BG_ID, { autoplay: 1, mute: 1 }, {
+      onReady: (e) => {
+        bg = e.target; bg.mute(); bg.playVideo();
+        bgLoop = setInterval(() => { const d = bg?.getDuration?.() || 0, t = bg?.getCurrentTime?.() || 0; if (d > 1 && t > d - .35) bg.seekTo(0, true); }, 100);
+      },
+      onStateChange: (e) => { if (e.data === 0) { e.target.seekTo(0, true); e.target.playVideo(); } },
+      onError: stopYouTube,
+    }).catch(stopYouTube);
+  }
+  function stopYouTube() { clearInterval(bgLoop); try { bg?.destroy(); } catch { /* already gone */ } bgHost?.remove(); bgHost = null; bg = null; }
+  let tune = null, card = null, tuneVol = SONG_VOL, heard = false, started = false;
+  function startYouTubeSong() {
+    if (card) return;
+    card = document.createElement("div"); card.className = "loader-np";
+    card.innerHTML = `<div class="np-player"><div></div></div>
+      <div class="np-meta"><span class="eyebrow">Now playing</span><b>wrist</b><small>Ken Carson</small><small class="np-hint">Click anywhere for sound</small></div>`;
+    el.appendChild(card);
+    ytPlayer(card.querySelector(".np-player > div"), SONG_ID, { autoplay: 0 }, {
+      onReady: (e) => { tune = e.target; if (heard) ytSong.play().catch(() => { }); },
+      onStateChange: (e) => { if (e.data === 0) { e.target.seekTo(0, true); e.target.playVideo(); } },
+      onError: () => ytSong.removeAttribute(),
+    }).catch(() => ytSong.removeAttribute());
   }
   // stands in for the song file: the same play / pause / volume / release the loader uses on it
   const ytSong = {
     get paused() { return !heard; },
-    get volume() { return ytVol; },
-    set volume(v) { ytVol = v; if (ytOk && heard) yt.setVolume(Math.round(v * 100)); },
+    get volume() { return tuneVol; },
+    set volume(v) { tuneVol = v; if (tune && heard) tune.setVolume(Math.round(v * 100)); },
     play() {
       if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return Promise.reject(new DOMException("needs a gesture", "NotAllowedError"));
       heard = true;
-      if (ytOk) { yt.unMute(); yt.setVolume(Math.round(ytVol * 100)); yt.playVideo(); }
+      card?.classList.add("heard");
+      if (tune) {
+        tune.unMute(); tune.setVolume(Math.round(tuneVol * 100));
+        if (!started) { started = true; tune.seekTo(0, true); }
+        tune.playVideo();
+      }
       return Promise.resolve();
     },
-    pause() { if (ytOk) yt.pauseVideo(); },
-    removeAttribute() { clearInterval(ytLoop); try { yt?.destroy(); } catch { /* already gone */ } ytHost?.remove(); ytHost = null; yt = null; ytOk = false; },
+    pause() { tune?.pauseVideo(); },
+    removeAttribute() { try { tune?.destroy(); } catch { /* already gone */ } card?.remove(); card = null; tune = null; },
     load() {},
   };
-  // the local build's own song (loader-media/song.mp3); without it, the YouTube clip's sound
+  // the local build's own song (loader-media/song.mp3); without it, the song from YouTube
   let song = new Audio("loader-media/song.mp3");
   song.loop = true; song.preload = "auto"; song.volume = SONG_VOL;
-  song.addEventListener("error", () => { song = ytSong; });
+  song.addEventListener("error", () => { song = ytSong; startYouTubeSong(); });
   const startSong = () => { if (!song) return; song.volume = songLevel; song.play().then(() => { if (video.paused) video.play().catch(() => { }); }).catch(() => { }); };
   const onGesture = () => startSong();
   const gestures = ["pointerdown", "keydown", "touchstart"];
@@ -505,6 +522,7 @@ const loader = (() => {
   const unload = () => {
     if (song) { song.pause(); song.removeAttribute("src"); song.load(); song = null; }
     video.pause(); video.removeAttribute("src"); video.load(); video.remove();
+    stopYouTube();
   };
   return {
     // The account screen: the loading panel steps aside, the video keeps playing, the song drops to a
@@ -515,7 +533,7 @@ const loader = (() => {
       document.querySelector(".loader-box").classList.add("away");
       // no clip to play behind the card (the public build ships none): the screen turns see-through
       // and the real garage - the car turning on its stand - becomes the background, under a blur
-      if (video.hidden && !ytHost) el.classList.add("live");
+      if (video.hidden && !bgHost) el.classList.add("live");
       fadeSong(SONG_VOL * .2, 900);
       await signIn();
     },
