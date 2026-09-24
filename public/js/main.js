@@ -17,7 +17,6 @@ import { tunedSpec, peakHp, PARTS } from "./tuning.js";
 import { UI } from "./ui.js";
 import { dailyTrack, dailyBest, dailyFlush, dailyHooks } from "./daily.js";
 import { signIn } from "./auth.js";
-import { synthSong } from "./loadmusic.js";
 import { loadModels, makeCar, ensureModel, hasModel, MODELS, missingModels, downloadModels } from "./models.js";
 
 // ---------------- renderer / scenes ----------------
@@ -428,14 +427,10 @@ const loader = (() => {
   video.addEventListener("error", () => { video.hidden = true; });
   const SONG_VOL = .55;
   let songLevel = SONG_VOL;                    // where the song sits now (the account screen ducks it)
-  // the local build's own song (loader-media/song.mp3); where it isn't there - the public build ships
-  // without it - a synthwave loop made on the spot takes its place (loadmusic.js)
+  // the local build's own song (loader-media/song.mp3); the public build ships without it and stays quiet
   let song = new Audio("loader-media/song.mp3");
   song.loop = true; song.preload = "auto"; song.volume = SONG_VOL;
-  song.addEventListener("error", () => {
-    song = synthSong(); song.volume = songLevel;
-    if (navigator.userActivation?.hasBeenActive) startSong();
-  });
+  song.addEventListener("error", () => { song = null; });
   const startSong = () => { if (!song) return; song.volume = songLevel; song.play().then(() => { if (video.paused) video.play().catch(() => { }); }).catch(() => { }); };
   const onGesture = () => startSong();
   const gestures = ["pointerdown", "keydown", "touchstart"];
