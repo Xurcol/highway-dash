@@ -16,6 +16,7 @@ import { runReward } from "./economy.js";
 import { tunedSpec, peakHp, PARTS } from "./tuning.js";
 import { UI } from "./ui.js";
 import { dailyTrack, dailyBest, dailyFlush, dailyHooks } from "./daily.js";
+import { signIn } from "./auth.js";
 import { loadModels, makeCar, ensureModel, hasModel, MODELS, missingModels, downloadModels } from "./models.js";
 
 // ---------------- renderer / scenes ----------------
@@ -42,8 +43,8 @@ const pxScale = (hPx, cam) => hPx * .54 / Math.tan(cam.fov * Math.PI / 360);
 // a daily challenge finished mid-drive: say so, and pay (daily.js already credited it)
 dailyHooks.onComplete = (c, all) => {
   audio.coin();
-  ui.toast(`✅ Daily done: ${c.text} · +${c.reward.coins.toLocaleString()} coins`, [], "success");
-  if (all) ui.toast("🏆 All three dailies done! +1,500 bonus coins", [], "success");
+  ui.toast(`Daily done: ${c.text} · +${c.reward.coins.toLocaleString()} coins`, [], "success");
+  if (all) ui.toast("All three dailies done! +1,500 bonus coins", [], "success");
   ui.renderTop();
 };
 // Tyre smoke: a pooled, soft, lit-by-nothing particle cloud that grows and fades as it drifts back.
@@ -428,20 +429,22 @@ const loader = (() => {
   let song = new Audio("loader-media/wrist.mp3");
   song.loop = true; song.preload = "auto"; song.volume = SONG_VOL;
   song.addEventListener("error", () => { song = null; });
-  const startSong = () => { song?.play().then(() => { if (video.paused) video.play().catch(() => { }); }).catch(() => { }); };
+  let songLevel = SONG_VOL;                    // where the song sits now (the account screen ducks it)
+  const startSong = () => { if (!song) return; song.volume = songLevel; song.play().then(() => { if (video.paused) video.play().catch(() => { }); }).catch(() => { }); };
   const onGesture = () => startSong();
   const gestures = ["pointerdown", "keydown", "touchstart"];
   song.play().catch(() => gestures.forEach((ev) => addEventListener(ev, onGesture, { once: true, capture: true })));
   // A time-based fade (not requestAnimationFrame, which a background tab pauses), on an ease-out
   // curve so the tail doesn't drop off a cliff. It only touches the volume, so it is the same smooth
   // fade wherever the looping song happens to be.
-  const fadeSong = (ms) => new Promise((resolve) => {
-    if (!song || song.paused) return resolve();
+  const fadeSong = (to, ms) => new Promise((resolve) => {
+    songLevel = to;
+    if (!song || song.paused) { if (song) song.volume = to; return resolve(); }
     const v0 = song.volume, t0 = performance.now();
     const step = () => {
       const k = Math.min(1, (performance.now() - t0) / ms);
-      song.volume = v0 * Math.pow(Math.cos(k * Math.PI / 2), 1.6);
-      if (k < 1) setTimeout(step, 16); else { song.volume = 0; resolve(); }
+      song.volume = to + (v0 - to) * Math.pow(Math.cos(k * Math.PI / 2), 1.6);
+      if (k < 1) setTimeout(step, 16); else { song.volume = to; resolve(); }
     };
     step();
   });
@@ -451,6 +454,15 @@ const loader = (() => {
     video.pause(); video.removeAttribute("src"); video.load(); video.remove();
   };
   return {
+    // The account screen: the loading panel steps aside, the video keeps playing, the song drops to a
+    // fifth of its level, and this resolves once someone has signed in.
+    async signIn() {
+      this.stage("Ready", "", 1);
+      clearInterval(tipTimer);
+      document.querySelector(".loader-box").classList.add("away");
+      fadeSong(SONG_VOL * .2, 900);
+      await signIn();
+    },
     // progress 0..1, or null when there is nothing real to measure (the bar sweeps instead of lying)
     stage(text, detail = "", progress = null) {
       title.textContent = text;
@@ -471,12 +483,10 @@ const loader = (() => {
     // fades over 3 s onto the garage, which is already drawn behind it. So the music is silent before
     // the screen is gone, and there is never a black frame between the two.
     async finish() {
-      this.stage("Ready", "", 1);
-      await new Promise((r) => setTimeout(r, 220));
       clearInterval(tipTimer);
       gestures.forEach((ev) => removeEventListener(ev, onGesture, { capture: true }));
       el.classList.add("out");
-      const faded = fadeSong(2400);
+      const faded = fadeSong(0, 2400);
       setTimeout(async () => { await faded; el.hidden = true; unload(); }, 3050);
     },
   };
@@ -775,7 +785,7 @@ function finishRun() {
   state = "over";
   if (G.awarded) { G.awarded = false; return; }
   const result = awardRun();
-  if (mode === "online" && partyRound) return ui.toast(`🪙 +${result.coins.toLocaleString()} coins`); // party: results banner comes from the server
+  if (mode === "online" && partyRound) return ui.toast(`+${result.coins.toLocaleString()} coins`); // party: results banner comes from the server
   ui.showOver(result);
 }
 
@@ -812,7 +822,7 @@ function roundOver() { // someone else crashed: our run stops where we are
   state = "ended";
   audio.horn(false);
   const result = awardRun({ survivor: true });
-  ui.toast(`🪙 +${result.coins.toLocaleString()} coins`);
+  ui.toast(`+${result.coins.toLocaleString()} coins`);
 }
 net.addEventListener("room", () => {
   const r = net.room;
@@ -820,12 +830,12 @@ net.addEventListener("room", () => {
   const wait = r.epoch - net.now() - 3000;
   const go = () => { if (net.room && net.room.round === r.round && r.round !== partyRound) enterPartyRound(); };
   if (mode === "online" && state !== "home" || state === "home" && ui.onlineSelected) wait > 0 ? setTimeout(go, wait) : go();
-  else ui.toast(`🏁 Party round ${r.round} starting`, [{ label: "JOIN", run: enterPartyRound }]);
+  else ui.toast(`Party round ${r.round} starting`, [{ label: "JOIN", run: enterPartyRound }]);
 });
 net.addEventListener("roundEnd", (e) => {
   const m = e.detail;
   if (mode !== "online" || m.round !== partyRound || state === "home") return;
-  if (m.win) ui.toast(m.byId === (net.me?.id ?? net.me?.code) ? "🏆 You won the round!" : `🏆 ${m.by} won the round`);
+  if (m.win) ui.toast(m.byId === (net.me?.id ?? net.me?.code) ? "You won the round!" : `${m.by} won the round`);
   if (state === "crashed") { state = "drive"; G.thrown = null; }
   roundOver();
   lastResults = m;
@@ -848,7 +858,7 @@ function revive() {
 function cashIn(quiet) {
   const c = G.pending || 0;
   G.pending = 0;
-  if (c > 0) { earn(c); save(); if (!quiet) ui.toast(`🪙 +${c.toLocaleString()} coins banked`, [], "success"); }
+  if (c > 0) { earn(c); save(); if (!quiet) ui.toast(`+${c.toLocaleString()} coins banked`, [], "success"); }
   return c;
 }
 function goHome() {
@@ -882,9 +892,9 @@ function onKey(code) {
     case "KeyR": if (mode === "online" && partyRound) ui.toast("Party rounds restart automatically"); else if (state !== "crashed") enterReady(mode), startDriving(); break;
     case "KeyP": case "Escape": togglePause(); break;
     case "KeyC": camMode = (camMode + 1) % CAMS.length; ui.toast(CAMS[camMode], [], "info"); P.settings.cam = camMode; save(); break;
-    case "KeyT": { const names = Object.keys(TIME_PRESETS); const i = (names.findIndex((n) => Math.abs(TIME_PRESETS[n] - sky.hour) < .3) + 1) % names.length; P.settings.hour = sky.hour = TIME_PRESETS[names[i]]; save(); ui.toast(`🕒 ${names[i]}`); break; }
-    case "KeyB": { const names = Object.keys(WEATHERS); const i = (names.indexOf(sky.weatherName) + 1) % names.length; sky.setWeather(names[i]); P.settings.weather = names[i]; save(); ui.toast(`🌦 ${names[i]}`); break; }
-    case "KeyV": { const i = (SKY_STYLES.indexOf(sky.style) + 1) % SKY_STYLES.length; sky.setStyle(SKY_STYLES[i]); P.settings.sky = SKY_STYLES[i]; save(); ui.toast(`✨ ${SKY_STYLES[i]} sky`); break; }
+    case "KeyT": { const names = Object.keys(TIME_PRESETS); const i = (names.findIndex((n) => Math.abs(TIME_PRESETS[n] - sky.hour) < .3) + 1) % names.length; P.settings.hour = sky.hour = TIME_PRESETS[names[i]]; save(); ui.toast(`${names[i]}`); break; }
+    case "KeyB": { const names = Object.keys(WEATHERS); const i = (names.indexOf(sky.weatherName) + 1) % names.length; sky.setWeather(names[i]); P.settings.weather = names[i]; save(); ui.toast(`${names[i]}`); break; }
+    case "KeyV": { const i = (SKY_STYLES.indexOf(sky.style) + 1) % SKY_STYLES.length; sky.setStyle(SKY_STYLES[i]); P.settings.sky = SKY_STYLES[i]; save(); ui.toast(`${SKY_STYLES[i]} sky`); break; }
     case "Enter": if (mode === "online" && net.room) openChat(); break;
     case "KeyG": ui.openModal("vehicles"); break;
     case "Tab": if (mode === "online" && net.room) ui.togglePlayers(); break;
@@ -1134,7 +1144,7 @@ function checkTrafficSync(tq, th) {
   if (++syncBad < 3) return;                     // one stale packet across a round change is normal
   syncBad = 0;
   traffic.setSeed(net.room.seed, net.room.traffic || "Heavy", false);
-  ui.toast("🔄 Resynced traffic with the party");
+  ui.toast("Resynced traffic with the party");
 }
 net.addEventListener("peerLeft", (e) => {
   const r = remotes.get(e.detail);
@@ -1270,8 +1280,8 @@ function updateEmergency(dt, T) {
       const dist = Math.hypot(e.e.x - G.x, e.e.z - G.z);
       audio.honk?.(Math.max(-1, Math.min(1, (e.e.x - G.x) / 12)), true, Math.min(1, 18 / Math.max(6, dist)) * (e.me ? 1 : .5));
     } else if (e.type === "passed" && state === "drive" && !e.e.dead) {
-      if (e.e.blockedT < 1) { G.score += 150; ui.toast(`${d.icon} Moved over for the ${d.name.toLowerCase()} · +150`, [], "success"); }
-      else ui.toast(`${d.icon} You held up the ${d.name.toLowerCase()}`, [], "warn");
+      if (e.e.blockedT < 1) { G.score += 150; ui.toast(`Moved over for the ${d.name.toLowerCase()} · +150`, [], "success"); }
+      else ui.toast(`You held up the ${d.name.toLowerCase()}`, [], "warn");
     }
   }
   // warn once it's close enough to hear, and voice every siren
@@ -1281,7 +1291,7 @@ function updateEmergency(dt, T) {
     if (!e.announced && state === "drive" && dz > 0 && dz < 230) {
       e.announced = true;
       const d = EV_TYPES[e.kind];
-      ui.toast(`${d.icon} ${d.name} coming through behind you - move over`, [], "warn");
+      ui.toast(`${d.name} coming through behind you - move over`, [], "warn");
     }
     if (e.dead || dist > 650) continue;
     // Doppler from both speeds along the line between you (everyone drives towards -z)
@@ -1333,7 +1343,7 @@ const police = (() => {
     const lanes = [0, 1, 2, 3, 4].sort(() => Math.random() - .5);
     const lane = lanes.find((i) => traffic.laneClear(T, laneX(i), z, 40, 20)) ?? lanes[0];
     P2.cops.push({ car, l, x: laneX(lane), z, v: G.dt.v + 8, vx: 0, down: false, age: 0 });
-    if (P2.cops.length === 1) ui.toast("🚨 Police pursuit! Outrun them or get busted");
+    if (P2.cops.length === 1) ui.toast("Police pursuit! Outrun them or get busted");
   }
   function clear() { for (const c of P2.cops) { scene.remove(c.car.group); c.car.dispose(); } P2.cops.length = 0; audio.siren?.(0, 0); }
   return {
@@ -1380,12 +1390,12 @@ const police = (() => {
       }
       P2.meter = Math.max(0, P2.meter - dt * .25);
       audio.siren?.(Math.max(0, 1 - nearest / 260) * .5, 0);
-      if (P2.meter >= 1) { ui.toast(`🚔 BUSTED — bounty ${Math.floor(P2.bounty).toLocaleString()} lost`); P2.bounty = 0; clear(); endRunNow("busted"); return; }
+      if (P2.meter >= 1) { ui.toast(`BUSTED — bounty ${Math.floor(P2.bounty).toLocaleString()} lost`); P2.bounty = 0; clear(); endRunNow("busted"); return; }
       if (P2.cops.length && (allFar || P2.cops.every((c) => c.down))) {
         P2.escapeT += dt;
         if (P2.escapeT > 5) {
           const won = Math.floor(P2.bounty);
-          G.score += won / 4; ui.toast(`🟢 ESCAPED! +${won.toLocaleString()} bounty — heat ${P2.heat + 1}`);
+          G.score += won / 4; ui.toast(`ESCAPED! +${won.toLocaleString()} bounty — heat ${P2.heat + 1}`);
           clear(); P2.heat++; P2.bounty = 0; P2.escapeT = 0; P2.next = 10;
         }
       } else P2.escapeT = 0;
@@ -1780,24 +1790,24 @@ function tachFaceFor(redline) {
   g.clearRect(0, 0, TACH, TACH);
   // dark disc so the gauge reads on a bright sky or a white car
   const bg = g.createRadialGradient(T_C, T_C, T_R * .35, T_C, T_C, T_R + 22);
-  bg.addColorStop(0, "rgba(8,11,18,.82)"); bg.addColorStop(.82, "rgba(8,11,18,.72)"); bg.addColorStop(1, "rgba(8,11,18,0)");
+  bg.addColorStop(0, "rgba(10,10,11,.82)"); bg.addColorStop(.82, "rgba(10,10,11,.72)"); bg.addColorStop(1, "rgba(10,10,11,0)");
   g.fillStyle = bg; g.beginPath(); g.arc(T_C, T_C, T_R + 22, 0, Math.PI * 2); g.fill();
   g.lineCap = "round";
   // track
   g.beginPath(); g.arc(T_C, T_C, T_R, T_A0, T_A0 + T_SPAN); g.lineWidth = 10; g.strokeStyle = "rgba(255,255,255,.07)"; g.stroke();
   // red zone as a thin outer band, not a heavy block
-  g.beginPath(); g.arc(T_C, T_C, T_R + 11, T_A0 + T_SPAN * redline / maxR, T_A0 + T_SPAN); g.lineWidth = 3; g.strokeStyle = "rgba(255,59,92,.9)"; g.stroke();
+  g.beginPath(); g.arc(T_C, T_C, T_R + 11, T_A0 + T_SPAN * redline / maxR, T_A0 + T_SPAN); g.lineWidth = 3; g.strokeStyle = "rgba(255,69,58,.9)"; g.stroke();
   // ticks: long every 1000, short every 500
   for (let r = 0; r <= maxR; r += 500) {
     const a = T_A0 + T_SPAN * (r / maxR), major = r % 1000 === 0, red = r >= redline;
     const r0 = T_R - (major ? 24 : 18), r1 = T_R - 12;
     g.beginPath(); g.moveTo(T_C + Math.cos(a) * r0, T_C + Math.sin(a) * r0); g.lineTo(T_C + Math.cos(a) * r1, T_C + Math.sin(a) * r1);
-    g.lineWidth = major ? 3 : 1.5; g.strokeStyle = red ? "rgba(255,59,92,.85)" : major ? "rgba(255,255,255,.55)" : "rgba(255,255,255,.22)"; g.stroke();
+    g.lineWidth = major ? 3 : 1.5; g.strokeStyle = red ? "rgba(255,69,58,.85)" : major ? "rgba(255,255,255,.55)" : "rgba(255,255,255,.22)"; g.stroke();
   }
   g.font = "700 20px 'Barlow Condensed', sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
   for (let k = 0; k <= maxR / 1000; k++) {
     const a = T_A0 + T_SPAN * (k * 1000 / maxR), rr = T_R - 38;
-    g.fillStyle = k * 1000 >= redline ? "#ff6b85" : "rgba(255,255,255,.7)";
+    g.fillStyle = k * 1000 >= redline ? "#ff6b62" : "rgba(255,255,255,.7)";
     g.fillText(k, T_C + Math.cos(a) * rr, T_C + Math.sin(a) * rr);
   }
   return { face: tachFace, maxR };
@@ -1810,16 +1820,16 @@ function drawTach(rpm, redline, manual) {
   const shift = rpm > redline * .9;                 // shift light: the arc warms up, then flashes in manual
   const flash = shift && manual && Math.floor(performance.now() / 80) % 2 === 0;
   const grad = g.createConicGradient(T_A0, T_C, T_C);
-  grad.addColorStop(0, "#3ee0ff"); grad.addColorStop(.55, "#8b7bff"); grad.addColorStop(.75, "#ff3b5c"); grad.addColorStop(1, "#ff3b5c");
+  grad.addColorStop(0, "#f4f4f0"); grad.addColorStop(.55, "#ffd60a"); grad.addColorStop(.78, "#ff453a"); grad.addColorStop(1, "#ff453a");
   g.lineCap = "round";
   g.save();
-  if (shift) { g.shadowColor = "rgba(255,59,92,.8)"; g.shadowBlur = 18; }
+  if (shift) { g.shadowColor = "rgba(255,69,58,.8)"; g.shadowBlur = 18; }
   g.beginPath(); g.arc(T_C, T_C, T_R, T_A0, Math.max(T_A0 + .001, end)); g.lineWidth = 10;
   g.strokeStyle = flash ? "#ffffff" : grad; g.stroke();
   g.restore();
   // bright tip where the fill ends
   g.beginPath(); g.arc(T_C + Math.cos(end) * T_R, T_C + Math.sin(end) * T_R, 6.5, 0, Math.PI * 2);
-  g.fillStyle = shift ? "#fff" : "#e8fbff"; g.fill();
+  g.fillStyle = shift ? "#fff" : "#f4f4f0"; g.fill();
 }
 let hudCache = {};
 function setText(el, v) { if (hudCache[el.id] !== v) { hudCache[el.id] = v; el.textContent = v; } }
@@ -1906,7 +1916,7 @@ function frame(now) {
   updateEmergency(simDt, T);
 
   if (state === "ready" && mode === "online" && partyRound) {
-    const recap = lastResults && lastResults.round === partyRound - 1 ? `${lastResults.win ? "🏆 " + lastResults.by + " wins" : "💥 " + lastResults.by + " crashed"} — ${lastResults.scores.map((p) => `${p.name} ${p.score.toLocaleString()}`).join(" · ")}` : net.room ? net.room.players.map((p) => p.name).join(" · ") : "";
+    const recap = lastResults && lastResults.round === partyRound - 1 ? `${lastResults.win ? "" + lastResults.by + " wins" : "" + lastResults.by + " crashed"} — ${lastResults.scores.map((p) => `${p.name} ${p.score.toLocaleString()}`).join(" · ")}` : net.room ? net.room.players.map((p) => p.name).join(" · ") : "";
     ui.setReady(`ROUND ${partyRound} · ${PARTY_MODES[partyMode()] || ""}${partyMode() === "target" ? " " + (net.room.target || 10000).toLocaleString() : ""}`, recap, T < 0 ? String(Math.ceil(-T)) : "GO!");
     if (T >= 0) startDriving();
   }
@@ -2213,8 +2223,8 @@ net.addEventListener("wallet", (e) => {
 net.addEventListener("chat", (e) => ui.chat(e.detail.name, e.detail.text));
 net.addEventListener("event", (e) => {
   const m = e.detail;
-  if (m.kind === "crash") ui.toast(`💥 ${m.name} crashed at ${m.v.toLocaleString()}`);
-  if (m.kind === "combo") ui.toast(`🔥 ${m.name} is on a x${m.v} close-call streak`);
+  if (m.kind === "crash") ui.toast(`${m.name} crashed at ${m.v.toLocaleString()}`);
+  if (m.kind === "combo") ui.toast(`${m.name} is on a x${m.v} close-call streak`);
   if (m.kind === "bump" && m.d) {
     const [key, vx, vr, tt] = String(m.d).split("|");
     traffic.bumpRemote(key, m.v, { vx: +vx || 0, vr: +vr || 0 }, Math.max(0, getT() - (+tt || 0)));
@@ -2236,8 +2246,16 @@ setShowCar(P.equipped);
 ui.thumbs = { ...ui.thumbs, ...thumbCache.all() };
 ui.show("home");
 ui.renderHome();
-net.connect(P.name, P.equipped);
 requestAnimationFrame(frame);
+// Sign in over the loading video. The account may bring a different save - its own garage, car and
+// settings - so everything built from the save is refreshed before the screen fades away.
+await loader.signIn();
+applySettings();
+await ensureModel(P.equipped);
+setShowCar(P.equipped);
+ui.view = P.equipped;
+ui.renderHome();
+net.connect(P.name, P.equipped);
 await loader.finish();
 
 window.__ui = ui;

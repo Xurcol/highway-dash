@@ -6,14 +6,14 @@ import { normalizeTune, defaultTune, audioConfig, PARTS } from "./tuning.js";
 import { carPrice, partPrice, TUNING_PRICES, COSMETIC_PRICES, stylePrice, FITMENT_KEYS } from "./economy.js";
 
 export const MEDALS = [
-  { at: 500, name: "Bronze", icon: "🥉", color: "#c47a3a" },
-  { at: 1200, name: "Silver", icon: "🥈", color: "#aab4c0" },
-  { at: 2500, name: "Gold", icon: "🥇", color: "#e8b830" },
-  { at: 4800, name: "Pearl", icon: "💠", color: "#d9d2f0" },
-  { at: 8500, name: "Sapphire", icon: "🔷", color: "#2f8bff" },
-  { at: 14000, name: "Emerald", icon: "💚", color: "#1fbf6a" },
-  { at: 22500, name: "Ruby", icon: "❤️‍🔥", color: "#e0283a" },
-  { at: 35000, name: "Diamond", icon: "💎", color: "#7fe8ff" },
+  { at: 500, name: "Bronze", color: "#c47a3a" },
+  { at: 1200, name: "Silver", color: "#aab4c0" },
+  { at: 2500, name: "Gold", color: "#e8b830" },
+  { at: 4800, name: "Pearl", color: "#d9d2f0" },
+  { at: 8500, name: "Sapphire", color: "#2f8bff" },
+  { at: 14000, name: "Emerald", color: "#1fbf6a" },
+  { at: 22500, name: "Ruby", color: "#e0283a" },
+  { at: 35000, name: "Diamond", color: "#7fe8ff" },
 ];
 export const HEART_PACKS = [
   { n: 1, price: 600 }, { n: 5, price: 2600 }, { n: 15, price: 7000 }, { n: 50, price: 20000 },
@@ -44,17 +44,85 @@ function loadProfile() {
 }
 
 export const P = loadProfile();
-P.settings = { ...DEFAULTS.settings, ...(P.settings || {}) };
-// removed cars drop out of the garage; the free starters are always owned
-if (!Array.isArray(P.owned)) P.owned = [];
-P.owned = [...new Set([...P.owned.filter((id) => CARS.some((c) => c.id === id)), "b330i", "a4", "c43"])];
-if (!CARS.some((c) => c.id === P.equipped)) P.equipped = "b330i";
-if (!P.name) P.name = "Driver" + Math.floor(1000 + Math.random() * 9000);
-delete P.sounds; // engine sounds are locked to the car now
+function normalizeProfile() {
+  P.settings = { ...DEFAULTS.settings, ...(P.settings || {}) };
+  // removed cars drop out of the garage; the free starters are always owned
+  if (!Array.isArray(P.owned)) P.owned = [];
+  P.owned = [...new Set([...P.owned.filter((id) => CARS.some((c) => c.id === id)), "b330i", "a4", "c43"])];
+  if (!CARS.some((c) => c.id === P.equipped)) P.equipped = "b330i";
+  if (!P.name) P.name = "Driver" + Math.floor(1000 + Math.random() * 9000);
+  delete P.sounds; // engine sounds are locked to the car now
+}
+normalizeProfile();
+
+// ---------------- accounts ----------------
+// An account is a username and a salted PBKDF2 hash of its password, with its own save
+// (hd_save:<id>). They live in this browser: the public site has no server, so this keeps several
+// people's progress apart on one computer - the same username on another device is another account.
+// P always holds the signed-in account's save; switching accounts swaps its contents in place, so
+// every module holding P sees the new one.
+const ACCTS = "hd_accounts", ACTIVE = "hd_active", KEEP = "hd_keep";
+export const NAME_RULE = /^[A-Za-z0-9_.-]{3,16}$/;
+const accounts = () => store.get(ACCTS, {}) || {};
+const idOf = (name) => String(name || "").trim().toLowerCase();
+const hex = (u8) => [...u8].map((b) => b.toString(16).padStart(2, "0")).join("");
+const unhex = (s) => new Uint8Array((s.match(/../g) || []).map((h) => parseInt(h, 16)));
+async function hashPass(pass, salt) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveBits"]);
+  return hex(new Uint8Array(await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: 150000 }, key, 256)));
+}
+export const hasAccounts = () => Object.keys(accounts()).length > 0;
+export function currentAccount() { const id = store.get(ACTIVE, null), a = id && accounts()[id]; return a ? { id, name: a.name } : null; }
+// signed in and asked to stay that way: the start screen offers a one-click continue
+export const keptAccount = () => (store.get(KEEP, false) ? currentAccount() : null);
+export const lastUsername = () => currentAccount()?.name || "";
+// Load an account's save into P (a fresh one when it has none) and make it the active account.
+function useSave(id, name, data) {
+  const cur = store.get(ACTIVE, null);
+  if (cur && cur !== id) store.set("hd_save:" + cur, P);      // the save on screen goes back to its owner
+  const next = structuredClone(data || DEFAULTS);
+  for (const k of Object.keys(P)) delete P[k];
+  Object.assign(P, structuredClone(DEFAULTS), next);
+  normalizeProfile();
+  P.name = name;                                              // the username is the driver's name
+  store.set(ACTIVE, id);
+  save();
+}
+export async function register(name, pass, keep) {
+  name = String(name || "").trim();
+  if (!NAME_RULE.test(name)) throw new Error("Username: 3 to 16 letters, numbers, _ . or -");
+  if (String(pass || "").length < 6) throw new Error("Password: at least 6 characters");
+  const all = accounts(), id = idOf(name);
+  if (all[id]) throw new Error("That username is already taken on this device");
+  const salt = crypto.getRandomValues(new Uint8Array(16)), first = !Object.keys(all).length;
+  all[id] = { name, salt: hex(salt), hash: await hashPass(pass, salt), created: Date.now() };
+  store.set(ACCTS, all);
+  // the first account made on a device keeps the progress already here; later ones start fresh
+  useSave(id, name, first ? { ...P } : null);
+  store.set(KEEP, !!keep);
+  return name;
+}
+export async function login(name, pass, keep) {
+  const id = idOf(name), a = accounts()[id];
+  if (!a || !pass || (await hashPass(pass, unhex(a.salt))) !== a.hash) throw new Error("Wrong username or password");
+  useSave(id, a.name, store.get("hd_save:" + id, null));
+  store.set(KEEP, !!keep);
+  return a.name;
+}
+// the kept account, straight back in
+export function resume() {
+  const a = keptAccount();
+  if (!a) return null;
+  useSave(a.id, a.name, store.get("hd_save:" + a.id, null) || { ...P });
+  return a.name;
+}
+export function signOut() { save(); store.set(KEEP, false); store.set(ACTIVE, null); }
 
 export function save() {
   P.sv = Date.now();
   store.set("hd_profile", P);
+  const acct = store.get(ACTIVE, null);
+  if (acct) store.set("hd_save:" + acct, P);
   try {
     cookie.set(COOKIE, JSON.stringify({ name: P.name, coins: P.coins, hearts: P.hearts, owned: P.owned, equipped: P.equipped, best: P.best, level: P.level, xp: P.xp, medals: P.medals, sv: P.sv }));
   } catch { /* cookie disabled */ }

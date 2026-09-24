@@ -31,9 +31,9 @@ const ONE = [0], TWO = [-1, 1];
 const CORRIDOR_X = laneX(0) + LW / 2;
 const YIELD_X = [-1.15, 1.1, .7, .35, .1];
 export const EV_TYPES = {
-  police: { model: "cop", body: "sedan", color: 0x121418, name: "Police", icon: "🚓" },
-  ambulance: { model: "amb", body: "van", color: 0xf2f2f2, name: "Ambulance", icon: "🚑" },
-  fire: { model: "fire", body: "truck", color: 0xb81c1c, name: "Fire engine", icon: "🚒" },
+  police: { model: "cop", body: "sedan", color: 0x121418, name: "Police" },
+  ambulance: { model: "amb", body: "van", color: 0xf2f2f2, name: "Ambulance" },
+  fire: { model: "fire", body: "truck", color: 0xb81c1c, name: "Fire engine" },
 };
 // where each model's light bar sits along the roof (z, metres, + = rearward) and its two colours
 const BARS = { cop: { z: .35, a: [3, .06, .08], b: [.06, .12, 3] }, amb: { z: -.5, a: [3, .06, .08], b: [2.4, 2.4, 2.4] }, fire: { z: -2.2, a: [3, .06, .06], b: [3, .25, .05] } };

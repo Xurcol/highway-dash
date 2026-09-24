@@ -1,7 +1,8 @@
 // DOM side: garage, HUD helpers, game-over popup, leaderboards, online + settings panels.
 import { CARS, RARITY_COLORS, specOf, carStats } from "./cars.js";
 import { P, save, carById, carColor, carSound, carTune, setTune, resetTune, PAINTS, MEDALS, HEART_PACKS, xpForLevel, medalCount,
-  ownsPart, ownsEcu, buyPart, buyEcu, payTuneSession, payPaint, spend, earn, priceOfCar, walletHooks, carStyle, ownsStyle, styleCost, saveStyle } from "./profile.js";
+  ownsPart, ownsEcu, buyPart, buyEcu, payTuneSession, payPaint, spend, earn, priceOfCar, walletHooks, carStyle, ownsStyle, styleCost, saveStyle,
+  currentAccount, signOut } from "./profile.js";
 import { FINISHES, TINTS, STANCES, FITMENT } from "./cars.js";
 import { stylePrice, STYLE_PRICES } from "./economy.js";
 import { SOUND_LABELS } from "./engine-dsp.js";
@@ -17,6 +18,10 @@ import { todaysDaily, dailyBonusDone, msToDailyReset, DAILY_TIERS, DAILY_BONUS }
 const $ = (id) => document.getElementById(id);
 const MPH = 0.621371; // the game shows mph only
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+// the coin and the icon set (index.html's sprite), for markup built here
+const COIN = '<i class="coin" aria-hidden="true"></i>';
+const icon = (id, cls = "") => `<svg class="ic${cls ? " " + cls : ""}" aria-hidden="true"><use href="#i-${id}"/></svg>`;
+const ROMAN = ["I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
 const fmtK = (n) => (n >= 1000 ? (n / 1000).toFixed(n % 1000 ? 1 : 0).replace(/\.0$/, "") + "K" : String(n));
 
 // one line of plain English per solo mode, shown under the picker
@@ -138,7 +143,7 @@ export class UI {
     clearInterval(this.roundTimer);
     let left = seconds;
     const render = () => {
-      el.innerHTML = `<h2>💥 ${esc(m.by)} crashed!</h2><ol>${m.scores.map((p, i) => `<li class="${p.id === myId ? "me" : ""} ${p.id === m.byId ? "crashed" : ""}"><span>${i + 1}. ${esc(p.name)}</span><span>${p.score.toLocaleString()}</span></li>`).join("")}</ol><div class="next">Next round in ${Math.max(0, left)}s</div>`;
+      el.innerHTML = `<h2>${esc(m.by)} crashed</h2><ol>${m.scores.map((p, i) => `<li class="${p.id === myId ? "me" : ""} ${p.id === m.byId ? "crashed" : ""}"><span>${i + 1}. ${esc(p.name)}</span><span>${p.score.toLocaleString()}</span></li>`).join("")}</ol><div class="next">Next round in ${Math.max(0, left)}s</div>`;
     };
     render();
     el.hidden = false;
@@ -464,14 +469,14 @@ export class UI {
     $("dailyList").innerHTML = list.map((c) => {
       const f = (v) => (c.dec ? v.toFixed(c.dec) : Math.floor(v).toLocaleString()), pct = Math.min(100, (c.prog / c.target) * 100);
       return `<div class="dc t${c.tier}${c.done ? " done" : ""}">
-        <div class="dc-top"><span class="dc-tier">${DAILY_TIERS[c.tier]}</span><span class="dc-rew">🪙 ${c.reward.coins.toLocaleString()} · ${c.reward.xp} XP</span></div>
+        <div class="dc-top"><span class="dc-tier">${DAILY_TIERS[c.tier]}</span><span class="dc-rew">${COIN}${c.reward.coins.toLocaleString()} · ${c.reward.xp} XP</span></div>
         <b class="dc-text">${esc(c.text)}</b>
         <div class="dc-bar"><i style="width:${pct}%"></i></div>
         <small>${c.done ? "✓ Done — paid" : `${f(c.prog)} / ${f(c.target)}`}</small></div>`;
     }).join("");
     const n = list.filter((c) => c.done).length;
     $("dailyBonus").className = "daily-bonus" + (dailyBonusDone() ? " done" : "");
-    $("dailyBonus").innerHTML = `<div><b>Finish all three</b><small>${dailyBonusDone() ? "Bonus paid — see you tomorrow" : `${n} of 3 done`}</small></div><span>🪙 ${DAILY_BONUS.coins.toLocaleString()} · ${DAILY_BONUS.xp} XP</span>`;
+    $("dailyBonus").innerHTML = `<div><b>Finish all three</b><small>${dailyBonusDone() ? "Bonus paid — see you tomorrow" : `${n} of 3 done`}</small></div><span>${COIN}${DAILY_BONUS.coins.toLocaleString()} · ${DAILY_BONUS.xp} XP</span>`;
   }
   renderHome() {
     this.renderTop();
@@ -494,7 +499,7 @@ export class UI {
     const a = $("ciAction");
     if (P.equipped === car.id) { a.textContent = "EQUIPPED"; a.className = "btn gray wide"; }
     else if (P.owned.includes(car.id)) { a.textContent = "EQUIP"; a.className = "btn blue wide"; }
-    else { const pr = priceOfCar(car.id), can = P.coins >= pr; a.textContent = can ? `BUY — 🪙 ${fmtCoins(pr)}` : `NEED 🪙 ${fmtCoins(pr - P.coins)} MORE`; a.className = `btn ${can ? "accent" : "ghost"} wide`; a.disabled = !can; }
+    else { const pr = priceOfCar(car.id), can = P.coins >= pr; a.innerHTML = can ? `BUY · ${COIN}${fmtCoins(pr)}` : `NEED ${COIN}${fmtCoins(pr - P.coins)} MORE`; a.className = `btn ${can ? "accent" : "ghost"} wide`; a.disabled = !can; }
 
     const owned = CARS.filter((c) => P.owned.includes(c.id));
     $("fAll").textContent = CARS.length; $("fOwned").textContent = owned.length; $("fLocked").textContent = CARS.length - owned.length;
@@ -507,7 +512,7 @@ export class UI {
       d.className = "card" + (c.id === this.view ? " sel" : "");
       const own = P.owned.includes(c.id);
       const price = priceOfCar(c.id);
-      const label = c.id === P.equipped ? "EQUIPPED" : own ? "OWNED" : `🪙 ${fmtCoins(price)}`;
+      const label = c.id === P.equipped ? "EQUIPPED" : own ? "OWNED" : `${COIN}${fmtCoins(price)}`;
       d.style.setProperty("--rar", RARITY_COLORS[c.rarity]); // the card's edge, bar and glow all follow it
       d.innerHTML = `<div class="r" style="color:var(--rar)">${c.rarity}</div><img src="${this.thumbs[c.id] || ""}" alt=""><div class="n">${esc(c.name)}</div>
         <div class="p ${c.id === P.equipped ? "eq" : own ? "own" : P.coins < price ? "poor" : ""}">${label}</div>`;
@@ -518,7 +523,7 @@ export class UI {
     $("onlineDot").classList.toggle("on", this.net.connected);
     const pb = $("partyBadge");
     pb.hidden = !this.net.room;
-    if (this.net.room) pb.textContent = `🟢 Party ${this.net.room.code} · ${this.net.room.players.length} driver${this.net.room.players.length > 1 ? "s" : ""}`;
+    if (this.net.room) pb.textContent = `Party ${this.net.room.code} · ${this.net.room.players.length} driver${this.net.room.players.length > 1 ? "s" : ""}`;
     $("playBtn").textContent = this.onlineSelected ? (this.net.room ? "PLAY ONLINE" : "FIND PARTY") : "PLAY";
     const ms = $("modeSelect");
     if (this.onlineSelected) ms.innerHTML = this.net.room ? `<span class="ms-label">PARTY MODE</span><b>${this.ctx.PARTY_MODES[this.net.room.mode || "crash"]}</b>` : "";
@@ -699,12 +704,12 @@ export class UI {
     const got = medalCount(P.best);
     $("medals").innerHTML = MEDALS.map((m, i) => {
       const has = i < got, isNew = has && i >= got - r.newMedals;
-      return `<div class="medal ${has ? "got" : ""} ${isNew ? "new" : ""}"><i style="${has ? `background:${m.color};border-color:#fff8` : ""}">${has ? m.icon : "?"}</i><span style="${has ? `color:${m.color}` : ""}">${fmtK(m.at)}</span></div>`;
+      return `<div class="medal ${has ? "got" : ""} ${isNew ? "new" : ""}"><i style="${has ? `background:${m.color};border-color:${m.color}` : ""}">${ROMAN[i]}</i><span style="${has ? `color:${m.color}` : ""}">${fmtK(m.at)}</span></div>`;
     }).join("");
     const next = MEDALS[got];
     $("medalNext").textContent = next ? `NEXT ${next.name.toUpperCase()} — ${fmtK(next.at)}` : "ALL MEDALS EARNED!";
-    if (r.newMedals) this.toast(`🏅 New medal: ${MEDALS[got - 1].name}!`);
-    if (r.levelUps) this.toast(`⭐ Level up! You're level ${P.level}`);
+    if (r.newMedals) this.toast(`New medal: ${MEDALS[got - 1].name}!`);
+    if (r.levelUps) this.toast(`Level up! You're level ${P.level}`);
     this.renderReviveBtn(r.revives);
     this.renderOverShop();
     this.renderLevel();
@@ -715,7 +720,7 @@ export class UI {
     const b = $("reviveBtn");
     const left = 3 - revives;
     b.disabled = left <= 0 || P.hearts <= 0;
-    b.textContent = left <= 0 ? "NO REVIVES LEFT" : P.hearts <= 0 ? "GET REVIVES →" : `REVIVE ${revives}/3 — 1 ❤️`;
+    b.innerHTML = left <= 0 ? "NO REVIVES LEFT" : P.hearts <= 0 ? "GET REVIVES" : `REVIVE ${revives}/3 · 1 ${icon("heart")}`;
     $("goHearts").textContent = P.hearts;
   }
   renderLevel() {
@@ -733,7 +738,7 @@ export class UI {
       const d = document.createElement("div");
       d.className = "shop-item";
       d.innerHTML = `<div class="chipsrow"><span>SPD ${st.speed}</span><span>ACC ${st.accel}</span><span>HAN ${st.handling}</span></div>
-        <img src="${this.thumbs[c.id] || ""}" alt=""><button class="btn ${eq ? "ghost" : own ? "primary" : "accent"}">${eq ? "EQUIPPED" : own ? "EQUIP" : "🪙 " + fmtCoins(priceOfCar(c.id))}</button>`;
+        <img src="${this.thumbs[c.id] || ""}" alt=""><button class="btn ${eq ? "ghost" : own ? "primary" : "accent"}">${eq ? "EQUIPPED" : own ? "EQUIP" : COIN + fmtCoins(priceOfCar(c.id))}</button>`;
       d.querySelector("button").onclick = () => this.buyOrEquip(c.id, () => { this.renderOverShop(); this.toast(`${c.name} equipped — restart to drive it`); });
       shop.appendChild(d);
     }
@@ -742,7 +747,7 @@ export class UI {
     for (const pack of HEART_PACKS) {
       const b = document.createElement("button");
       b.className = "btn red";
-      b.innerHTML = `${pack.n} REVIVE${pack.n > 1 ? "S" : ""}<small>🪙 ${pack.price.toLocaleString()}</small>`;
+      b.innerHTML = `${pack.n} REVIVE${pack.n > 1 ? "S" : ""}<small>${COIN}${pack.price.toLocaleString()}</small>`;
       b.disabled = P.coins < pack.price;
       b.onclick = () => {
         if (P.coins < pack.price) return;
@@ -763,8 +768,8 @@ export class UI {
     const data = this.board;
     const tab = this.boardTab;
     const rows = !data ? [{ name: P.name, best: P.best, level: P.level, me: true }] : tab === "top" ? data.top : data.friends;
-    const medal = (i) => (i === 0 ? "🥇" : i === 1 ? "🥈" : i === 2 ? "🥉" : "#" + (i + 1));
-    el.innerHTML = `<div class="board-head">🏆 ${tab === "top" ? "TOP 200" : "FRIENDS"}</div>
+    const medal = (i) => String(i + 1);
+    el.innerHTML = `<div class="board-head">${icon("trophy")}${tab === "top" ? "TOP 200" : "FRIENDS"}</div>
       <div class="board-rows">${rows.length ? rows.map((r, i) => `<div class="brow ${r.me ? "me" : ""} ${i < 3 ? "r" + (i + 1) : ""}">
         <div class="star lv"><b>${r.level || 1}</b></div><div class="nm">${esc(r.name)}</div><div class="sc">${(r.best || 0).toLocaleString()}</div><div class="rk">${medal(i)}</div></div>`).join("")
         : `<div class="board-empty">No scores yet — go set one!</div>`}</div>
@@ -897,7 +902,7 @@ export class UI {
     for (const r of n.incoming) {
       const d = document.createElement("div");
       d.className = "friend";
-      d.innerHTML = `<div class="nm">📨 ${esc(r.name)}<small>wants to be friends</small></div><button class="btn green">ACCEPT</button><button class="btn red">✕</button>`;
+      d.innerHTML = `<div class="nm">${esc(r.name)}<small>wants to be friends</small></div><button class="btn green">ACCEPT</button><button class="btn red">✕</button>`;
       const [acc, dec] = d.querySelectorAll("button");
       acc.onclick = () => n.send({ t: "friendAccept", id: r.id });
       dec.onclick = () => n.send({ t: "friendDecline", id: r.id });
@@ -983,11 +988,11 @@ export class UI {
     n.addEventListener("toast", (e) => this.toast(e.detail.msg));
     n.addEventListener("friendRequest", (e) => {
       const r = e.detail;
-      this.toast(`👋 ${r.name} sent you a friend request`, [{ label: "ACCEPT", run: () => n.send({ t: "friendAccept", id: r.id }) }, { label: "✕", cls: "gray", run: () => n.send({ t: "friendDecline", id: r.id }) }]);
+      this.toast(`${r.name} sent you a friend request`, [{ label: "ACCEPT", run: () => n.send({ t: "friendAccept", id: r.id }) }, { label: "✕", cls: "gray", run: () => n.send({ t: "friendDecline", id: r.id }) }]);
     });
     n.addEventListener("invite", (e) => {
       const m = e.detail;
-      this.toast(`🎮 ${m.from} invited you to their party`, [{ label: "JOIN", run: () => n.send({ t: "roomJoin", code: m.room }) }, { label: "✕", cls: "gray", run: () => {} }]);
+      this.toast(`${m.from} invited you to their party`, [{ label: "JOIN", run: () => n.send({ t: "roomJoin", code: m.room }) }, { label: "✕", cls: "gray", run: () => {} }]);
     });
     n.addEventListener("leaderboard", (e) => {
       this.board = e.detail;
@@ -1186,7 +1191,7 @@ export class UI {
     if (!hasEcu) {
       const can = P.coins >= TUNING_PRICES.ecu;
       gate.innerHTML = `<div class="gate-body">${WS_ICONS.ecu}<div><b>ECU access locked</b><p>Boost, timing, fuel, rev limit and gearing need a flashed ECU on this car.</p></div>
-        <button class="btn ${can ? "accent" : "ghost"}" id="ecuBuy" ${can ? "" : "disabled"}>${can ? `UNLOCK · 🪙 ${fmtCoins(TUNING_PRICES.ecu)}` : `NEED ${fmtCoins(TUNING_PRICES.ecu - P.coins)} MORE`}</button></div>`;
+        <button class="btn ${can ? "accent" : "ghost"}" id="ecuBuy" ${can ? "" : "disabled"}>${can ? `UNLOCK · ${COIN}${fmtCoins(TUNING_PRICES.ecu)}` : `NEED ${fmtCoins(TUNING_PRICES.ecu - P.coins)} MORE`}</button></div>`;
       $("ecuBuy").onclick = () => this.buyEcuUI();
     }
     // one-click stage maps, computed from this car's parts and fuel (still a paid dyno session to apply)
@@ -1230,7 +1235,7 @@ export class UI {
     const canPay = P.coins >= TUNING_PRICES.session;
     bar.innerHTML = `<div><b>${n} unsaved change${n > 1 ? "s" : ""}</b><small>Flashing is a dyno session · ${fmtCoins(TUNING_PRICES.session)} coins</small></div>
       <button class="btn ghost" id="tuneRevert">REVERT</button>
-      <button class="btn ${canPay ? "primary" : "ghost"}" id="tuneApply" ${canPay ? "" : "disabled"}>${canPay ? `FLASH · 🪙 ${fmtCoins(TUNING_PRICES.session)}` : "NOT ENOUGH COINS"}</button>`;
+      <button class="btn ${canPay ? "primary" : "ghost"}" id="tuneApply" ${canPay ? "" : "disabled"}>${canPay ? `FLASH · ${COIN}${fmtCoins(TUNING_PRICES.session)}` : "NOT ENOUGH COINS"}</button>`;
     $("tuneRevert").onclick = () => { this.draft = null; this.renderTune(); };
     $("tuneApply").onclick = () => this.applyDraft();
   }
@@ -1286,7 +1291,7 @@ export class UI {
     // only offered when you can afford every upgrade it would buy
     const bp = this.bestPlan(), ab = $("applyBest");
     ab.hidden = !bp.plan.length || P.coins < bp.total;
-    ab.textContent = bp.total ? `UPGRADE EVERYTHING · 🪙 ${fmtCoins(bp.total)}` : "FIT THE BEST PARTS YOU OWN";
+    ab.innerHTML = bp.total ? `UPGRADE EVERYTHING · ${COIN}${fmtCoins(bp.total)}` : "FIT THE BEST PARTS YOU OWN";
     ab.onclick = () => this.applyBest();
 
     $("dyLegNext").hidden = !nx;
@@ -1357,7 +1362,7 @@ export class UI {
       const n = keys.length;
       const tiles = keys.map((k, i) => {
         const price = partPrice(kind, k), owned = ownsPart(car.id, kind, k), on = k === onKey, fx = this.tierEffect(kind, k, car, t, baseHp);
-        const status = on ? "FITTED" : !price ? "Included" : owned ? "Owned" : `🪙 ${fmtCoins(price)}`;
+        const status = on ? "FITTED" : !price ? "Included" : owned ? "Owned" : `${COIN}${fmtCoins(price)}`;
         const pips = n > 2 ? `<span class="pips">${Array.from({ length: n - 1 }, (_, j) => `<i class="${j < i ? "on" : ""}"></i>`).join("")}</span>` : "";
         const cls = (on ? " fitted" : "") + (k === sel ? " sel" : "") + (owned && price && !on ? " owned" : "");
         const tp = on ? "" : !price || owned ? " have" : P.coins >= price ? " cost" : " poor";
@@ -1368,7 +1373,7 @@ export class UI {
         const price = partPrice(kind, sel), owned = ownsPart(car.id, kind, sel) || !price, afford = P.coins >= price;
         act = `<div class="pc-act"><div><b>${esc(nm(sel))}</b><small>${this.partEffect(kind, sel, car, t, baseHp) || "&nbsp;"}</small></div>
           <button class="btn ghost" data-cancel>CANCEL</button>
-          <button class="btn ${owned ? "primary" : afford ? "accent" : "ghost"}" data-buy ${owned || afford ? "" : "disabled"}>${owned ? "FIT IT" : afford ? `BUY &amp; FIT · 🪙 ${fmtCoins(price)}` : `NEED ${fmtCoins(price - P.coins)} MORE`}</button></div>`;
+          <button class="btn ${owned ? "primary" : afford ? "accent" : "ghost"}" data-buy ${owned || afford ? "" : "disabled"}>${owned ? "FIT IT" : afford ? `BUY &amp; FIT · ${COIN}${fmtCoins(price)}` : `NEED ${fmtCoins(price - P.coins)} MORE`}</button></div>`;
       }
       html += `<div class="pc${locked ? " locked" : ""}${sel ? " sel" : ""}" data-kind="${kind}">
         <div class="pc-head"><b>${def.label}</b><span class="pc-now">${locked ? "Needs a turbo" : `Fitted: <em>${esc(nm(onKey))}</em>`}</span></div>
@@ -1448,12 +1453,12 @@ export class UI {
     for (let v = 0; v <= yMax; v += step) {
       const y = Math.round(Y(v)) + .5;
       g.strokeStyle = "rgba(255,255,255,.06)"; g.beginPath(); g.moveTo(L, y); g.lineTo(w - R, y); g.stroke();
-      g.fillStyle = "#6e7889"; g.textAlign = "right"; g.fillText(String(v), L - 6, y + 3);
+      g.fillStyle = "#6d6d69"; g.textAlign = "right"; g.fillText(String(v), L - 6, y + 3);
     }
     for (let r = 2000; r <= x1; r += 2000) {
       const x = Math.round(X(r)) + .5;
       g.strokeStyle = "rgba(255,255,255,.04)"; g.beginPath(); g.moveTo(x, T); g.lineTo(x, h - B); g.stroke();
-      g.fillStyle = "#6e7889"; g.textAlign = "center"; g.fillText(r / 1000 + "k", x, h - 5);
+      g.fillStyle = "#6d6d69"; g.textAlign = "center"; g.fillText(r / 1000 + "k", x, h - 5);
     }
     const pts = (s) => s.c.filter((p) => p.rpm >= x0 && p.rpm <= s.lim);
     if (upTo < Infinity) cur = { c: cur.c, lim: Math.min(cur.lim, upTo) };
@@ -1468,29 +1473,29 @@ export class UI {
     const C = pts(cur);
     if (C.length) {
       const grd = g.createLinearGradient(0, T, 0, h - B);
-      grd.addColorStop(0, "rgba(47,216,245,.24)"); grd.addColorStop(1, "rgba(47,216,245,0)");
+      grd.addColorStop(0, "rgba(255,214,10,.2)"); grd.addColorStop(1, "rgba(255,214,10,0)");
       g.beginPath(); g.moveTo(X(C[0].rpm), Y(0));
       for (const p of C) g.lineTo(X(p.rpm), Y(p.hp));
       g.lineTo(X(C[C.length - 1].rpm), Y(0)); g.closePath(); g.fillStyle = grd; g.fill();
     }
-    line(stock, "nm", "rgba(139,92,246,.4)", 1.2, [3, 3]);
-    line(stock, "hp", "rgba(168,177,196,.45)", 1.2, [3, 3]);
-    line(cur, "nm", "#8b5cf6", 2);
-    line(cur, "hp", "#2fd8f5", 2.4);
-    if (next) { line(next, "nm", "rgba(214,200,255,.95)", 1.6, [5, 3]); line(next, "hp", "#ffffff", 1.8, [5, 3]); }
+    line(stock, "nm", "rgba(244,244,240,.22)", 1.2, [3, 3]);
+    line(stock, "hp", "rgba(168,168,162,.45)", 1.2, [3, 3]);
+    line(cur, "nm", "#f4f4f0", 1.8);
+    line(cur, "hp", "#ffd60a", 2.4);
+    if (next) { line(next, "nm", "rgba(255,159,10,.65)", 1.6, [5, 3]); line(next, "hp", "#ff9f0a", 1.8, [5, 3]); }
     // during a run: a cursor at the revs the rollers are turning, and the reading at its tip
     if (upTo < Infinity) {
       const x = Math.round(X(Math.min(upTo, x1))) + .5, tip = C[C.length - 1];
       g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 1; g.beginPath(); g.moveTo(x, T); g.lineTo(x, h - B); g.stroke();
-      if (tip) { g.fillStyle = "#2fd8f5"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.hp), 3.5, 0, Math.PI * 2); g.fill(); g.fillStyle = "#8b5cf6"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.nm), 3, 0, Math.PI * 2); g.fill(); }
+      if (tip) { g.fillStyle = "#ffd60a"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.hp), 3.5, 0, Math.PI * 2); g.fill(); g.fillStyle = "#f4f4f0"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.nm), 3, 0, Math.PI * 2); g.fill(); }
       return;
     }
     // mark the peak
     const pk = (next ? pts(next) : C).reduce((a, p) => (p.hp > a.hp ? p : a), { hp: -1 });
     if (pk.hp > 0) {
       const x = X(pk.rpm), y = Y(pk.hp);
-      g.fillStyle = next ? "#fff" : "#2fd8f5"; g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill();
-      g.fillStyle = "#f1f4fa"; g.textAlign = x > w - 70 ? "right" : "left";
+      g.fillStyle = next ? "#ff9f0a" : "#ffd60a"; g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#f4f4f0"; g.textAlign = x > w - 70 ? "right" : "left";
       g.fillText(`${Math.round(pk.hp)} hp`, x + (x > w - 70 ? -7 : 7), Math.max(T + 8, y - 6));
     }
   }
@@ -1565,11 +1570,11 @@ export class UI {
   renderMedia() {
     const m = this.music, t = m.track;
     const art = $("mediaArt");
-    art.innerHTML = t?.art ? `<img src="${t.art}" alt="">` : `<span>♪</span>`;
+    art.innerHTML = t?.art ? `<img src="${t.art}" alt="">` : icon("music");
     $("mediaTitle").textContent = t ? t.title : "Nothing playing";
     $("mediaArtist").textContent = t ? (t.artist || { spotify: "On Spotify", youtube: "On YouTube" }[t.kind] || "Unknown artist") : "Add your own tracks to get started";
     $("mediaAlbum").textContent = t?.album || "";
-    $("mediaPlay").textContent = m.playing ? "❚❚" : "▶";
+    $("mediaPlay").innerHTML = icon(m.playing ? "pause" : "play", "fill");
     $("mediaPrev").disabled = $("mediaNext").disabled = m.tracks.length < 2;
     $("mediaPlay").disabled = !t;
     const list = $("mediaList");
@@ -1577,9 +1582,9 @@ export class UI {
     m.tracks.forEach((tr, i) => {
       const row = document.createElement("div");
       row.className = "media-row" + (i === m.index ? " on" : "");
-      row.innerHTML = `<div class="mr-art">${tr.art ? `<img src="${tr.art}" alt="">` : "♪"}</div>
+      row.innerHTML = `<div class="mr-art">${tr.art ? `<img src="${tr.art}" alt="">` : icon("music")}</div>
         <div class="mr-text"><b>${esc(tr.title)}</b><small>${esc(tr.artist || (tr.kind === "file" ? "Unknown artist" : ""))}${tr.kind === "youtube" ? '<span class="mr-src yt">YouTube</span>' : tr.kind === "spotify" ? '<span class="mr-src sp">Spotify</span>' : ""}</small></div>
-        <button class="mr-x" title="Remove">✕</button>`;
+        <button class="mr-x" title="Remove">${icon("x")}</button>`;
       row.onclick = (e) => { if (!e.target.closest(".mr-x")) m.play(i); };
       row.querySelector(".mr-x").onclick = () => m.remove(i);
       list.appendChild(row);
@@ -1589,10 +1594,10 @@ export class UI {
     w.hidden = !t || this.ctx.state() === "home";
     w.classList.toggle("streaming", streaming);
     if (t) {
-      $("mwArt").innerHTML = t.art ? `<img src="${t.art}" alt="">` : "♪";
+      $("mwArt").innerHTML = t.art ? `<img src="${t.art}" alt="">` : icon("music");
       $("mwTitle").textContent = t.title;
       $("mwArtist").textContent = streaming ? `Playing on ${t.kind === "spotify" ? "Spotify" : "YouTube"}` : t.artist || "Unknown artist";
-      $("mwPlay").textContent = m.playing ? "❚❚" : "▶";
+      $("mwPlay").innerHTML = icon(m.playing ? "pause" : "play", "fill");
     }
     this.renderMediaTime();
   }
@@ -1652,6 +1657,11 @@ export class UI {
     };
     $("adminClearTunes").onclick = () => { P.tunes = {}; save(); this.ctx.applyTune(); this.afterAdmin("Tunes cleared"); };
     $("adminGod").onclick = (e) => { const on = this.ctx.toggleGod(); e.target.textContent = `GOD MODE: ${on ? "ON" : "OFF"}`; };
+    $("signOut").onclick = () => {
+      if (!confirm("Sign out? Your progress stays saved with your account.")) return;
+      signOut();
+      location.reload();
+    };
     $("resetAll").onclick = () => {
       if (!confirm("Reset ALL your data?\n\nLevel, coins, cars, tunes, styles, best scores and settings will be erased. This cannot be undone.")) return;
       if (!confirm("Last chance - really erase everything and start over?")) return;
@@ -1700,6 +1710,7 @@ export class UI {
     this.chipSync?.[0]?.();
   }
   renderSettings() {
+    $("acctName").textContent = currentAccount()?.name || P.name;
     const s = P.settings;
     s.hour = this.ctx.sky.hour;
     this.syncTime(s.hour);
