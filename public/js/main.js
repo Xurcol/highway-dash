@@ -430,16 +430,11 @@ const loader = (() => {
   video.addEventListener("error", videoMissing);
   const SONG_VOL = .55;
   let songLevel = SONG_VOL;                    // where the song sits now (the account screen ducks it)
-  // ---- the website version: two YouTube players ----
-  // The website ships without the clip and song files, so both come from YouTube, through its own
-  // embedded players. The clip (BG_ID) covers the screen under the scrim, muted for good, and jumps
-  // back to its start just before the end so its end screen never shows. The song (SONG_ID, the
-  // official audio upload) plays in a small "now playing" card - YouTube wants a player you can see,
-  // at least 200x200 - and is the loading music: it starts from the top on the first click or key
-  // press (browsers allow no sound before one), loops, ducks on the sign-in screen and fades out with
-  // everything else, exactly like the song file does locally. If YouTube can't play one of them here,
-  // that part simply isn't there.
-  const BG_ID = "cSYG5vZVkoA", SONG_ID = "inq1xJL6YdY";
+  // ---- the website version: the clip from YouTube ----
+  // The website ships without the clip file, so the clip comes from YouTube through its own embedded
+  // player: it covers the screen under the scrim, muted, and jumps back to its start just before the
+  // end so its end screen never shows. If YouTube can't play it here, the screen stays as it was.
+  const BG_ID = "cSYG5vZVkoA";
   const ytPlayer = (slot, videoId, playerVars, events) => youtubeAPI().then((YT) => new YT.Player(slot, {
     videoId, host: "https://www.youtube-nocookie.com", events,
     playerVars: { controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, rel: 0, playsinline: 1, modestbranding: 1, ...playerVars },
@@ -460,43 +455,10 @@ const loader = (() => {
     }).catch(stopYouTube);
   }
   function stopYouTube() { clearInterval(bgLoop); try { bg?.destroy(); } catch { /* already gone */ } bgHost?.remove(); bgHost = null; bg = null; }
-  let tune = null, card = null, tuneVol = SONG_VOL, heard = false, started = false;
-  function startYouTubeSong() {
-    if (card) return;
-    card = document.createElement("div"); card.className = "loader-np";
-    card.innerHTML = `<div class="np-player"><div></div></div>
-      <div class="np-meta"><span class="eyebrow">Now playing</span><b>wrist</b><small>Ken Carson</small><small class="np-hint">Click anywhere for sound</small></div>`;
-    el.appendChild(card);
-    ytPlayer(card.querySelector(".np-player > div"), SONG_ID, { autoplay: 0 }, {
-      onReady: (e) => { tune = e.target; if (heard) ytSong.play().catch(() => { }); },
-      onStateChange: (e) => { if (e.data === 0) { e.target.seekTo(0, true); e.target.playVideo(); } },
-      onError: () => ytSong.removeAttribute(),
-    }).catch(() => ytSong.removeAttribute());
-  }
-  // stands in for the song file: the same play / pause / volume / release the loader uses on it
-  const ytSong = {
-    get paused() { return !heard; },
-    get volume() { return tuneVol; },
-    set volume(v) { tuneVol = v; if (tune && heard) tune.setVolume(Math.round(v * 100)); },
-    play() {
-      if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return Promise.reject(new DOMException("needs a gesture", "NotAllowedError"));
-      heard = true;
-      card?.classList.add("heard");
-      if (tune) {
-        tune.unMute(); tune.setVolume(Math.round(tuneVol * 100));
-        if (!started) { started = true; tune.seekTo(0, true); }
-        tune.playVideo();
-      }
-      return Promise.resolve();
-    },
-    pause() { tune?.pauseVideo(); },
-    removeAttribute() { try { tune?.destroy(); } catch { /* already gone */ } card?.remove(); card = null; tune = null; },
-    load() {},
-  };
-  // the local build's own song (loader-media/song.mp3); without it, the song from YouTube
+  // the local build's own song (loader-media/song.mp3); the website version ships without it and stays quiet
   let song = new Audio("loader-media/song.mp3");
   song.loop = true; song.preload = "auto"; song.volume = SONG_VOL;
-  song.addEventListener("error", () => { song = ytSong; startYouTubeSong(); });
+  song.addEventListener("error", () => { song = null; });
   const startSong = () => { if (!song) return; song.volume = songLevel; song.play().then(() => { if (video.paused) video.play().catch(() => { }); }).catch(() => { }); };
   const onGesture = () => startSong();
   const gestures = ["pointerdown", "keydown", "touchstart"];

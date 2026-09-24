@@ -832,18 +832,6 @@ h1,h2,.tab,.mode-hud{font-family:var(--display)}
 /* the website version's clip, from YouTube: the player sized to cover the screen (the clip is 1.65:1) and never clickable */
 .loader-yt{position:absolute;inset:0;overflow:hidden;pointer-events:none;background:#000}
 .loader-yt iframe{position:absolute;top:50%;left:50%;width:max(100vw,165vh);height:max(100vh,60.6vw);transform:translate(-50%,-50%);border:0;pointer-events:none}
-/* the website version's music: YouTube's player for the song, in a "now playing" card */
-.loader-np{position:absolute;right:var(--s4);bottom:var(--s4);z-index:3;display:flex;align-items:center;gap:var(--s3);padding:var(--s2);
-  background:rgba(12,12,14,.86);border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:var(--r2);
-  backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);animation:authIn .5s var(--ease) both}
-.np-player{width:200px;height:200px;flex:none;background:#000;overflow:hidden}
-.np-player iframe{display:block;width:200px;height:200px;border:0;pointer-events:none}
-.np-meta{display:flex;flex-direction:column;gap:5px;padding-right:var(--s3)}
-.np-meta b{font:italic 700 var(--t-xl)/1 var(--display);text-transform:uppercase}
-.np-meta small{font-size:var(--t-xs);color:var(--ink-2)}
-.np-meta .np-hint{color:var(--accent);font-weight:600}
-.loader-np.heard .np-hint{display:none}
-@media (max-width:700px){.loader-np{left:var(--s4);right:var(--s4)}}
 .loader-scrim{position:absolute;inset:0;pointer-events:none;
   background:radial-gradient(90% 75% at 50% 50%,rgba(6,8,14,.38) 0%,rgba(6,8,14,.82) 100%)}
 .loader-video[hidden],.loader-video[hidden]+.loader-scrim{display:none}
