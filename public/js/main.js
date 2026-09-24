@@ -1805,12 +1805,17 @@ function updateCityDrive(dt, T) {
   const vf = G.rev ? G.rv : d.v, sp = Math.abs(vf);
 
   // ---- steering ----
+  // The steering feels like a road car whatever the build: tyres, suspension and aero add a little
+  // cornering grip (0.92 g stock, never more than 1.1 g), never a quicker rack. Full lock at a crawl;
+  // at speed the lock narrows so that full input asks for about what the tyres can hold, and the
+  // wheel turns in more gently the faster you go.
   const steerIn = (held("KeyD", "ArrowRight") ? 1 : 0) - (held("KeyA", "ArrowLeft") ? 1 : 0);
-  G.steer += (steerIn - G.steer) * Math.min(1, dt * (steerIn ? 6 : 9));
-  const hMul = d.s.handlingMul || 1;
-  const lock = (.62 - .5 * Math.min(1, sp / 55)) * Math.min(1.3, hMul);
-  let yawRate = (vf * Math.tan(G.steer * lock)) / (B.L * .6);
-  const aMax = 9.81 * (d.s.grip || 1.1) * (1 + (def.handling || 0) * .003) * (hb ? 1.6 : 1.05);
+  G.steer += (steerIn - G.steer) * Math.min(1, dt * (steerIn ? 5 - 2.5 * Math.min(1, sp / 40) : 7));
+  const hMul = d.s.handlingMul || 1, wb = B.L * .6;
+  const grip = 9.81 * Math.min(1.1, .92 + ((d.s.grip || 1) - 1) * .25 + (hMul - 1) * .15);
+  const lock = Math.min(.55, Math.atan((grip * 1.05 * wb) / Math.max(1, sp * sp)));
+  let yawRate = (vf * Math.tan(G.steer * lock)) / wb;
+  const aMax = grip * (hb ? 1.5 : 1);
   if (Math.abs(yawRate) * sp > aMax) yawRate = (Math.sign(yawRate) * aMax) / Math.max(1, sp);
   if (hb && sp > 5) yawRate *= 1.3;
   // the velocity carries through the turn: whatever no longer points along the car becomes slide,
