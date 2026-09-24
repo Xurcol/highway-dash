@@ -1,0 +1,771 @@
+{
+  "available": [
+    "a4",
+    "b330i",
+    "m4",
+    "c8",
+    "c63",
+    "m340i",
+    "q50",
+    "rs3",
+    "x3m",
+    "golfr",
+    "m2",
+    "gt3rs",
+    "svj",
+    "m3",
+    "supra",
+    "m5",
+    "laferrari",
+    "chiron",
+    "rs6",
+    "x5m",
+    "q60",
+    "c43",
+    "charger",
+    "carrera",
+    "e63",
+    "m240i"
+  ],
+  "a4": {
+    "paint": [
+      "Glacier_White_Metallic"
+    ],
+    "glass": [
+      "Windows$"
+    ],
+    "rim": [
+      "Rims"
+    ],
+    "caliper": [
+      "BrakeFrLeft"
+    ],
+    "tail": [
+      "Color_M02"
+    ],
+    "head": [
+      "Glass.?Lights"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "b330i": {
+    "paint": [
+      "CarPaint"
+    ],
+    "glass": [
+      "MI_Glass$"
+    ],
+    "rim": [
+      "ChangeA_Rim"
+    ],
+    "caliper": [
+      "ChangeA_Brake"
+    ],
+    "tail": [
+      "reD_glass"
+    ],
+    "head": [
+      "MI_Light",
+      "MI_Glass_Light"
+    ],
+    "wheelMats": [
+      "ChangeA_Rim",
+      "MI_Tyre"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "m4": {
+    "paint": [
+      "mm_ext"
+    ],
+    "glass": [
+      "mm_windows"
+    ],
+    "rim": [
+      "mm_wheel"
+    ],
+    "head": [
+      "mm_lights"
+    ],
+    "wheelMats": [
+      "mm_wheel",
+      "mm_tyre",
+      "mm_rotor"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ],
+    "autoDark": true,
+    "tint": {
+      "mm_misc": {
+        "color": "#1b1e22",
+        "metalness": 0.55,
+        "roughness": 0.4
+      }
+    }
+  },
+  "c8": {
+    "front": "-z",
+    "paint": [
+      "Body_Color"
+    ],
+    "glass": [
+      "Other_Glasses",
+      "Windshield"
+    ],
+    "rim": [
+      "^material$"
+    ],
+    "tail": [
+      "Taillights",
+      "Brake_Lights"
+    ],
+    "head": [
+      "Day_Lights",
+      "Headlights"
+    ],
+    "wheelMats": [
+      "^material$",
+      "Tire_",
+      "Brake_Disc"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "c63": {
+    "paint": [
+      "AMG_C63_Base"
+    ],
+    "glass": [
+      "c63MAT_Glass1"
+    ],
+    "rim": [
+      "Tire_Hub"
+    ],
+    "caliper": [
+      "Tire_Brake"
+    ],
+    "head": [
+      "c63MAT_Lights1"
+    ],
+    "wheelMats": [
+      "Tire_Hub",
+      "wheeMercedes",
+      "Tire_Disk"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "m340i": {
+    "paint": [
+      "Kuzov"
+    ],
+    "glass": [
+      "^d_glass$",
+      "^Glass_Windows$"
+    ],
+    "tail": [
+      "Glass_backlights",
+      "Back_lights_emissive"
+    ],
+    "head": [
+      "front_lights"
+    ],
+    "wheelMats": [
+      "Koleso",
+      "Tire_mat",
+      "^metal$"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ],
+    "rim": [
+      "^metal$"
+    ],
+    "caliper": [
+      "Koleso_mat_support"
+    ]
+  },
+  "q50": {
+    "paint": [
+      "^CarPaint$"
+    ],
+    "glass": [
+      "Glass_L",
+      "Winsow"
+    ],
+    "rim": [
+      "LRim"
+    ],
+    "tail": [
+      "Red_glass"
+    ],
+    "head": [
+      "GL_emiss"
+    ],
+    "wheelMats": [
+      "LRim",
+      "tire1"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "rs3": {
+    "paint": [
+      "2023Paint_Material"
+    ],
+    "glass": [
+      "2023Window_Material"
+    ],
+    "rim": [
+      "3DWheel1A"
+    ],
+    "caliper": [
+      "CallipersCalliperA"
+    ],
+    "tail": [
+      "red_glass"
+    ],
+    "head": [
+      "2023LightA"
+    ],
+    "wheelMats": [
+      "3DWheel1A"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "x3m": {
+    "paint": [
+      "X3MI_1347060001"
+    ],
+    "glass": [
+      "X3MI_Glass_02"
+    ],
+    "rim": [
+      "ChangeA_Rim"
+    ],
+    "caliper": [
+      "Change_Brake"
+    ],
+    "tail": [
+      "X3MI_Glass_Light"
+    ],
+    "head": [
+      "X3MI_Light"
+    ],
+    "wheelMats": [
+      "ChangeA_Rim",
+      "ChangeA_Tyre"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "golfr": {
+    "paint": [
+      "^CarPaint$"
+    ],
+    "glass": [
+      "^windows$",
+      "^D_glass$"
+    ],
+    "tail": [
+      "red_glass",
+      "red_glow"
+    ],
+    "head": [
+      "glass_light"
+    ],
+    "wheelMats": [
+      "^tire$"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "m2": {
+    "paint": [
+      "m2g87undg_Paint"
+    ],
+    "glass": [
+      "Glass_Clear",
+      "Glass_Dark"
+    ],
+    "rim": [
+      "Wheel1A_Rim"
+    ],
+    "caliper": [
+      "Calliper_Color"
+    ],
+    "head": [
+      "Light_Common"
+    ],
+    "wheelMats": [
+      "Wheel1A_Rim",
+      "Wheel2A_Tire"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ],
+    "autoDark": true
+  },
+  "gt3rs": {
+    "paint": [
+      "^TwiXeR_992_carPaint[.][0-9]+$"
+    ],
+    "glass": [
+      "^TwiXeR_992_glass[.]004$"
+    ],
+    "rim": [
+      "^TwiXeR_992_(wheels_chrome_1|GT3RS_black)$"
+    ],
+    "caliper": [
+      "^amdb11_caliper[.][0-9]+$"
+    ],
+    "head": [
+      "^TwiXeR_992_led_lights[.][0-9]+$",
+      "^TwiXeR_992_headlight_high[.][0-9]+$",
+      "^TwiXeR_992_headlight_1[.]001_0$"
+    ],
+    "tail": [
+      "^TwiXeR_992_taillight_running[.][0-9]+$",
+      "^TwiXeR_992_brakelight_1[.][0-9]+$"
+    ],
+    "wheelMats": [
+      "^TwiXeR_992_(wheels_chrome_1|GT3RS_black)$",
+      "^amdb11_(brake|caliper)[.][0-9]+$",
+      "^Scene_-_Root[.]002$"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "svj": {
+    "paint": [
+      "CARROSSERIE"
+    ],
+    "glass": [
+      "^GLASS$"
+    ],
+    "rim": [
+      "Bling_Bling",
+      "Material[.]009",
+      "Default_Material[.]005"
+    ],
+    "caliper": [
+      "plaquette",
+      "Material[.]012"
+    ],
+    "tail": [
+      "GlassRedLights"
+    ],
+    "head": [
+      "GlassWhite",
+      "HdLightsLens",
+      "LightEmissiveWhite"
+    ],
+    "wheelMats": [
+      "pneu",
+      "Bling_Bling",
+      "Material[.]009",
+      "Default_Material[.]005",
+      "PZEO",
+      "visse"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "m3": {
+    "paint": [
+      "^Material[.]001$"
+    ],
+    "glass": [
+      "^Material[.]018$",
+      "^Material[.]026$"
+    ],
+    "rim": [
+      "^Material[.]003$"
+    ],
+    "caliper": [
+      "^Material[.]009$"
+    ],
+    "head": [
+      "^Material[.]027$"
+    ],
+    "tail": [
+      "^Material[.]022$"
+    ],
+    "tint": {
+      "^Material[.]014$": {
+        "color": "#15171b",
+        "metalness": 0.85,
+        "roughness": 0.22
+      },
+      "^Material[.]004$": {
+        "color": "#15171b",
+        "metalness": 0.85,
+        "roughness": 0.22
+      },
+      "^Material[.]003$": {
+        "color": "#4a4e55",
+        "metalness": 0.9,
+        "roughness": 0.3
+      },
+      "^Material[.]016$": {
+        "color": "#15171b",
+        "metalness": 0.85,
+        "roughness": 0.22
+      },
+      "^Material[.]010$": {
+        "color": "#15171b",
+        "metalness": 0.85,
+        "roughness": 0.22
+      },
+      "^Material[.]002$": {
+        "color": "#2a2d33",
+        "metalness": 0.8,
+        "roughness": 0.35
+      },
+      "^Material[.]017$": {
+        "color": "#23262b",
+        "metalness": 0.8,
+        "roughness": 0.35
+      },
+      "^Material[.]007$": {
+        "color": "#1a1c20",
+        "metalness": 0.35,
+        "roughness": 0.45
+      }
+    },
+    "wheelMats": [
+      "^Material[.]003$",
+      "^Material[.]009$"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ],
+    "depthFix": true,
+    "singleSide": true,
+    "autoDark": true
+  },
+  "credits": {
+    "a4": "Audi A4 B9 by Nieve5677 (sketchfab.com/niev), CC-BY-4.0",
+    "b330i": "2019 BMW 330i M Sport by Ddiaz Design (sketchfab.com/ddiaz-design), CC-BY-NC-SA-4.0",
+    "m4": "2021 BMW M4 G82 by OUTPISTON (sketchfab.com/outpiston), CC-BY-NC-SA-4.0",
+    "c8": "2019 Chevrolet Corvette C8 Stingray by Hari (sketchfab.com/Hari31), CC-BY-4.0",
+    "c63": "2019 Mercedes-Benz C63 S AMG Coupe by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "m340i": "2020 BMW M340i xDrive by 007 (sketchfab.com/tangwang920), CC-BY-4.0",
+    "q50": "2021 Infiniti Q50 3.0t by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "rs3": "2023 Audi RS3 Sedan by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "x3m": "2024 BMW X3 M40i by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "golfr": "2025 Volkswagen Golf R by Ddiaz Design, CC-BY-NC-SA-4.0",
+    "m2": "BMW M2 G87 by kevin (sketchfab.com/sohyalebret), CC-BY-4.0",
+    "gt3rs": "Free-to-use download (porsche_gt3_rs.glb) — author not recorded",
+    "svj": "Aventador SVJ Black Ghost by SDC PERFORMANCE (sketchfab.com/3Duae), CC-BY-NC-4.0",
+    "m3": "BMW M3 Competition G80 by SLB (sketchfab.com/SLBofficial), CC-BY-4.0",
+    "supra": "Toyota Supra by Jiaxing (sketchfab.com/saitoyang), CC-BY-4.0",
+    "m5": "2022 BMW M5 CS by Ddiaz Design (sketchfab.com/ddiaz-design), CC-BY-NC-SA-4.0",
+    "laferrari": "Ferrari LaFerrari (Element 6) by Echoo (sketchfab.com/echoo.), CC-BY-NC-ND-4.0",
+    "chiron": "2022 Bugatti Chiron Profilee by 007 (sketchfab.com/tangwang920), CC-BY-4.0",
+    "rs6": "Free-to-use download (2020_audi_rs6_avant.glb) — author not recorded",
+    "x5m": "Free-to-use download (bmw_x5m_g05_2019_low_poly_style.glb) — author not recorded",
+    "q60": "Free-to-use download (2020_infiniti_q60_coupe_3.0t_pure_awd.glb) — author not recorded",
+    "c43": "Free-to-use download (mercedes_benz_c43_amg.glb) — author not recorded",
+    "charger": "Free-to-use download (2015_dodge_charger_srt_hellcat.glb) — author not recorded",
+    "carrera": "Free-to-use download (free_porsche_911_carrera_4s.glb) — author not recorded",
+    "m240i": "Free-to-use download (2022_bmw_m240i_coupe.glb) — author not recorded",
+    "e63": "Free-to-use download (e63 model) — author not recorded"
+  },
+  "rev": 32,
+  "supra": {
+    "paint": [
+      "^carpaint$"
+    ],
+    "glass": [
+      "balck_tint_glass"
+    ],
+    "caliper": [
+      "^brake$"
+    ],
+    "tail": [
+      "^taillights$"
+    ],
+    "head": [
+      "^light$"
+    ],
+    "wheels": [
+      "^Plane0(16|20|18|74)$"
+    ]
+  },
+  "m5": {
+    "paint": [
+      "Paint_Material"
+    ],
+    "glass": [
+      "Window_Material"
+    ],
+    "rim": [
+      "3DWheel1A"
+    ],
+    "caliper": [
+      "CallipersCalliperA_Zone"
+    ],
+    "tail": [
+      "^RED_GLASS$"
+    ],
+    "head": [
+      "LightA_Material"
+    ],
+    "wheelMats": [
+      "3DWheel1A"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ],
+    "tint": {
+      "Grille[0-9]*A?_Material": {
+        "color": "#141619",
+        "metalness": 0.55,
+        "roughness": 0.6
+      }
+    },
+    "autoDark": true
+  },
+  "laferrari": {
+    "paint": [
+      "^Body$"
+    ],
+    "glass": [
+      "^Glasses$",
+      "head_lights_glasses"
+    ],
+    "rim": [
+      "esr_cs1"
+    ],
+    "tail": [
+      "Rear_headlights",
+      "^tail_lights",
+      "break_lights"
+    ],
+    "head": [
+      "^Front_headlights",
+      "^run_lights"
+    ],
+    "wheelMats": [
+      "Tire_Shader",
+      "esr_cs1",
+      "^disc[.]"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "chiron": {
+    "paint": [
+      "Paint_Material1"
+    ],
+    "glass": [
+      "Window_Material1"
+    ],
+    "rim": [
+      "3DWheel3A"
+    ],
+    "caliper": [
+      "CallipersCalliperA_Zone"
+    ],
+    "tail": [
+      "^RED_GLASS$"
+    ],
+    "head": [
+      "LightB_Material1"
+    ],
+    "wheelMats": [
+      "3DWheel3A"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "rs6": {
+    "paint": [
+      "2020Paint_Material"
+    ],
+    "glass": [
+      "2020Window_Material"
+    ],
+    "rim": [
+      "3DWheel1A"
+    ],
+    "caliper": [
+      "CallipersCalliperGloss"
+    ],
+    "tail": [
+      "red_glass"
+    ],
+    "head": [
+      "2020LightA"
+    ],
+    "wheelMats": [
+      "3DWheel1A"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "x5m": {
+    "paint": [
+      "tanzanite_blue_ii_metallic"
+    ],
+    "glass": [
+      "^window$"
+    ],
+    "rim": [
+      "_rim$"
+    ],
+    "caliper": [
+      "^brake_caliper$"
+    ],
+    "tail": [
+      "^tail_lights",
+      "^led_tail_light$",
+      "^brake_light",
+      "^led_brake_lamp$"
+    ],
+    "head": [
+      "^headlight_"
+    ],
+    "wheelMats": [
+      "^tire$",
+      "_rim$",
+      "^brake_(disk|pad|caliper)$"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "q60": {
+    "paint": [
+      "Q60SMI_1216010001"
+    ],
+    "glass": [
+      "Q60SMI_Glass_In"
+    ],
+    "rim": [
+      "ChangeA_Rim",
+      "Q60Srimcolor"
+    ],
+    "caliper": [
+      "ChangeA_Brake"
+    ],
+    "tail": [
+      "Q60SMI_Glass_Light"
+    ],
+    "head": [
+      "Q60SMI_Light_"
+    ],
+    "wheelMats": [
+      "ChangeA_Rim",
+      "Q60Srimcolor",
+      "Q60SMI_Tyre",
+      "ChangeA_Brake"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "c43": {
+    "paint": [
+      "^w206_paint$"
+    ],
+    "glass": [
+      "^w206_glass_int$"
+    ],
+    "rim": [
+      "^chrome$"
+    ],
+    "caliper": [
+      "^Plastic_Burnt_Red_High_Gloss$"
+    ],
+    "tail": [
+      "^w206_(lights_13|vehiclelights128|shader_brake_0|lights_global)$"
+    ],
+    "head": [
+      "^w206_(headlight|lowbeam|highbeam|drl_[LR]|glass_F|lights_29)$"
+    ]
+  },
+  "charger": {
+    "paint": [
+      "^d2phong2SG1$"
+    ],
+    "glass": [
+      "^d2phong7SG1$"
+    ],
+    "rim": [
+      "Wheel1A_3D"
+    ],
+    "caliper": [
+      "CallipersCalliper"
+    ],
+    "tail": [
+      "^d2phong12SG1$"
+    ],
+    "head": [
+      "^d2phong14SG1$"
+    ],
+    "wheelMats": [
+      "Wheel1A_3D",
+      "CallipersCalliper",
+      "riphong18SG1"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "carrera": {
+    "paint": [
+      "^paint$"
+    ],
+    "glass": [
+      "^window$"
+    ],
+    "caliper": [
+      "^Material.001$"
+    ],
+    "head": [
+      "^lights$"
+    ],
+    "wheelMats": [
+      "^rubber$",
+      "^Material.001$"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "e63": {
+    "paint": [
+      "Scene_-_Root"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  },
+  "m240i": {
+    "paint": [
+      "Scene_-_Root"
+    ],
+    "wheels": [
+      "no-wheel-nodes"
+    ]
+  }
+}

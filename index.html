@@ -1,0 +1,594 @@
+<!doctype html>
+<html lang="en" data-ver="muew3v7x">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Highway Dash</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600;700&family=Barlow+Condensed:ital,wght@0,600;0,700;1,700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css?v=muew3v7x">
+<script type="importmap">
+{ "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+</script>
+</head>
+<body>
+<!-- the interface's icons: one stroke set, used as <svg class="ic"><use href="#i-name"/></svg> -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-medal" viewBox="0 0 24 24"><circle cx="12" cy="15" r="5.5"/><path d="M8.6 10.6 6 3h4l2 5 2-5h4l-2.6 7.6M12 13v4"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.5-4.6-7.5-10.2A4.3 4.3 0 0 1 12 7a4.3 4.3 0 0 1 7.5 2.8C19.5 15.4 12 20 12 20z"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 24 24"><path d="M5 21V4M5 4h13l-2.5 4.5L18 13H5"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3z"/></symbol>
+  <symbol id="i-calendar" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="1"/><path d="M4 10h16M8.5 3v4M15.5 3v4M8 14h3"/></symbol>
+  <symbol id="i-trophy" viewBox="0 0 24 24"><path d="M8 4h8v5.5a4 4 0 0 1-8 0V4zM8 6H4.5v1.2A3.8 3.8 0 0 0 8.3 11M16 6h3.5v1.2a3.8 3.8 0 0 1-3.8 3.8M12 13.5V17M8.5 20.5h7M9.5 17h5v3.5h-5z"/></symbol>
+  <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5.5l11-2v12.5"/><circle cx="6.5" cy="18" r="2.5"/><circle cx="17.5" cy="16" r="2.5"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M12 2.8v2.4M12 18.8v2.4M4.2 7.5l2.1 1.2M17.7 15.3l2.1 1.2M4.2 16.5l2.1-1.2M17.7 8.7l2.1-1.2"/><circle cx="12" cy="12" r="6.6"/></symbol>
+  <symbol id="i-car" viewBox="0 0 24 24"><path d="M5 16H3.8V12l2.4-4.2h10.2L19.8 12v4H19M9.2 16h5.6M6.8 8l-1 4h12.4l-1-4"/><circle cx="7" cy="16.3" r="1.9"/><circle cx="17" cy="16.3" r="1.9"/></symbol>
+  <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.3"/><path d="M2.8 20a6.2 6.2 0 0 1 12.4 0M15.8 4.8a3.3 3.3 0 0 1 0 6.4M18.8 20a6.2 6.2 0 0 0-3-5.3"/></symbol>
+  <symbol id="i-back" viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M7 5h3.4v14H7zM13.6 5H17v14h-3.4z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M7.5 5v14l11.5-7z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M18 5.5v13L9 12zM6 5.5h2.4v13H6z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M6 5.5v13L15 12zM15.6 5.5H18v13h-2.4z"/></symbol>
+  <symbol id="i-restart" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4v4.2h4.2"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><rect x="3" y="7" width="12.5" height="10" rx="1"/><path d="M15.5 10.5 21 7.5v9l-5.5-3"/></symbol>
+  <symbol id="i-spin" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 0 1 13-5M19.5 3.5V7.5h-4M19.5 12a7.5 7.5 0 0 1-13 5M4.5 20.5v-4h4"/></symbol>
+  <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="1"/><path d="m3.5 7 8.5 6.2L20.5 7"/></symbol>
+  <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="3.8"/><path d="M4.5 20.5a7.5 7.5 0 0 1 15 0"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10.5" width="14" height="10" rx="1"/><path d="M8 10.5V8a4 4 0 0 1 8 0v2.5"/></symbol>
+</svg>
+<canvas id="c"></canvas>
+
+<!-- ============ FIRST-RUN LOADER ============ -->
+<!-- Visible in the markup from the first paint, so the menu is never shown half-built. main.js
+     fades it out once the world, the models and the garage are all actually ready. -->
+<section id="loader" class="loader">
+  <!-- background clip (a forward-then-reversed render, so the plain loop is a seamless boomerang) and a
+       scrim that keeps the text readable over it; both simply don't show if the file isn't there -->
+  <video id="loaderVideo" class="loader-video" src="loader-media/video.mp4" muted autoplay loop playsinline preload="auto" aria-hidden="true"></video>
+  <div class="loader-scrim" aria-hidden="true"></div>
+  <div class="loader-bg" aria-hidden="true"><i></i><i></i><i></i></div>
+  <div class="loader-box">
+    <div class="brand">HIGHWAY <span>DASH</span></div>
+    <div class="loader-title" id="loaderTitle">Starting engine</div>
+    <div class="loader-bar"><i id="loaderBar"></i></div>
+    <div class="loader-sub" id="loaderSub">Warming up…</div>
+    <p class="loader-tip" id="loaderTip"></p>
+  </div>
+  <!-- sign in / create account, shown over the video once loading is done (auth.js) -->
+  <div class="auth" id="auth" hidden>
+    <div class="auth-card">
+      <div class="brand">HIGHWAY <span>DASH</span></div>
+      <div class="auth-quick" id="authQuick" hidden>
+        <span class="eyebrow">Welcome back</span>
+        <b id="authQuickName"></b>
+        <button class="btn accent xl" id="authContinue" type="button">Continue</button>
+        <button class="auth-link" id="authSwitch" type="button">Use another account</button>
+      </div>
+      <div class="auth-tabs" id="authTabs"><button class="tab" data-auth="login" type="button">Sign in</button><button class="tab" data-auth="register" type="button">Create account</button></div>
+      <form id="authForm" autocomplete="on" novalidate>
+        <label class="field"><span>Username</span><input type="text" id="authUser" autocomplete="username" maxlength="16" spellcheck="false"></label>
+        <label class="field"><span>Password</span><input type="password" id="authPass" autocomplete="current-password"></label>
+        <label class="field" id="authPass2Row" hidden><span>Confirm password</span><input type="password" id="authPass2" autocomplete="new-password"></label>
+        <label class="toggle"><input type="checkbox" id="authKeep"> Keep me signed in on this device</label>
+        <p class="auth-msg" id="authMsg" role="alert"></p>
+        <button class="btn accent xl" id="authGo" type="submit">Sign in</button>
+      </form>
+    </div>
+  </div>
+  <div class="loader-foot"><span id="loaderVer">dev build</span></div>
+</section>
+
+<!-- ============ HOME / GARAGE ============ -->
+<section id="home" class="screen">
+  <header class="topbar">
+    <div class="brand">HIGHWAY <span>DASH</span></div>
+    <div class="spacer"></div>
+    <div class="lvl"><div class="star"><b id="hLevel">1</b></div><div class="xpbar"><i id="hXp"></i><span id="hXpText">0/200</span></div></div>
+    <div class="chip gold"><svg class="ic" aria-hidden="true"><use href="#i-medal"/></svg><b id="hMedals">0/8</b><small>MEDALS</small></div>
+    <div class="chip coin"><i class="coin"></i><b id="hCoins">0</b><small>COINS</small></div>
+    <div class="chip heart"><svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg><b id="hHearts">0</b><small>REVIVES</small></div>
+  </header>
+  <div class="garage">
+    <div class="garage-left">
+      <div class="modes">
+        <button class="mode on" data-mode="solo"><svg class="ic" aria-hidden="true"><use href="#i-flag"/></svg>SOLO</button>
+        <button class="mode" data-mode="online"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg>ONLINE <em id="onlineDot" class="dot"></em></button>
+        <div class="spacer"></div>
+        <button class="btn icon daily-btn" data-open="daily" title="Daily challenges"><svg class="ic" aria-hidden="true"><use href="#i-calendar"/></svg><em id="dailyDot" class="daily-dot" hidden>3</em></button>
+        <button class="btn icon" data-open="leader" title="Leaderboard [L]"><svg class="ic" aria-hidden="true"><use href="#i-trophy"/></svg></button>
+        <button class="btn icon" data-open="media" title="Music [J]"><svg class="ic" aria-hidden="true"><use href="#i-music"/></svg></button>
+        <button class="btn icon" data-open="settings" title="Settings"><svg class="ic" aria-hidden="true"><use href="#i-gear"/></svg></button>
+      </div>
+      <div id="preview">
+        <div id="modeSelect" class="mode-select"></div>
+        <button id="spinBtn" class="spin-btn" title="Turntable"><svg class="ic" aria-hidden="true"><use href="#i-spin"/></svg>SPIN</button>
+        <div class="stats">
+          <div><span class="st-l">SPEED</span><div class="sbar"><i id="stSpd"></i></div><b id="stSpdN">0</b></div>
+          <div><span class="st-l">ACCEL</span><div class="sbar"><i id="stAcc"></i></div><b id="stAccN">0</b></div>
+          <div><span class="st-l">HANDLING</span><div class="sbar"><i id="stHan"></i></div><b id="stHanN">0</b></div>
+        </div>
+        <div id="partyBadge" class="party-badge" hidden></div>
+        <div id="showOff" class="show-off" hidden></div>
+        <button id="playBtn" class="btn green big">PLAY</button>
+      </div>
+    </div>
+    <aside class="carinfo panel">
+      <button id="ciAction" class="btn gray wide">EQUIPPED</button>
+      <div id="ciRarity" class="rarity">LEGENDARY</div>
+      <h1 id="ciName">Car</h1>
+      <div id="ciSpec" class="spec">V10 · 7-speed DCT</div>
+      <div id="ciTop" class="spec">Top speed 205 mph</div>
+      <div class="custom">
+        <div class="custom-label">ENGINE</div>
+        <div id="ciEngine" class="engine-badge"></div>
+        <div class="row"><button class="btn accent" id="revBtn" style="flex:1">HOLD REV</button><button class="btn primary" id="tuneBtn" style="flex:1">WORKSHOP</button></div>
+      </div>
+    </aside>
+  </div>
+  <div class="cardbar">
+    <div class="filters">
+      <button class="filter on" data-f="all">ALL <b id="fAll">0</b></button>
+      <button class="filter" data-f="owned">OWNED <b id="fOwned">0</b></button>
+      <button class="filter" data-f="locked">LOCKED <b id="fLocked">0</b></button>
+    </div>
+    <div id="cards" class="cards"></div>
+  </div>
+</section>
+
+<!-- ============ PRE-START ============ -->
+<section id="ready" class="screen clickthrough" hidden>
+  <div class="ready-card">
+    <div class="ready-title" id="readyTitle">HIGHWAY DASH</div>
+    <div class="ready-sub" id="readySub">Five lanes. Thread the needle.</div>
+    <div class="ready-click" id="readyClick">CLICK TO START</div>
+  </div>
+  <div class="ready-keys" id="readyKeys"></div>
+</section>
+
+<!-- ============ CINEMATIC BARS ============ -->
+<div id="cineTop" class="cine-bar top"></div>
+<div id="cineBot" class="cine-bar bot"></div>
+
+<!-- ============ HUD ============ -->
+<section id="hud" hidden>
+  <div class="hud-tl">
+    <button class="btn gray sq" id="hudHome" title="Home"><svg class="ic" aria-hidden="true"><use href="#i-back"/></svg><small>Menu</small></button>
+    <button class="btn gray sq" data-open="leader" title="Leaderboard"><svg class="ic" aria-hidden="true"><use href="#i-trophy"/></svg><small>L</small></button>
+    <button class="btn gray sq" data-open="vehicles" title="Switch vehicle"><svg class="ic" aria-hidden="true"><use href="#i-car"/></svg><small>G</small></button>
+    <button class="btn gray sq" id="hudPlayers" title="Players" hidden><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg><small>Tab</small></button>
+  </div>
+  <div id="playerPanel" class="player-panel" hidden></div>
+  <div class="hud-tr">
+    <button class="btn gray sq" data-open="settings" title="Settings"><svg class="ic" aria-hidden="true"><use href="#i-gear"/></svg><small>Settings</small></button>
+    <button class="btn gray sq" id="hudPause" title="Pause"><svg class="ic fill" aria-hidden="true"><use href="#i-pause"/></svg><small>P</small></button>
+    <button class="btn gray sq" id="hudRestart" title="Restart"><svg class="ic" aria-hidden="true"><use href="#i-restart"/></svg><small>R</small></button>
+  </div>
+  <div class="score"><div id="score">0</div><div id="best">BEST 0</div></div>
+  <div id="speedUp" class="speedup">SPEED UP!</div>
+  <div id="combo" class="combo" data-tier="0" aria-live="polite">
+    <i id="ccStreak" class="cc-streak" hidden></i>
+    <b id="ccWord">NEAR MISS</b>
+    <span id="ccSub" class="cc-sub"></span>
+    <div id="ccTags" class="cc-tags"></div>
+  </div>
+  <!-- one gauge: the rev arc around the speed, the gear under it; signals only show when on -->
+  <div class="cluster" id="cluster">
+    <i id="sigL" class="sig l" aria-hidden="true"></i>
+    <div class="gauge">
+      <canvas id="tach" width="360" height="360"></canvas>
+      <div class="gauge-mid">
+        <b id="speed">0</b>
+        <span id="speedUnit">MPH</span>
+        <div class="gearbadge"><b id="gear">1</b><span id="gearMode">AUTO</span></div>
+      </div>
+    </div>
+    <i id="sigR" class="sig r" aria-hidden="true"></i>
+    <div class="cl-foot"><span id="dist">0.0 Mi</span><span id="driveMode" class="drive-mode">SPORT</span></div>
+  </div>
+  <div id="partyList" class="partylist"></div>
+  <div id="peerMarkers" class="peer-markers"></div>
+  <div id="chatLog" class="chatlog" aria-live="polite"></div>
+  <input id="chatInput" class="chatinput" maxlength="120" placeholder="Say something… (Enter)" hidden>
+  <div id="musicWidget" class="music-widget" hidden>
+    <div class="mw-art" id="mwArt"></div>
+    <div class="mw-text"><div class="mw-title" id="mwTitle"></div><div class="mw-artist" id="mwArtist"></div></div>
+    <button class="mw-btn" id="mwPrev" title="Previous"><svg class="ic fill" aria-hidden="true"><use href="#i-prev"/></svg></button>
+    <button class="mw-btn" id="mwPlay" title="Play / pause"><svg class="ic fill" aria-hidden="true"><use href="#i-play"/></svg></button>
+    <button class="mw-btn" id="mwNext" title="Next"><svg class="ic fill" aria-hidden="true"><use href="#i-next"/></svg></button>
+    <div class="mw-bar"><i id="mwBar"></i></div>
+  </div>
+  <div id="modeHud" class="mode-hud" hidden></div>
+  <div id="catchUp" class="catchup" hidden>CATCHING UP</div>
+  <div id="ghostNote" class="ghostnote" hidden>INVULNERABLE</div>
+  <div id="roundBanner" class="round-banner" hidden></div>
+</section>
+
+<!-- ============ PAUSE ============ -->
+<section id="pause" class="screen dim" hidden>
+  <div class="panel center-panel pause-panel">
+    <div class="pause-head"><h2>PAUSED</h2><p class="muted small" id="pauseSub"></p></div>
+    <button class="btn green wide" id="resumeBtn">RESUME</button>
+    <button class="btn ghost wide" data-open="vehicles">VEHICLES</button>
+    <button class="btn ghost wide" id="pausePlayers" hidden>PLAYERS</button>
+    <button class="btn ghost wide" data-open="settings">SETTINGS</button>
+    <button class="btn ghost wide" data-open="controls">CONTROLS</button>
+    <button class="btn red wide" id="pauseHome">RETURN TO MENU</button>
+    <button class="btn red wide" id="pauseLeave" hidden>LEAVE SERVER</button>
+  </div>
+</section>
+<!-- ============ VEHICLES (switch car without leaving the game) ============ -->
+<section id="vehicles" class="modal" hidden>
+  <div class="panel modal-box vehicles-box">
+    <button class="close" data-close><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2>SWITCH VEHICLE</h2>
+    <p class="muted small" id="vehiclesNote">Pick one of your cars. You keep your place, your session and your customization.</p>
+    <div id="vehicleGrid" class="vehicle-grid"></div>
+  </div>
+</section>
+
+<!-- ============ CONTROLS ============ -->
+<section id="controls" class="modal" hidden>
+  <div class="panel modal-box">
+    <button class="close" data-close><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2>CONTROLS</h2>
+    <div class="ctrl-cols">
+      <div>
+        <h3>DRIVING</h3>
+        <div class="keys">
+          <span>W / ↑</span>Throttle<span>S / ↓</span>Brake<span>A D / ← →</span>Steer
+          <span>S + W</span>Rolling anti-lag (while moving)<span>H</span>Horn
+          <span>N</span>Sport / comfort (comfort: quiet exhaust, no burbles)
+        </div>
+        <h3>CITY DRIVE</h3>
+        <div class="keys">
+          <span>Shift</span>Handbrake (slide it)<span>S (stopped)</span>Reverse - W to drive on
+        </div>
+        <h3>GEARBOX</h3>
+        <div class="keys">
+          <span>M</span>Automatic / manual<span>E</span>Shift up (N → 1 → 2…)<span>Q</span>Shift down (1 → N → R)
+        </div>
+      </div>
+      <div>
+        <h3>VIEW</h3>
+        <div class="keys">
+          <span>C</span>Camera: chase, far, hood, bumper, custom<span>Space</span>Look back (hold)<span>T</span>Next time of day
+        </div>
+        <h3>GAME</h3>
+        <div class="keys">
+          <span>P</span>Pause<span>R</span>Restart<span>Z / X</span>Left / right signal
+          <span>L</span>Leaderboard<span>Enter</span>Chat (online)
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ============ GAME OVER ============ -->
+<section id="over" class="screen dim" hidden>
+  <div class="over-grid">
+    <div class="over-left">
+      <div class="panel go-main pop" style="--d:0ms">
+        <h1 class="go-title">GAME OVER</h1>
+        <div id="goScore" class="go-score">0</div>
+        <div id="goBest" class="go-best">BEST 0</div>
+        <div id="goNewBest" class="go-newbest" hidden>NEW BEST!</div>
+        <div class="go-coins"><span class="coin-ico"><i class="coin"></i></span><div class="coinbar"><i id="goCoinFill"></i><b id="goCoins">0</b></div></div>
+        <div id="goRewards" class="reward-list"></div>
+        <div class="medal-title">MEDAL LADDER</div>
+        <div id="medals" class="medals"></div>
+        <div id="medalNext" class="medal-next"></div>
+        <button class="btn gold xl" id="reviveBtn">REVIVE</button>
+        <button class="btn blue xl" id="restartBtn">RESTART [R]</button>
+        <button class="btn red xl" id="homeBtn">HOME</button>
+      </div>
+      <div class="panel go-level pop" style="--d:120ms">
+        <div class="star"><b id="goLevel">1</b></div>
+        <div class="xpbar big"><i id="goXp"></i><span id="goXpText">0/200</span></div>
+      </div>
+    </div>
+    <div class="over-shop pop" style="--d:80ms">
+      <h2 class="shop-title">GAME SHOP</h2>
+      <div id="goShop" class="panel shop-list"></div>
+    </div>
+    <div class="over-hearts pop" style="--d:160ms">
+      <div class="heart-head"><svg class="ic" aria-hidden="true"><use href="#i-heart"/></svg>REVIVES <b id="goHearts">0</b></div>
+      <div id="heartShop" class="heart-shop"></div>
+    </div>
+    <div class="over-board pop" style="--d:220ms">
+      <div class="panel board" id="goBoard"></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ MODALS ============ -->
+<section id="leader" class="modal" hidden>
+  <div class="panel modal-box board-modal">
+    <button class="close" data-close><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <div class="board" id="leaderBoard"></div>
+  </div>
+</section>
+
+<section id="online" class="modal" hidden>
+  <div class="panel modal-box online-box">
+    <button class="close" data-close><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2>MULTIPLAYER</h2>
+    <div id="relayStatus" class="muted small" style="margin-bottom:8px"></div>
+    <div id="offlineNote" class="note" hidden>Can't reach the multiplayer network. Check your internet connection. Some school or work networks block these connections.</div>
+    <!-- the server you are in stays visible on every tab, with the two things you can do about it -->
+    <div id="currentServer" class="current-server" hidden></div>
+    <div class="online-tabs" id="onlineTabs">
+      <button class="tab on" data-otab="public">PUBLIC SERVERS</button>
+      <button class="tab" data-otab="create">CREATE SERVER</button>
+      <button class="tab" data-otab="private">PRIVATE &amp; FRIENDS</button>
+    </div>
+    <div class="opane" data-pane="public">
+      <div class="srv-head">
+        <span id="srvStatus" class="muted small">Searching…</span>
+        <span id="srvPing" class="muted small"></span>
+        <div class="spacer"></div>
+        <button class="btn ghost" id="srvRefresh">REFRESH</button>
+      </div>
+      <div class="srv-cols" aria-hidden="true"><span>SERVER</span><span>MODE</span><span>TRAFFIC</span><span>PLAYERS</span><span></span></div>
+      <div id="srvList" class="srv-list"></div>
+    </div>
+    <div class="opane" data-pane="create" hidden>
+      <div class="create-form" id="createForm"></div>
+    </div>
+    <div class="opane" data-pane="private" hidden>
+    <div class="online-cols">
+      <div class="col">
+        <h3>YOU</h3>
+        <div class="row"><input id="nameInput" maxlength="16" placeholder="Driver name"><button class="btn blue" id="nameSave">SAVE</button></div>
+        <div class="row code">Friend code <b id="myCode">------</b><button class="btn gray" id="copyCode">COPY</button></div>
+        <h3>ADD FRIEND</h3>
+        <div class="row"><input id="friendCode" maxlength="6" placeholder="ABC123"><button class="btn green" id="addFriend">ADD</button></div>
+        <div id="requests"></div>
+        <h3>FRIENDS</h3>
+        <div id="friendList" class="friendlist"><div class="muted">No friends yet — share your code!</div></div>
+      </div>
+      <div class="col">
+        <h3>PARTY</h3>
+        <div id="partyNone">
+          <button class="btn green wide" id="createParty">CREATE PARTY</button>
+          <button class="btn blue wide" id="quickPlay">QUICK PLAY (PUBLIC)</button>
+          <div class="row"><input id="joinCode" maxlength="6" placeholder="Party code"><button class="btn gold" id="joinParty">JOIN</button></div>
+        </div>
+        <div id="partyIn" hidden>
+          <div class="row code">Party code <b id="partyCode">000000</b><button class="btn gray" id="copyParty">COPY</button></div>
+          <div id="partySettings" class="party-settings"></div>
+          <div id="partyMembers" class="members"></div>
+          <button class="btn green wide big2" id="driveParty">DRIVE WITH PARTY</button>
+          <button class="btn red wide" id="leaveParty">LEAVE PARTY</button>
+        </div>
+        <p class="muted small">Private parties are for friends: share the party code or invite them. Everyone drives the same traffic. The host picks the mode: Free Drive, City Drive, Last One Standing, First To Score, or Timed Battle.</p>
+      </div>
+    </div>
+    </div>
+  </div>
+</section>
+
+<section id="settings" class="modal" hidden>
+  <div class="panel modal-box settings-box">
+    <button class="close" data-close><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2>Settings</h2>
+    <div class="set-tabs" role="tablist"><button class="set-tab on" data-stab="world">WORLD</button><button class="set-tab" data-stab="audio">AUDIO</button><button class="set-tab" data-stab="drive">DRIVING</button><button class="set-tab" data-stab="gfx">GRAPHICS</button><button class="set-tab" data-stab="keys">KEYBINDS</button><button class="set-tab" data-stab="acct">ACCOUNT</button></div>
+    <div class="set-pane on" data-spane="world">
+        <h3>TIME OF DAY <b id="timeLabel">18:36</b></h3>
+        <input type="range" id="timeSlider" min="0" max="24" step="0.05">
+        <div class="chips" id="timePresets"></div>
+        <label class="toggle"><input type="checkbox" id="timeFlow"> Time passes (1 hour / minute)</label>
+        <h3>SKY <small>[V]</small></h3>
+        <div class="chips" id="skyStyles"></div>
+        <h3>WEATHER <small>[B]</small></h3>
+        <div class="chips" id="weathers"></div>
+    </div>
+    <div class="set-pane" data-spane="audio">
+        <h3>AUDIO</h3>
+        <label class="slider">Master <input type="range" id="volMaster" min="0" max="1" step="0.01"></label>
+        <label class="slider">Engine <input type="range" id="volEngine" min="0" max="1.5" step="0.01"></label>
+        <label class="slider">Effects <input type="range" id="volFx" min="0" max="1.5" step="0.01"></label>
+        <label class="slider">Wind/road <input type="range" id="volWind" min="0" max="1" step="0.01"></label>
+    </div>
+    <div class="set-pane" data-spane="drive">
+        <h3>TRAFFIC <small>(solo &amp; parties you create)</small></h3>
+        <div class="chips" id="trafficLevels"></div>
+        <h3>DRIVING</h3>
+        <label class="toggle"><input type="checkbox" id="optManual"> Start in manual gearbox [M]</label>
+        <label class="toggle"><input type="checkbox" id="optHideNames"> Hide other players' names</label>
+        <h3>CAMERA <small>[C]</small></h3>
+        <button class="btn ghost wide" data-open="camEdit">CUSTOMIZE CAMERA...</button>
+    </div>
+    <div class="set-pane" data-spane="gfx">
+        <h3>GRAPHICS</h3>
+        <label class="toggle"><input type="checkbox" id="optShadows"> Shadows</label>
+        <label class="toggle"><input type="checkbox" id="optBloom"> Bloom <span class="muted small">(light bleed at night)</span></label>
+        <label class="toggle"><input type="checkbox" id="optCinematic"> Cinematic mode <span class="muted small">(letterbox, vignette, film grade)</span></label>
+        <label class="slider">Quality <select id="optGfx" class="ms-select">
+          <option value="-1">Custom</option><option value="0">Low</option><option value="1">Medium</option><option value="2">High</option><option value="3">Ultra</option><option value="4">RTX</option>
+        </select></label>
+        <label class="slider">Resolution <input type="range" id="optRes" min="0.5" max="2" step="0.25"></label>
+        <label class="slider">Scenery <input type="range" id="optScenery" min="0.25" max="1.5" step="0.25"></label>
+        <label class="slider">View distance <input type="range" id="optView" min="0.5" max="1.25" step="0.25"></label>
+        <label class="slider">Night lighting <select id="optNight" class="ms-select">
+          <option value="0">Low</option><option value="1">Medium</option><option value="2">High</option></select></label>
+    </div>
+    <div class="set-pane" data-spane="keys">
+        <h3>KEYBINDS</h3>
+        <p class="muted small">Click a key, then press the new one. W A S D and the arrows stay fixed. Esc cancels.</p>
+        <div id="bindList" class="bind-list"></div>
+        <button class="btn ghost" id="bindReset">RESET KEYBINDS</button>
+    </div>
+    <div class="set-pane" data-spane="acct">
+        <h3>SIGNED IN</h3>
+        <div class="acct-row"><div><b id="acctName">—</b><small>Saved in this browser</small></div><button class="btn ghost" id="signOut">SIGN OUT</button></div>
+        <h3>ADMIN</h3>
+        <div id="adminLocked" class="row">
+          <input type="password" id="adminCode" placeholder="Access code" autocomplete="off">
+          <button class="btn ghost" id="adminUnlock">UNLOCK</button>
+        </div>
+        <div id="adminTools" class="admin-tools" hidden>
+          <div class="row"><input type="number" id="adminCoins" placeholder="Coins" min="0"><button class="btn accent" id="adminSetCoins">SET COINS</button></div>
+          <div class="row"><input type="number" id="adminHearts" placeholder="Revives" min="0"><button class="btn accent" id="adminSetHearts">SET REVIVES</button></div>
+          <div class="row"><input type="number" id="adminBest" placeholder="Best score" min="0"><button class="btn accent" id="adminSetBest">SET BEST</button></div>
+          <div class="admin-grid">
+            <button class="btn ghost" id="adminUnlockCars">UNLOCK ALL CARS</button>
+            <button class="btn ghost" id="adminUnlockParts">UNLOCK ALL PARTS</button>
+            <button class="btn ghost" id="adminClearTunes">CLEAR ALL TUNES</button>
+            <button class="btn ghost" id="adminGod">GOD MODE: OFF</button>
+            <button class="btn danger" id="adminWipe">RESET PROFILE</button>
+            <button class="btn ghost" id="adminLock">LOCK PANEL</button>
+          </div>
+          <p class="muted small">Local developer tools — they change this browser's save only.</p>
+        </div>
+        <h3>DATA</h3>
+        <button class="btn danger" id="resetAll">RESET ALL DATA</button>
+        <p class="muted small">Erases your level, coins, cars, tunes and settings on this device.</p>
+        <h3>CONTROLS</h3>
+        <button class="btn ghost wide" data-open="controls">VIEW ALL CONTROLS</button>
+    </div>
+  </div>
+</section>
+
+<section id="media" class="modal" hidden>
+  <div class="panel modal-box media-box">
+    <button class="close" data-close><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2>MUSIC</h2>
+    <div class="media-main">
+      <div class="media-art" id="mediaArt"><svg class="ic" aria-hidden="true"><use href="#i-music"/></svg></div>
+      <div class="media-info">
+        <div class="media-title" id="mediaTitle">Nothing playing</div>
+        <div class="media-artist" id="mediaArtist">—</div>
+        <div class="media-album" id="mediaAlbum"></div>
+        <div class="media-bar" id="mediaBar"><i></i></div>
+        <div class="media-times"><span id="mediaNow">0:00</span><span id="mediaDur">0:00</span></div>
+        <div class="media-controls">
+          <button class="btn ghost" id="mediaPrev" title="Previous"><svg class="ic fill" aria-hidden="true"><use href="#i-prev"/></svg></button>
+          <button class="btn primary lg" id="mediaPlay" title="Play / pause"><svg class="ic fill" aria-hidden="true"><use href="#i-play"/></svg></button>
+          <button class="btn ghost" id="mediaNext" title="Next"><svg class="ic fill" aria-hidden="true"><use href="#i-next"/></svg></button>
+          <label class="media-vol">Volume <input type="range" id="mediaVol" min="0" max="1" step="0.01"></label>
+        </div>
+        <label class="toggle media-fx"><input type="checkbox" id="mediaFx"> <span><b>In-game acoustics</b> — the music echoes in tunnels and off city walls, sounds like the car's stereo from outside it, and muffles when you pause or crash</span></label>
+      </div>
+    </div>
+    <div class="media-link">
+      <input type="text" id="mediaLink" placeholder="Paste a Spotify or YouTube link" autocomplete="off" spellcheck="false">
+      <button class="btn primary" id="mediaLinkAdd">ADD LINK</button>
+    </div>
+    <p class="muted small media-link-note">Links play in Spotify's and YouTube's own players, shown bottom-left while one is on. Spotify plays full songs if you're logged in to Spotify in this browser, 30-second previews if not. In-game acoustics only work on your own files.</p>
+    <div class="media-add">
+      <button class="btn accent" id="mediaAdd">ADD TRACKS</button>
+      <input type="file" id="mediaFiles" accept="audio/*" multiple hidden>
+      <p class="muted small" id="mediaNote"></p>
+    </div>
+    <div id="mediaList" class="media-list"></div>
+  </div>
+</section>
+
+<section id="camEdit" class="modal" hidden>
+  <div class="panel modal-box cam-box">
+    <button class="close" data-close><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2>Custom camera</h2>
+    <div class="cam-grid">
+      <div class="cam-view">
+        <canvas id="camPreview" width="480" height="270"></canvas>
+        <p class="muted small" id="camPreviewNote">Live preview: what this camera sees, behind your car.</p>
+      </div>
+      <div class="cam-controls">
+        <label class="cam-slider"><span>Distance</span><input type="range" id="camDist" min="3" max="22" step="0.5"><b id="camDistV"></b></label>
+        <label class="cam-slider"><span>Height</span><input type="range" id="camHeight" min="0.8" max="9" step="0.1"><b id="camHeightV"></b></label>
+        <label class="cam-slider"><span>Tilt</span><input type="range" id="camPitch" min="-8" max="14" step="0.5"><b id="camPitchV"></b></label>
+        <label class="cam-slider"><span>Field of view</span><input type="range" id="camFov" min="40" max="100" step="1"><b id="camFovV"></b></label>
+        <div class="row cam-actions">
+          <button class="btn accent" id="camUse" style="flex:1">USE THIS CAMERA</button>
+          <button class="btn ghost" id="camReset">RESET</button>
+        </div>
+        <p class="muted small">While driving, <b>C</b> cycles chase, far, hood, bumper and this custom camera. Tilt is the angle the view points below level, and the field of view widens a little as you speed up.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="daily" class="modal" hidden>
+  <div class="panel modal-box daily-box">
+    <button class="close" data-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    <h2>DAILY CHALLENGES <small id="dailyReset"></small></h2>
+    <p class="muted small daily-intro">Three a day, the same for everyone. They count in any mode and pay out the moment you finish one.</p>
+    <div id="dailyList" class="daily-list"></div>
+    <div id="dailyBonus" class="daily-bonus"></div>
+  </div>
+</section>
+
+<section id="tune" class="modal" hidden>
+  <!-- The workshop: sections down the left, the one being worked on in the middle, and a dyno on
+       the right that always shows where the build stands - and where a part you are looking at
+       would take it before you pay for it. -->
+  <div class="panel modal-box ws">
+    <header class="ws-head">
+      <div class="ws-title">
+        <span class="ws-kicker">WORKSHOP</span>
+        <h2 id="tuneCar"></h2>
+        <div class="ws-engine" id="tuneEngine"></div>
+      </div>
+      <div class="wallet"><i class="coin"></i><b id="tuneCoins">0</b></div>
+      <button class="close" data-close aria-label="Close"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </header>
+    <div class="ws-body">
+      <nav class="ws-nav" id="tuneNav" aria-label="Workshop sections"></nav>
+      <div class="ws-main" id="tuneMain">
+        <div class="ws-pane" id="paneParts"></div>
+        <div class="ws-pane" id="paneEcu" hidden>
+          <div class="pane-head"><h3>ECU MAP</h3><p>Boost, timing, fuel, rev limit and gearing. Changes are a draft until you flash them on the dyno.</p></div>
+          <div id="ecuGate" class="gate" hidden></div>
+          <div id="tunePresets" class="stages"></div>
+          <div id="tuneSliders" class="mgroup"></div>
+        </div>
+        <div class="ws-pane" id="paneSound" hidden>
+          <div class="pane-head"><h3>EXHAUST SOUND</h3><p>How the exhaust behaves off the throttle. The engine's own voice stays - this shapes its character.</p></div>
+          <div id="tuneExhaust" class="mgroup"></div>
+          <div class="mcard">
+            <label class="mswitch"><input type="checkbox" id="tBrap"><span><b>Upshift crackle</b><small>A crack on the gearchange when the engine is hot and loaded</small></span></label>
+            <div class="mcard-row"><div><b>When you lift off W</b><small>What the turbo does with the boost it was holding</small></div><div class="chips" id="tRelease"></div></div>
+          </div>
+        </div>
+        <div class="ws-pane" id="paneLooks" hidden>
+          <div class="pane-head"><h3>PAINT &amp; STYLE</h3><p>Pick anything to preview it on the car. Nothing is charged until you save.</p></div>
+          <div class="mcard">
+            <div class="looks-label">PAINT</div>
+            <div class="swatches" id="swatches"></div>
+            <label class="custom-pick">Custom colour <input type="color" id="paintPick"></label>
+          </div>
+          <div class="mcard"><div id="styleBox" class="style-box"></div></div>
+        </div>
+        <div id="tuneApplyBar" class="apply-bar" hidden></div>
+      </div>
+      <aside class="ws-dyno" aria-label="Dyno">
+        <div class="dy-power" id="dyPower"></div>
+        <div class="dy-chart-box">
+          <canvas id="dyChart" class="dy-chart"></canvas>
+          <div class="dy-legend"><span class="lg-hp">Power</span><span class="lg-nm">Torque</span><span class="lg-stock">Stock</span><span class="lg-next" id="dyLegNext" hidden>Preview</span></div>
+        </div>
+        <div class="dy-stats" id="dyStats"></div>
+        <div class="dy-stress" id="dyStress"></div>
+        <div id="tuneWarn" class="tune-warn" hidden></div>
+        <div class="dy-actions">
+          <button class="btn primary dyno-btn" id="tuneDyno">▶ RUN DYNO</button>
+          <button class="btn accent" id="tuneRev">HOLD TO REV</button>
+          <button class="btn ghost" id="tuneReset">RESET</button>
+        </div>
+        <button class="btn primary wide" id="applyBest" hidden>UPGRADE EVERYTHING</button>
+      </aside>
+    </div>
+  </div>
+</section>
+
+<!-- the embedded Spotify / YouTube player for a pasted link: it has to stay visible while it plays -->
+<div id="streamDock" class="stream-dock" hidden aria-label="Now playing">
+  <div class="sd-yt"><div id="ytHost"></div></div>
+  <div class="sd-sp"><div id="spHost"></div></div>
+</div>
+<div id="toasts" class="toasts"></div>
+<script type="module" src="js/main.js?v=muew3v7x"></script>
+</body>
+</html>
