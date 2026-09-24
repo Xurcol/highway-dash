@@ -432,14 +432,16 @@ const loader = (() => {
   let songLevel = SONG_VOL;                    // where the song sits now (the account screen ducks it)
   // ---- the website version: the clip from YouTube ----
   // The website ships without the clip file, so the clip comes from YouTube through its own embedded
-  // player: it covers the screen under the scrim, muted, and jumps back to its start just before the
-  // end so its end screen never shows. If YouTube can't play it here, the screen stays as it was.
+  // player: it covers the screen under the scrim and jumps back to its start just before the end so
+  // its end screen never shows. It is muted until the first click or key press (browsers allow no
+  // sound before one); then its own sound is the loading music, ducked on the sign-in screen and faded
+  // out with everything else, like the song file locally. If YouTube can't play it, the screen stays.
   const BG_ID = "cSYG5vZVkoA";
   const ytPlayer = (slot, videoId, playerVars, events) => youtubeAPI().then((YT) => new YT.Player(slot, {
     videoId, host: "https://www.youtube-nocookie.com", events,
     playerVars: { controls: 0, disablekb: 1, fs: 0, iv_load_policy: 3, rel: 0, playsinline: 1, modestbranding: 1, ...playerVars },
   }));
-  let bg = null, bgHost = null, bgLoop = 0;
+  let bg = null, bgHost = null, bgLoop = 0, bgVol = SONG_VOL, heard = false;
   function startYouTube() {
     if (bgHost) return;
     bgHost = document.createElement("div"); bgHost.className = "loader-yt";
@@ -448,6 +450,7 @@ const loader = (() => {
     ytPlayer(slot, BG_ID, { autoplay: 1, mute: 1 }, {
       onReady: (e) => {
         bg = e.target; bg.mute(); bg.playVideo();
+        if (heard) bgSong.play().catch(() => { });
         bgLoop = setInterval(() => { const d = bg?.getDuration?.() || 0, t = bg?.getCurrentTime?.() || 0; if (d > 1 && t > d - .35) bg.seekTo(0, true); }, 100);
       },
       onStateChange: (e) => { if (e.data === 0) { e.target.seekTo(0, true); e.target.playVideo(); } },
@@ -455,10 +458,25 @@ const loader = (() => {
     }).catch(stopYouTube);
   }
   function stopYouTube() { clearInterval(bgLoop); try { bg?.destroy(); } catch { /* already gone */ } bgHost?.remove(); bgHost = null; bg = null; }
-  // the local build's own song (loader-media/song.mp3); the website version ships without it and stays quiet
+  // the clip's sound standing in for the song file: the same play / pause / volume / release the loader uses
+  const bgSong = {
+    get paused() { return !heard; },
+    get volume() { return bgVol; },
+    set volume(v) { bgVol = v; if (bg && heard) bg.setVolume(Math.round(v * 100)); },
+    play() {
+      if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return Promise.reject(new DOMException("needs a gesture", "NotAllowedError"));
+      heard = true;
+      if (bg) { bg.unMute(); bg.setVolume(Math.round(bgVol * 100)); bg.playVideo(); }
+      return Promise.resolve();
+    },
+    pause() { bg?.pauseVideo(); },
+    removeAttribute() { stopYouTube(); },
+    load() {},
+  };
+  // the local build's own song (loader-media/song.mp3); the website version ships without it and uses the clip's sound
   let song = new Audio("loader-media/song.mp3");
   song.loop = true; song.preload = "auto"; song.volume = SONG_VOL;
-  song.addEventListener("error", () => { song = null; });
+  song.addEventListener("error", () => { song = bgSong; });
   const startSong = () => { if (!song) return; song.volume = songLevel; song.play().then(() => { if (video.paused) video.play().catch(() => { }); }).catch(() => { }); };
   const onGesture = () => startSong();
   const gestures = ["pointerdown", "keydown", "touchstart"];
