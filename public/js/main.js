@@ -426,7 +426,8 @@ const loader = (() => {
   // or key press instead. Missing files (the public build ships without them) just mean no music/video.
   const video = document.getElementById("loaderVideo");
   // the website version ships without the clip and song files: it plays the clip from YouTube instead
-  video.addEventListener("error", () => { video.hidden = true; startYouTube(); });
+  const videoMissing = () => { if (video.hidden) return; video.hidden = true; startYouTube(); };
+  video.addEventListener("error", videoMissing);
   const SONG_VOL = .55;
   let songLevel = SONG_VOL;                    // where the song sits now (the account screen ducks it)
   // ---- the clip from YouTube (website version) ----
@@ -497,6 +498,9 @@ const loader = (() => {
     };
     step();
   });
+  // The <video> starts fetching as soon as the page is parsed, so on the website its "not found" can
+  // come before this code runs and the error event is long gone: check for that too.
+  if (video.error || video.networkState === HTMLMediaElement.NETWORK_NO_SOURCE) videoMissing();
   // everything stopped and released once the screen is gone
   const unload = () => {
     if (song) { song.pause(); song.removeAttribute("src"); song.load(); song = null; }
