@@ -171,7 +171,8 @@ export function burbleIntensity(o) {
   const boostF = .45 + .55 * clamp01(o.boost);
   const gearF = Math.max(.55, 1 - .07 * Math.max(0, (o.gear || 1) - 1));
   const temp = .6 + .4 * clamp01(o.warmth ?? 1);
-  return 1.6 * rpmN * (.4 + .6 * rpmN) * (.35 + .65 * rel) * loadF * boostF * gearF * temp * o.burble * o.crackle * (o.sport ? 1 : .16);
+  // comfort keeps the fuel cut clean: nothing unburnt reaches the pipe, so no burbles at all
+  return 1.6 * rpmN * (.4 + .6 * rpmN) * (.35 + .65 * rel) * loadF * boostF * gearF * temp * o.burble * o.crackle * (o.sport ? 1 : 0);
 }
 
 class Delay {
@@ -252,12 +253,12 @@ export class EngineDSP {
         if (m.overrun !== undefined) this.overrun = m.overrun;
         break;
       case "profile": this.setProfile(m.name); break;
-      case "tune": Object.assign(t, m.tune || {}); this.mode = "sport"; break;
+      case "tune": Object.assign(t, m.tune || {}); this.mode = m.mode === "comfort" ? "comfort" : "sport"; break;
       case "upshift": this.onUpshift(m); break;
       case "downshift": this.onDownshift(m); break;
       case "limiter": this.cut = .03; break;
       case "lift": this.onLift(m); break;
-      case "pop": this.addPop(m.v ?? .8, .05); break;
+      case "pop": if (this.mode === "sport") this.addPop(m.v ?? .8, .05); break;
       case "antilagOn": this.antilagHold = 1; break;
       case "antilagOff": this.antilagHold = 0; break;
       case "view": this.viewTarget = VIEWS[m.view] || VIEWS.exterior; break;
@@ -281,7 +282,7 @@ export class EngineDSP {
     if (dsg && sport && (m.load ?? this.load) > .25) this.dsgShift(dsg, clamp01(.35 + I));
     // A V12 cracks off a bang on every single gearchange - unlike the shift fart below it is not
     // gated on revs, load or luck, because that hard bang IS the shift on these cars.
-    if (this.p.cyl === 12) this.bang(2.4, .008);
+    if (this.p.cyl === 12 && sport) this.bang(2.4, .008);
     // a shift fart needs revs AND load: it does not happen on every single gearchange
     if (sport && t.brap && this.rand() < clamp01(.15 + 1.1 * I)) this.burst(Math.min(5, 2 + Math.round(I * 4)), I * 2.1, .03, .045);
     if (this.boostN > .25) this.release(.45);
@@ -318,7 +319,7 @@ export class EngineDSP {
       if (I > .3 && this.rand() < .35 + I * .5) this.bang(Math.min(1.6, .7 + I), .05 + this.rand() * .09);
     }
     // anti-lag: ignition retarded into the manifold keeps the turbo lit and fires the exhaust
-    if (t.antilag && (m.rpm ?? this.rpm) > 3500 && this.boostN > .3) { this.als = .9 + this.rand() * .4; this.alsNext = .03; }
+    if (t.antilag && this.mode === "sport" && (m.rpm ?? this.rpm) > 3500 && this.boostN > .3) { this.als = .9 + this.rand() * .4; this.alsNext = .03; }
     if (this.boostN > .15) this.release(1);
   }
   // A bang: the exhaust gas igniting in the pipe. Long, low and loud - a pressure wave with a thump
@@ -378,7 +379,7 @@ export class EngineDSP {
     const vw = this.view, vt = this.viewTarget, vk = 1 - Math.exp(-n / sr / .12);
     for (const k in vt) vw[k] += (vt[k] - vw[k]) * vk;
     for (let k = 0; k < 2; k++) setLP(this.banks[k].soft, Math.min(sport ? 11000 : 6500, vw.lp), .6, sr);
-    const outGain = p.gain * t.exhaust * (sport ? .75 : .5) * SYNTH.trim;
+    const outGain = p.gain * t.exhaust * (sport ? .75 : .42) * SYNTH.trim;
     const whine = t.whine || 0;
     const rev = t.redline || 7000;
     const turboAmt = (p.turbo || 0) * (t.turbo ?? .8);

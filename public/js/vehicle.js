@@ -101,7 +101,7 @@ export class Drivetrain {
     // ---- rolling anti-lag: brake held hard against full throttle while under way. Nothing is
     // driving the wheels (the brake is winning that fight), so the car holds its speed while the
     // engine revs free and bounces off the limiter, same as a rally car holding boost into a corner.
-    const antilagOn = fwd && this.v > 1.5 && throttle > .85 && brake > .4;
+    const antilagOn = fwd && this.mode !== "comfort" && this.v > 1.5 && throttle > .85 && brake > .4;
     if (antilagOn && !this.antilag) this.events.push("antilagOn");
     else if (!antilagOn && this.antilag) this.events.push("antilagOff");
     this.antilag = antilagOn ? 1 : 0;
@@ -161,8 +161,9 @@ export class Drivetrain {
     if (this.v < 0) this.v = 0;   // braking or drag can bring the car to rest, never push it backwards
 
     if (!this.manual && fwd && this.shiftT <= 0 && this.lastShift > 0.35) {
-      const sport = true;
-      const up = s.redline * (sport ? .72 + .24 * throttle : .42 + .3 * throttle);
+      const sport = this.mode !== "comfort";
+      // comfort changes up early while you cruise; flat out it runs to the same point as sport
+      const up = s.redline * (sport ? .72 + .24 * throttle : .4 + .56 * throttle * throttle);
       if (this.rpm > up && this.gear < s.ratios.length) this.shiftUp(true);
       else if (this.gear > 1) {
         const lower = this.rpmFor(this.v, this.gear - 1);

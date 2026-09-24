@@ -21,7 +21,7 @@ Then open http://localhost:3000.
 | S / ↓ | Brake |
 | Space | Look back (hold) |
 | A D / ← → | Steer |
-| N | Sport / Comfort drive mode |
+| N | Sport / Comfort: Comfort shuts the exhaust valves (quieter, no burbles or pops) and changes up early while cruising |
 | M | Switch between manual and automatic |
 | Q / E | Gear lever: R - N - 1 - 2 ... |
 | Z / X | Left / right turn signal (flashes 3 times, then turns off) |

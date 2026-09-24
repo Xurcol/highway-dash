@@ -137,7 +137,7 @@ class SampleVoice {
       if (w > 0) l.src.playbackRate.setTargetAtTime(Math.max(.55, Math.min(1.7, rpm / l.rpm)), t, .03);
     }
     const sport = this.mode === "sport";
-    this.master.gain.setTargetAtTime((s.gain || 0) * .3 * this.tuneState.exhaust * (sport ? 1 : .65), t, .06);
+    this.master.gain.setTargetAtTime((s.gain || 0) * .3 * this.tuneState.exhaust * (sport ? 1 : .55), t, .06);
     this.tone.frequency.setTargetAtTime(sport ? 6500 : 3800, t, .2);
   }
   // same decel-fuel-cut model the synth uses, so recorded and synthesised engines behave alike

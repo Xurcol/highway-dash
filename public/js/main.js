@@ -573,7 +573,7 @@ const keys = {};
 const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) && document.activeElement.type !== "range" && document.activeElement.type !== "checkbox";
 // Rebindable keys. The game reads fixed "logical" codes (KeyH, KeyE ...); the player's choices map a
 // physical key onto the logical one, so nothing else in the game has to know about rebinding.
-const KEY_ACTIONS = { KeyH: "Horn", KeyE: "Shift up", KeyQ: "Shift down", KeyM: "Manual / automatic", KeyC: "Camera", Space: "Look back", KeyT: "Next time of day", KeyV: "Next sky", KeyB: "Next weather", KeyP: "Pause", KeyR: "Restart", KeyZ: "Left signal", KeyX: "Right signal", KeyL: "Leaderboard" };
+const KEY_ACTIONS = { KeyN: "Sport / comfort", KeyH: "Horn", KeyE: "Shift up", KeyQ: "Shift down", KeyM: "Manual / automatic", KeyC: "Camera", Space: "Look back", KeyT: "Next time of day", KeyV: "Next sky", KeyB: "Next weather", KeyP: "Pause", KeyR: "Restart", KeyZ: "Left signal", KeyX: "Right signal", KeyL: "Leaderboard" };
 const keyOf = (act) => P.settings.binds?.[act] || act;
 const logicalKey = (phys) => {
   const b = P.settings.binds; if (!b) return phys;
@@ -605,8 +605,9 @@ addEventListener("blur", () => { for (const k in keys) keys[k] = false; audio.ho
 addEventListener("contextmenu", (e) => { if (!["INPUT", "TEXTAREA"].includes(e.target?.tagName)) e.preventDefault(); });
 const held = (...codes) => codes.some((c) => keys[c]);
 
-// Every car runs its performance configuration; there is no mode switch.
-P.settings.driveMode = "sport";
+// N switches every car between Sport (valves open, burbles and pops) and Comfort (valves shut, no
+// burbles, quieter, early relaxed upshifts). Anything else in an old save means Sport.
+if (P.settings.driveMode !== "comfort") P.settings.driveMode = "sport";
 // ---------------- game state ----------------
 let state = "home";       // home | ready | drive | crashed | over
 let paused = false;
@@ -979,6 +980,7 @@ function goHome() {
 // ---------------- keys ----------------
 function onKey(code) {
   if (ui.anyModalOpen()) { if (code === "Escape") ui.closeModals(); return; }
+  if (code === "KeyN") return toggleDriveMode();
   if (code === "KeyL" && state !== "home") return ui.toggleModal("leader");
   if (code === "KeyJ" && state !== "home") return ui.toggleModal("media");
   if (state === "ready" && (code === "Space" || code === "Enter")) return mode === "online" && partyRound ? null : startDriving();
@@ -1006,6 +1008,15 @@ function onKey(code) {
     case "KeyX": G.sigR = G.sigR ? 0 : 6; G.sigL = 0; G.sigT = 0; G.sigOn = false; break;
     case "KeyH": audio.horn(true); break;
   }
+}
+// Sport <-> Comfort. The drivetrain and the engine voice both take it from applyTune, and the next
+// state packet tells the other players' clients, so they hear the change too.
+function toggleDriveMode() {
+  P.settings.driveMode = P.settings.driveMode === "comfort" ? "sport" : "comfort";
+  save();
+  applyTune();
+  G.cfgDirty = 1;
+  ui.toast(P.settings.driveMode === "comfort" ? "COMFORT — quiet exhaust, no burbles" : "SPORT — valves open, burbles on", [], "info");
 }
 let menuOpen = false;
 function togglePause() {
@@ -1626,7 +1637,7 @@ function pedals(dt, thrIn, brkIn) {
       rpm: d.rpm, load: G.liftLoad ?? d.load, release,
       boost: d.s.boostMax ? d.boost / d.s.boostMax : 0, gear: Math.max(1, d.gear),
       warmth: d.warmth, redline: ac.redline || d.s.redline, burbleRpm: ac.burbleRpm || 3000,
-      burble: ac.burble ?? .75, crackle: 1, sport: true,
+      burble: ac.burble ?? .75, crackle: 1, sport: P.settings.driveMode !== "comfort",
     });
   };
   if (thrIn) { G.release = 0; G.liftLoad = d.load; }
@@ -2194,6 +2205,7 @@ function drawTach(rpm, redline, manual) {
   g.fillStyle = shift ? "#fff" : "#f4f4f0"; g.fill();
 }
 let hudCache = {};
+const driveModeEl = document.getElementById("driveMode");
 function setText(el, v) { if (hudCache[el.id] !== v) { hudCache[el.id] = v; el.textContent = v; } }
 const gearLabel = (g) => (g === 0 ? "N" : String(g));
 function updateHud() {
@@ -2207,6 +2219,9 @@ function updateHud() {
   setText(ui.el.dist, `${(G.dist / 1609.34).toFixed(1)} Mi`);
   setText(ui.el.gear, G.city && G.rev ? "R" : d.shiftT > 0 ? "-" : gearLabel(d.gear));
   setText(ui.el.gearMode, d.manual ? "MANUAL" : "AUTO");
+  const comfort = P.settings.driveMode === "comfort";
+  setText(driveModeEl, comfort ? "COMFORT" : "SPORT");
+  driveModeEl.classList.toggle("comfort", comfort);
   ui.el.gearMode.classList.toggle("man", d.manual);
   ui.el.sigL.classList.toggle("on", !!G.sigL && G.sigOn);
   ui.el.sigR.classList.toggle("on", !!G.sigR && G.sigOn);

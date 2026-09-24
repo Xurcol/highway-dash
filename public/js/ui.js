@@ -129,7 +129,7 @@ export class UI {
   renderReadyKeys() {
     const k = (act) => this.ctx.keyOf(act).replace(/^Key/, "");
     const hint = [
-      [["W", "S"], "Gas / brake"], [["A", "D"], "Steer"], [[k("KeyQ"), k("KeyE")], "Gears"], [[k("KeyM")], "Manual"],
+      [["W", "S"], "Gas / brake"], [["A", "D"], "Steer"], [[k("KeyQ"), k("KeyE")], "Gears"], [[k("KeyM")], "Manual"], [[k("KeyN")], "Sport / comfort"],
       [[k("Space")], "Look back"], [[k("KeyC")], "Camera"], [[k("KeyH")], "Horn"],
     ];
     $("readyKeys").innerHTML = hint.map(([ks, label]) => `<span class="rk">${ks.map((x) => `<kbd>${esc(x)}</kbd>`).join("")}<i>${label}</i></span>`).join("");
