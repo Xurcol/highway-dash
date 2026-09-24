@@ -17,6 +17,7 @@ import { tunedSpec, peakHp, PARTS } from "./tuning.js";
 import { UI } from "./ui.js";
 import { dailyTrack, dailyBest, dailyFlush, dailyHooks } from "./daily.js";
 import { signIn } from "./auth.js";
+import { synthSong } from "./loadmusic.js";
 import { loadModels, makeCar, ensureModel, hasModel, MODELS, missingModels, downloadModels } from "./models.js";
 
 // ---------------- renderer / scenes ----------------
@@ -426,10 +427,15 @@ const loader = (() => {
   const video = document.getElementById("loaderVideo");
   video.addEventListener("error", () => { video.hidden = true; });
   const SONG_VOL = .55;
-  let song = new Audio("loader-media/wrist.mp3");
-  song.loop = true; song.preload = "auto"; song.volume = SONG_VOL;
-  song.addEventListener("error", () => { song = null; });
   let songLevel = SONG_VOL;                    // where the song sits now (the account screen ducks it)
+  // the local build's own song (loader-media/song.mp3); where it isn't there - the public build ships
+  // without it - a synthwave loop made on the spot takes its place (loadmusic.js)
+  let song = new Audio("loader-media/song.mp3");
+  song.loop = true; song.preload = "auto"; song.volume = SONG_VOL;
+  song.addEventListener("error", () => {
+    song = synthSong(); song.volume = songLevel;
+    if (navigator.userActivation?.hasBeenActive) startSong();
+  });
   const startSong = () => { if (!song) return; song.volume = songLevel; song.play().then(() => { if (video.paused) video.play().catch(() => { }); }).catch(() => { }); };
   const onGesture = () => startSong();
   const gestures = ["pointerdown", "keydown", "touchstart"];
@@ -460,6 +466,9 @@ const loader = (() => {
       this.stage("Ready", "", 1);
       clearInterval(tipTimer);
       document.querySelector(".loader-box").classList.add("away");
+      // no clip to play behind the card (the public build ships none): the screen turns see-through
+      // and the real garage - the car turning on its stand - becomes the background, under a blur
+      if (video.hidden) el.classList.add("live");
       fadeSong(SONG_VOL * .2, 900);
       await signIn();
     },

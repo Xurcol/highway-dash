@@ -823,7 +823,7 @@ h1,h2,.tab,.mode-hud{font-family:var(--display)}
 
 /* ---------- first-run loader ---------- */
 .loader{position:fixed;inset:0;z-index:200;display:flex;align-items:center;justify-content:center;
-  background:radial-gradient(120% 80% at 50% 0%,#1a1a1d 0%,var(--bg) 62%);overflow:hidden;
+  overflow:hidden;
   opacity:1;transition:opacity .5s var(--ease)}
 .loader[hidden]{display:none}
 /* the exit: a slow fade (the song is faded out over the first 2.4 s of it, see loader.finish) */
@@ -855,6 +855,13 @@ h1,h2,.tab,.mode-hud{font-family:var(--display)}
 .loader-sub{font-size:var(--t-sm);color:var(--ink-2);font-variant-numeric:tabular-nums;min-height:1.2em}
 .loader-tip{font-size:var(--t-sm);color:var(--ink-3);min-height:2.6em;margin:var(--s3) 0 0;line-height:1.5}
 .loader-foot{position:absolute;bottom:var(--s4);left:0;right:0;text-align:center;font-size:var(--t-xs);color:var(--ink-3);letter-spacing:1px}
+/* The loading screen's backdrop is a layer of its own. With no background clip to play (the public
+   build ships none), at sign-in it fades away and leaves a blurred view of the live garage - the car
+   turning on its stand - behind the card. */
+.loader::before{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 50% 0%,#1a1a1d 0%,var(--bg) 62%);transition:opacity 1.2s var(--ease)}
+.loader.live{background:rgba(8,8,9,.4);backdrop-filter:blur(7px) saturate(.9);-webkit-backdrop-filter:blur(7px) saturate(.9)}
+.loader.live::before,.loader.live .loader-bg{opacity:0}
+.loader-bg{transition:opacity .8s var(--ease)}
 /* the loading panel steps aside for the account screen */
 .loader-box.away{opacity:0;transform:translateY(-10px);pointer-events:none;transition:opacity .5s var(--ease),transform .5s var(--ease)}
 
