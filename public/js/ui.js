@@ -1473,28 +1473,28 @@ export class UI {
     const C = pts(cur);
     if (C.length) {
       const grd = g.createLinearGradient(0, T, 0, h - B);
-      grd.addColorStop(0, "rgba(255,214,10,.2)"); grd.addColorStop(1, "rgba(255,214,10,0)");
+      grd.addColorStop(0, "rgba(255,255,255,.14)"); grd.addColorStop(1, "rgba(255,255,255,0)");
       g.beginPath(); g.moveTo(X(C[0].rpm), Y(0));
       for (const p of C) g.lineTo(X(p.rpm), Y(p.hp));
       g.lineTo(X(C[C.length - 1].rpm), Y(0)); g.closePath(); g.fillStyle = grd; g.fill();
     }
-    line(stock, "nm", "rgba(244,244,240,.22)", 1.2, [3, 3]);
+    line(stock, "nm", "rgba(138,138,133,.35)", 1.2, [3, 3]);
     line(stock, "hp", "rgba(168,168,162,.45)", 1.2, [3, 3]);
-    line(cur, "nm", "#f4f4f0", 1.8);
-    line(cur, "hp", "#ffd60a", 2.4);
-    if (next) { line(next, "nm", "rgba(255,159,10,.65)", 1.6, [5, 3]); line(next, "hp", "#ff9f0a", 1.8, [5, 3]); }
+    line(cur, "nm", "#8a8a85", 1.8);
+    line(cur, "hp", "#f4f4f0", 2.4);
+    if (next) { line(next, "nm", "rgba(200,200,195,.7)", 1.6, [5, 3]); line(next, "hp", "#ffffff", 1.8, [5, 3]); }
     // during a run: a cursor at the revs the rollers are turning, and the reading at its tip
     if (upTo < Infinity) {
       const x = Math.round(X(Math.min(upTo, x1))) + .5, tip = C[C.length - 1];
       g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 1; g.beginPath(); g.moveTo(x, T); g.lineTo(x, h - B); g.stroke();
-      if (tip) { g.fillStyle = "#ffd60a"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.hp), 3.5, 0, Math.PI * 2); g.fill(); g.fillStyle = "#f4f4f0"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.nm), 3, 0, Math.PI * 2); g.fill(); }
+      if (tip) { g.fillStyle = "#ffffff"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.hp), 3.5, 0, Math.PI * 2); g.fill(); g.fillStyle = "#8a8a85"; g.beginPath(); g.arc(X(tip.rpm), Y(tip.nm), 3, 0, Math.PI * 2); g.fill(); }
       return;
     }
     // mark the peak
     const pk = (next ? pts(next) : C).reduce((a, p) => (p.hp > a.hp ? p : a), { hp: -1 });
     if (pk.hp > 0) {
       const x = X(pk.rpm), y = Y(pk.hp);
-      g.fillStyle = next ? "#ff9f0a" : "#ffd60a"; g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill();
+      g.fillStyle = "#ffffff"; g.beginPath(); g.arc(x, y, 3.5, 0, Math.PI * 2); g.fill();
       g.fillStyle = "#f4f4f0"; g.textAlign = x > w - 70 ? "right" : "left";
       g.fillText(`${Math.round(pk.hp)} hp`, x + (x > w - 70 ? -7 : 7), Math.max(T + 8, y - 6));
     }

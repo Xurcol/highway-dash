@@ -1875,7 +1875,7 @@ function drawTach(rpm, redline, manual) {
   const shift = rpm > redline * .9;                 // shift light: the arc warms up, then flashes in manual
   const flash = shift && manual && Math.floor(performance.now() / 80) % 2 === 0;
   const grad = g.createConicGradient(T_A0, T_C, T_C);
-  grad.addColorStop(0, "#f4f4f0"); grad.addColorStop(.55, "#ffd60a"); grad.addColorStop(.78, "#ff453a"); grad.addColorStop(1, "#ff453a");
+  grad.addColorStop(0, "#8a8a85"); grad.addColorStop(.55, "#f4f4f0"); grad.addColorStop(.78, "#ff453a"); grad.addColorStop(1, "#ff453a");
   g.lineCap = "round";
   g.save();
   if (shift) { g.shadowColor = "rgba(255,69,58,.8)"; g.shadowBlur = 18; }

@@ -1,7 +1,7 @@
 /* =============================================================================
    Highway Dash - interface
-   A motorsport instrument panel rather than a web app: graphite surfaces, one signal-yellow
-   accent with white as its second voice, flat fills (no gradients, no glows), square-cut corners,
+   A motorsport instrument panel rather than a web app: black and graphite surfaces, white as the
+   accent and grays for everything under it, flat fills (no gradients, no glows), square-cut corners,
    and a condensed italic display face for everything that should feel fast. Every colour, gap,
    radius and size below comes from these tokens.
    ============================================================================= */
@@ -15,9 +15,9 @@
   --hairline:rgba(255,255,255,.08);
   /* text */
   --ink:#f4f4f0; --ink-2:#a8a8a2; --ink-3:#6d6d69;
-  /* one accent - signal yellow with black on it - and white as the second voice */
-  --accent:#ffd60a; --accent-ink:#0a0a0b; --accent-dim:#b89a00; --accent-soft:rgba(255,214,10,.12);
-  --primary:#f4f4f0; --primary-dim:#c9c9c4; --primary-soft:rgba(244,244,240,.07);
+  /* monochrome: white is the accent (black on it), a mid gray the second button colour */
+  --accent:#f4f4f0; --accent-ink:#0a0a0b; --accent-dim:#9a9a95; --accent-soft:rgba(255,255,255,.1);
+  --primary:#3a3a40; --primary-dim:#2c2c31; --primary-soft:rgba(255,255,255,.05);
   /* kept as names so every rule that used a gradient now just gets the flat colour */
   --grad-accent:var(--accent); --grad-primary:var(--primary);
   /* semantic */
@@ -62,7 +62,7 @@ h1,h2,h3{margin:0;font-weight:600;letter-spacing:.2px}
 .ic.fill{fill:currentColor;stroke:none}
 /* the coin: a flat yellow disc with a rim, sized to the text it sits in */
 i.coin{display:inline-block;width:.8em;height:.8em;margin-right:.32em;border-radius:50%;vertical-align:-.06em;flex:none;
-  background:var(--accent);box-shadow:inset 0 0 0 .12em rgba(0,0,0,.28)}
+  background:#d9d9d4;box-shadow:inset 0 0 0 .12em rgba(0,0,0,.35)}
 /* on a yellow fill it turns black so it still shows */
 .btn.accent i.coin,.btn.gold i.coin,.btn.good i.coin,.btn.green i.coin,.card .p i.coin{background:currentColor;box-shadow:none}
 
@@ -79,7 +79,7 @@ i.coin{display:inline-block;width:.8em;height:.8em;margin-right:.32em;border-rad
 .btn:disabled{opacity:.35;cursor:not-allowed;transform:none;filter:none;background:var(--btn-bg)}
 /* yellow is the one call to action; white is the second; red only for leaving or destroying */
 .btn.accent,.btn.gold,.btn.good,.btn.green{--btn-bg:var(--accent);--btn-ink:var(--accent-ink);--btn-line:var(--accent)}
-.btn.primary,.btn.blue{--btn-bg:var(--primary);--btn-ink:#0a0a0b;--btn-line:var(--primary)}
+.btn.primary,.btn.blue{--btn-bg:var(--primary);--btn-ink:var(--ink);--btn-line:var(--primary)}
 .btn.danger,.btn.red{--btn-bg:transparent;--btn-ink:var(--bad);--btn-line:color-mix(in srgb,var(--bad) 55%,transparent)}
 .btn.accent:hover,.btn.gold:hover,.btn.good:hover,.btn.green:hover,.btn.primary:hover,.btn.blue:hover{background:var(--btn-bg);filter:brightness(1.1)}
 .btn.danger:hover,.btn.red:hover{background:var(--bad);--btn-ink:#fff;border-color:var(--bad)}
@@ -217,7 +217,7 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 /* the action strip: buying is the only call to action, so it is the only filled one */
 .card .p{display:flex;align-items:center;justify-content:center;border-radius:var(--r1);padding:6px;font:700 var(--t-sm)/1 var(--display);letter-spacing:.06em;
   background:var(--accent);color:var(--accent-ink)}
-.card .p.eq{background:var(--ink);color:#0a0a0b}
+.card .p.eq{background:var(--primary);color:var(--ink)}
 .card .p.own{background:transparent;color:var(--ink-2);box-shadow:inset 0 0 0 1px var(--line-2)}
 .card .p.poor{background:transparent;color:var(--ink-3);box-shadow:inset 0 0 0 1px var(--line)}
 .card .p.poor i.coin{opacity:.5}
@@ -250,7 +250,7 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .hud-tl .btn:hover,.hud-tr .btn:hover{color:var(--ink);border-color:var(--ink-3)}
 .score{position:absolute;top:var(--s3);left:50%;transform:translateX(-50%);text-align:center}
 #score{font:italic 700 var(--t-3xl)/1 var(--display);text-shadow:0 2px 12px rgba(0,0,0,.8)}
-#best{font:700 var(--t-sm)/1.4 var(--display);color:var(--accent);letter-spacing:.12em;text-shadow:0 1px 6px #000}
+#best{font:700 var(--t-sm)/1.4 var(--display);color:var(--ink-2);letter-spacing:.12em;text-shadow:0 1px 6px #000}
 .speedup{position:absolute;top:104px;left:50%;transform:translateX(-50%);font:italic 700 var(--t-xl)/1 var(--display);letter-spacing:.06em;
   color:var(--accent);opacity:0;transition:opacity .3s;text-shadow:0 2px 10px rgba(0,0,0,.9)}
 .speedup.on{opacity:1;animation:pulse 1.2s infinite}
@@ -280,12 +280,12 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .sig.on{opacity:1;filter:drop-shadow(0 0 5px var(--good))}
 /* close-call callout: streak name, the word, combo + points, then any tags the pass earned. The
    closer the pass (data-tier 0..3) the hotter the colour and the bigger the word. */
-.combo{--cc:#d9d9d4;position:absolute;top:150px;left:50%;display:flex;flex-direction:column;align-items:center;gap:4px;
+.combo{--cc:#9a9a95;position:absolute;top:150px;left:50%;display:flex;flex-direction:column;align-items:center;gap:4px;
   white-space:nowrap;opacity:0;transform:translate(-50%,0) scale(.8);pointer-events:none;
   transition:opacity .25s,transform .25s var(--ease);text-shadow:0 2px 10px rgba(0,0,0,.9)}
 .combo.on{opacity:1;transform:translate(-50%,0) scale(1)}
-.combo[data-tier="1"]{--cc:var(--ink)}
-.combo[data-tier="2"]{--cc:var(--accent)}
+.combo[data-tier="1"]{--cc:#d0d0cb}
+.combo[data-tier="2"]{--cc:#fff}
 .combo[data-tier="3"]{--cc:var(--bad)}
 #ccWord{display:block;font:italic 700 var(--t-xl)/1 var(--display);letter-spacing:.02em;color:var(--cc)}
 .combo[data-tier="2"] #ccWord{font-size:32px}
@@ -617,7 +617,7 @@ code{background:var(--sunken);padding:1px 6px;border-radius:var(--r1);font-size:
 .dy-legend{display:flex;flex-wrap:wrap;gap:4px var(--s3);padding:4px 4px 0;font-size:10px;color:var(--ink-3);letter-spacing:.4px}
 .dy-legend span{--c:var(--ink-3)}
 .dy-legend span::before{content:"";display:inline-block;width:12px;height:2px;margin-right:5px;vertical-align:middle;background:var(--c)}
-.lg-hp{--c:var(--accent)!important}.lg-nm{--c:var(--ink)!important}.lg-stock{--c:#77776f!important}.lg-next{--c:var(--warn)!important}
+.lg-hp{--c:#fff!important}.lg-nm{--c:#8a8a85!important}.lg-stock{--c:#5a5a56!important}.lg-next{--c:#fff!important}
 .lg-stock::before,.lg-next::before{background:repeating-linear-gradient(90deg,var(--c) 0 3px,transparent 3px 5px)!important}
 .dy-stats{display:grid;grid-template-columns:1fr 1fr;gap:6px}
 .ds{background:var(--surface);border:1px solid var(--line);border-radius:var(--r2);padding:8px var(--s3);min-width:0}
