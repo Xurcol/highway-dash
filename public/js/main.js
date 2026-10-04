@@ -10,7 +10,7 @@ import { Glows, uploadLights, lampUniforms, setLampBudget } from "./lights.js";
 import { Flames } from "./flames.js";
 import { createNet, RemoteView, NET } from "./net.js";
 import { carStyle } from "./profile.js";
-import { P, save, carById, carColor, carSound, carTune, carAudio, earn, walletHooks, MEDALS, addXp, medalCount } from "./profile.js";
+import { P, save, carById, carColor, carSound, carTune, carAudio, earn, spend, walletHooks, MEDALS, addXp, medalCount } from "./profile.js";
 import { burbleIntensity } from "./engine-dsp.js";
 import { runReward } from "./economy.js";
 import { tunedSpec, peakHp, PARTS } from "./tuning.js";
@@ -736,6 +736,7 @@ async function ensureAudio() {
 
 let joinHint = null;   // where the other drivers were when we entered a running server
 function enterReady(asMode) {
+  if (G.city) storeFuel();
   cashIn(true);   // whatever the last run banked is paid before this one starts
   mode = asMode;
   buildPlayerCar();
@@ -778,6 +779,52 @@ function enterCity() {
   const lvl = (mode === "online" && net.room ? net.room.traffic : P.settings.traffic) || "Heavy";
   city.resetTraffic({ x: G.x, y: 0, z: G.z }, CITY_TRAFFIC[lvl] ?? 52);
   city.clearAround(G.x, G.z, 24);
+  Object.assign(G, { fuel: fuelOf(G.def.id), fuelWarn: 0, refuel: null, fuelSaveT: 0, stHint: null });
+}
+// ---------------- City Drive: the fuel tank ----------------
+// Every car burns fuel in the city - a trickle at idle, a lot flat out near the limiter - and each car
+// keeps its own level in the save. Run dry and the engine has only enough to limp along at a crawl.
+// Stop under a gas station's canopy and it fills up at a coin per percent; if you can't pay and the
+// tank is all but empty, the attendant spots you enough to get going.
+const FUEL = { idle: .00025, load: .0035, fill: .1, price: 1 };
+const fuelOf = (id) => Math.max(0, Math.min(1, P.fuel?.[id] ?? 1));
+function storeFuel() { if (G.def && Number.isFinite(G.fuel)) (P.fuel ||= {})[G.def.id] = Math.round(G.fuel * 1000) / 1000; }
+function updateFuel(dt, d, speed) {
+  if (G.fuel > 0) {
+    G.fuel = Math.max(0, G.fuel - dt * (FUEL.idle + FUEL.load * d.load * Math.min(1, d.rpm / d.s.redline)));
+    if (G.fuel < .15 && !G.fuelWarn) {
+      G.fuelWarn = 1;
+      const n = city.nearestStation(G.x, G.z);
+      ui.toast(`Low fuel - ${n ? `nearest gas station ${Math.round(n.d)} m, marked on the map` : "find a gas station"}`, [], "warn");
+    }
+    if (G.fuel <= 0) { G.fuelWarn = 2; ui.toast("Out of fuel - limp to a gas station", [], "warn"); }
+  }
+  const st = city.stationAt(G.x, G.z, G.y);
+  if (!st || speed > 1.5) G.fillDone = null;            // a finished fill stays finished until you move on
+  if (st && speed < .6 && G.fuel < .995 && G.fillDone !== st) {
+    if (!G.refuel) {
+      G.refuel = st; G.fuelFrom = G.fuel;
+      G.fuelCap = Math.min(1, G.fuel + P.coins / (100 * FUEL.price));
+      if (G.fuelCap < .1 && G.fuel < .1) { G.fuelCap = .1; G.fuelFree = true; } else G.fuelFree = false;
+    }
+    G.fuel = Math.min(G.fuelCap, G.fuel + dt * FUEL.fill);
+    if (G.fuel >= Math.min(.995, G.fuelCap - 1e-4)) finishFill();
+  } else if (G.refuel) finishFill();
+  if (st && !G.refuel && speed > 1 && G.fuel < .97 && G.stHint !== st) { G.stHint = st; ui.toast(`${st.brand} - stop under the canopy to fill up`, [], "info"); }
+  if (!st) G.stHint = null;
+  if ((G.fuelSaveT += dt) > 10) { G.fuelSaveT = 0; storeFuel(); save(); }
+}
+// the fill is over (tank full, out of coins, or you drove off): pay for what went in
+function finishFill() {
+  const st = G.refuel, litres = Math.max(0, G.fuel - G.fuelFrom), cost = G.fuelFree ? 0 : Math.min(P.coins, Math.ceil(litres * 100 * FUEL.price));
+  G.refuel = null; G.fillDone = st;
+  if (G.fuel >= .995) G.fuel = 1;
+  if (cost) spend(cost);
+  if (G.fuel > .2) G.fuelWarn = 0;
+  storeFuel(); save(); ui.renderTop?.();
+  if (G.fuelFree) ui.toast(`${st.brand}: the attendant spots you 10% - no coins needed`, [], "info");
+  else if (G.fuel >= .995) ui.toast(`Tank full at ${st.brand} - ${cost} coins`, [], "success");
+  else if (cost) ui.toast(`Filled to ${Math.round(G.fuel * 100)}% at ${st.brand} - ${cost} coins${G.fuel >= G.fuelCap - 1e-3 ? " (that's all your coins)" : ""}`, [], "info");
 }
 // The sun's shadow covers a box round the car: tight on the highway (crisp car shadows), wider in the
 // city so the towers throw theirs across the street.
@@ -956,6 +1003,7 @@ function cashIn(quiet) {
   return c;
 }
 function goHome() {
+  if (G.city) { storeFuel(); save(); }
   // frame() returns early while we are home, so the tunnel send has to be closed here or it keeps
   // whatever it had at the moment of the crash - which is why dying in a tunnel left the whole
   // lobby drenched in reverb.
@@ -1140,6 +1188,7 @@ function switchCar(id) {
   });
 }
 function finishSwitch(id, car) {
+  if (G.city) storeFuel();   // each car keeps its own tank
   const pos = G.car.group.position.clone(), rot = G.car.group.rotation.clone(), kmh = Math.max(0, G.dt.v * 3.6), manual = G.dt.manual;
   P.equipped = id; save();
   buildPlayerCar(car);                   // removes the old car, uses the new one + drivetrain + engine voice
@@ -1149,6 +1198,7 @@ function finishSwitch(id, car) {
   applyTune();
   G.cfgDirty = 1; G.sendT = 0;
   net.send({ t: "setCar", car: id });
+  if (G.city) { G.fuel = fuelOf(id); G.fuelWarn = 0; G.refuel = null; }
   ui.toast(`Now driving the ${G.def.name}`, [], "success");
 }
 function leaveServer() {
@@ -1571,7 +1621,7 @@ function updateModeHud(T) {
   const el = document.getElementById("modeHud");
   let txt = "";
   if (state === "drive" || state === "crashed") {
-    if (G.city) txt = `CITY DRIVE · ${city.district(G.x, G.z, G.y)}${mode === "online" && net.room ? ` · ${net.room.players.length} PLAYER${net.room.players.length === 1 ? "" : "S"}` : ""}`;
+    if (G.city) txt = `CITY DRIVE · ${G.refuel ? "FILLING UP · " + G.refuel.brand : city.district(G.x, G.z, G.y)}${mode === "online" && net.room ? ` · ${net.room.players.length} PLAYER${net.room.players.length === 1 ? "" : "S"}` : ""}`;
     else if (freeMode()) txt = mode === "online" ? `FREE DRIVE · ${net.room.players.length} PLAYER${net.room.players.length === 1 ? "" : "S"}` : `FREE DRIVE · ${(G.dist / 1609.34).toFixed(1)} MI`;
     else if (mode === "solo" && soloMode() === "timeattack") txt = `TIME ${Math.max(0, Math.ceil(TIME_ATTACK - T))}s`;
     else if (mode === "solo" && soloMode() === "police") {
@@ -1805,7 +1855,8 @@ function updateCityDrive(dt, T) {
   else if (!down) G.revT = 0;
   if (G.rev && up && G.rv > -.6) { G.rev = false; G.revT = 0; }
   // in reverse the engine only revs - the speed backwards is set here, not by the gearbox
-  pedals(dt, G.rev ? down * .45 : up, G.rev ? up : down);
+  const gas = G.fuel > 0 ? 1 : d.v < 5 ? .3 : 0;   // an empty tank: just enough to limp along
+  pedals(dt, (G.rev ? down * .45 : up) * gas, G.rev ? up : down);
   if (G.rev) {
     d.v = 0;
     if (up) G.rv = Math.min(0, G.rv + 9 * dt);
@@ -1891,6 +1942,7 @@ function updateCityDrive(dt, T) {
   setV();
   vNow = G.rev ? G.rv : d.v;
   G.Vx = Vx; G.Vz = Vz;
+  updateFuel(dt, d, Math.abs(vNow));
 
   // ---- the ground under it ----
   const ground = city.heightAt(G.x, G.z, G.y);
@@ -2206,6 +2258,7 @@ function drawTach(rpm, redline, manual) {
 }
 let hudCache = {};
 const driveModeEl = document.getElementById("driveMode");
+const fuelEl = document.getElementById("fuel"), fuelBar = document.getElementById("fuelBar"), fuelPct = document.getElementById("fuelPct");
 function setText(el, v) { if (hudCache[el.id] !== v) { hudCache[el.id] = v; el.textContent = v; } }
 const gearLabel = (g) => (g === 0 ? "N" : String(g));
 function updateHud() {
@@ -2230,6 +2283,14 @@ function updateHud() {
   if (G.god && !ui.el.ghost.hidden) ui.el.ghost.textContent = "GOD MODE";
   ui.el.catchUp.hidden = !((G.catch || 0) > .05 && state === "drive");
   if (G.comboT <= 0) ui.el.combo.classList.remove("on");
+  fuelEl.hidden = !G.city;
+  if (G.city) {
+    const f = Math.max(0, G.fuel || 0);
+    fuelBar.style.width = (f * 100).toFixed(1) + "%";
+    setText(fuelPct, (G.refuel ? "FILLING " : "FUEL ") + Math.round(f * 100) + "%");
+    fuelEl.classList.toggle("low", f < .15 && !G.refuel);
+    fuelEl.classList.toggle("filling", !!G.refuel);
+  }
   drawTach(d.rpm, d.s.redline, d.manual);
 }
 
@@ -2362,7 +2423,7 @@ function frame(now) {
       G.mapT = 1 / 30;
       const dots = [];
       for (const r of remotes.values()) if (r.s && !r.s.cr && r.car.group.visible) dots.push({ x: r.s.x, z: r.s.z, color: r.color });
-      city.drawMinimap(G.x, G.z, G.yaw, dots);
+      city.drawMinimap(G.x, G.z, G.yaw, dots, G.fuel < .2);
     }
     cityEnv = city.envAt(G.x, G.y, G.z);
     sky.tunnel = 0;

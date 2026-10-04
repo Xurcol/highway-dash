@@ -38,7 +38,11 @@ Then open http://localhost:3000.
 
 ## City Drive
 
-A free-roam 3D mode (solo, or as a server mode): a downtown grid with signalised junctions, sidewalks, towers that get taller towards the middle, and traffic that obeys the lights, queues, zip-merges and honks at you if you sit in its way. An elevated six-lane ring expressway runs round downtown, with a diamond interchange on every side, so you can take an on-ramp, merge, and leave again by any exit. Engine sound echoes off the buildings, and booms under the ring. A heading-up minimap sits bottom right. The city's traffic runs on each player's own machine; players see each other.
+A free-roam 3D mode (solo, or as a server mode): a downtown grid with signalised junctions, sidewalks, towers that get taller towards the middle, and traffic that obeys the lights, queues, zip-merges and honks at you if you sit in its way. An elevated six-lane ring expressway runs round downtown, with a diamond interchange on every side, so you can take an on-ramp, merge, and leave again by any exit. Engine sound echoes off the buildings, and booms under the ring. Every road has a centre lane that turns into a left-turn pocket before each signal, with painted lane arrows, arrow signal heads over the pockets, and street-name, LEFT ONLY, NO TURN ON RED and speed-limit signs. Downtown has shop fronts with awnings and signs that light up at night, company names on the tallest towers, benches, hydrants, bus shelters and manholes.
+
+**Fuel:** every car has a tank in City Drive (about 35 minutes of cruising, 5 flat out), kept per car. Run dry and the engine only limps along. Six gas stations are spread round the city and marked on the minimap - the nearest one is pinned to the map's edge when you're low. Stop under a canopy to fill up at a coin per percent.
+
+A heading-up minimap sits bottom right. The city's traffic runs on each player's own machine; players see each other.
 
 ## Cars, sound & tuning
 

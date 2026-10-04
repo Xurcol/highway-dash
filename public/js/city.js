@@ -7,7 +7,7 @@ import { patchLit } from "./lights.js";
 import { makeTrafficCar, BODIES } from "./cars.js";
 import {
   buildCity, CityTraffic, CITY_BODIES, signalAt, heightAt, groundAt, pushCircle, insideSolid, districtAt, ringSD, offsetPts, hash,
-  DOWN, RING, DECK_Y, DECK_HW, DECK_T, RAMP_HW, EDGE,
+  DOWN, RING, DECK_Y, DECK_HW, DECK_T, RAMP_HW, EDGE, CURB, BRANDS,
 } from "./city-map.js";
 
 // ---------------------------------------------------------------- textures
@@ -92,6 +92,66 @@ function signTex(tab, a, b) {
   return t;
 }
 
+// one canvas, drawn once, as a texture that is not tiled
+function picture(w, h, draw) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h;
+  draw(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  return t;
+}
+// lane arrows, painted white on a transparent ground: a stem, and a head for each way the lane may go
+const arrowTex = (type) => picture(160, 320, (g) => {
+  g.fillStyle = g.strokeStyle = "#fff"; g.lineWidth = 16; g.lineJoin = "round";
+  const head = (x, y, ang) => { g.save(); g.translate(x, y); g.rotate(ang); g.beginPath(); g.moveTo(0, -28); g.lineTo(24, 6); g.lineTo(-24, 6); g.closePath(); g.fill(); g.restore(); };
+  g.beginPath(); g.moveTo(80, 318); g.lineTo(80, 150); g.stroke();
+  if (type.includes("S")) { g.beginPath(); g.moveTo(80, 152); g.lineTo(80, 56); g.stroke(); head(80, 36, 0); }
+  if (type.includes("L")) { g.beginPath(); g.moveTo(80, 176); g.quadraticCurveTo(80, 120, 44, 120); g.stroke(); head(34, 120, -Math.PI / 2); }
+  if (type.includes("R")) { g.beginPath(); g.moveTo(80, 176); g.quadraticCurveTo(80, 120, 116, 120); g.stroke(); head(126, 120, Math.PI / 2); }
+});
+// a signal lens: a round light, or a left arrow
+const lensTex = (arrow) => picture(64, 64, (g) => {
+  g.fillStyle = "#fff"; g.beginPath();
+  if (arrow) { g.fillRect(26, 26, 30, 12); g.moveTo(6, 32); g.lineTo(30, 10); g.lineTo(30, 54); g.closePath(); }
+  else g.arc(32, 32, 30, 0, Math.PI * 2);
+  g.fill();
+});
+// every sign face, by key: street names, lane and turn rules, speed limits, fuel prices, tower logos
+const PRICES = { VOLTA: ["3.49", "3.89", "4.29"], NORTHSTAR: ["3.45", "3.85", "4.25"], APEX: ["3.39", "3.79", "4.19"] };
+function signFace(key, brands) {
+  const i = key.indexOf(":"), kind = i < 0 ? key : key.slice(0, i), arg = i < 0 ? "" : key.slice(i + 1);
+  const plate = (w, h, draw) => picture(w, h, (g) => { g.fillStyle = "#f4f4f0"; g.fillRect(0, 0, w, h); g.strokeStyle = "#141414"; g.lineWidth = 8; g.strokeRect(10, 10, w - 20, h - 20); g.fillStyle = "#141414"; g.textAlign = "center"; g.textBaseline = "middle"; draw(g, w, h); });
+  if (kind === "street") return picture(640, 130, (g, w, h) => {
+    g.fillStyle = "#17643a"; g.fillRect(0, 0, w, h); g.strokeStyle = "#f4f4f0"; g.lineWidth = 6; g.strokeRect(8, 8, w - 16, h - 16);
+    g.fillStyle = "#f4f4f0"; g.font = "bold 72px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(arg, w / 2, h / 2 + 3);
+  });
+  if (kind === "leftonly") return plate(250, 320, (g, w) => {
+    g.font = "bold 56px sans-serif"; g.fillText("LEFT", w / 2, 62); g.fillText("ONLY", w / 2, 268);
+    g.lineWidth = 22; g.beginPath(); g.moveTo(150, 220); g.lineTo(150, 160); g.quadraticCurveTo(150, 140, 120, 140); g.lineTo(100, 140); g.stroke();
+    g.beginPath(); g.moveTo(60, 140); g.lineTo(104, 106); g.lineTo(104, 174); g.closePath(); g.fill();
+  });
+  if (kind === "notor") return plate(250, 320, (g, w) => { g.font = "bold 62px sans-serif"; g.fillText("NO", w / 2, 82); g.fillText("TURN", w / 2, 160); g.font = "bold 50px sans-serif"; g.fillText("ON RED", w / 2, 238); });
+  if (kind === "speed30" || kind === "speed45") return plate(250, 330, (g, w) => {
+    g.font = "bold 42px sans-serif"; g.fillText("SPEED", w / 2, 58); g.fillText("LIMIT", w / 2, 104); g.font = "bold 128px sans-serif"; g.fillText(kind.slice(5), w / 2, 222);
+  });
+  if (kind === "price") return picture(320, 400, (g, w, h) => {
+    const b = brands.find((x) => x.name === arg), col = "#" + b.col.toString(16).padStart(6, "0"), p = PRICES[arg] || PRICES.APEX;
+    g.fillStyle = "#16171a"; g.fillRect(0, 0, w, h);
+    g.fillStyle = col; g.fillRect(0, 0, w, 120);
+    g.fillStyle = "#fff"; g.font = "bold 58px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(arg, w / 2, 64);
+    g.textAlign = "left"; g.font = "bold 26px sans-serif"; g.fillStyle = "#d8d8d4";
+    ["REGULAR", "PLUS", "PREMIUM"].forEach((t, k) => g.fillText(t, 22, 172 + k * 82));
+    g.textAlign = "right"; g.font = "bold 54px monospace"; g.fillStyle = "#ffb12a";
+    p.forEach((t, k) => g.fillText(t, w - 18, 174 + k * 82));
+  });
+  // a tower's name: white letters on nothing, lit from inside at night
+  return picture(1024, 222, (g, w, h) => {
+    g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
+    let size = 170; g.font = `bold ${size}px sans-serif`;
+    while (g.measureText(arg).width > w * .92 && size > 40) { size -= 8; g.font = `bold ${size}px sans-serif`; }
+    g.fillText(arg, w / 2, h / 2 + 6);
+  });
+}
+
 // ---------------------------------------------------------------- facades
 // Five looks, each a window grid laid on in world space so any box becomes a building: stone,
 // blue glass, bronze glass, brick, industrial panels. The ground floor is shop fronts (tall glass,
@@ -159,6 +219,8 @@ class GB {
     }
   }
   quad(a, b, c, d, want, uv) { this.tri(a, b, c, want, uv); this.tri(a, c, d, want, uv); }
+  // a quad with texture coordinates of its own (a sign, a decal): uvs in the same order as the corners
+  quadUV(a, b, c, d, uvs, want) { const at = new Map([[a, uvs[0]], [b, uvs[1]], [c, uvs[2]], [d, uvs[3]]]); this.quad(a, b, c, d, want, (v) => at.get(v)); }
   // an axis-aligned box's top and four sides
   slab(x0, z0, x1, z1, y0, y1, top = true, sides = null) {
     if (top) this.quad([x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1], [0, 1, 0]);
@@ -274,7 +336,7 @@ export class City {
     G.add(ground);
     const gravel = new GB(TILE.gravel), C = M.ring, L14 = offsetPts(C, -14.6, true), R14 = offsetPts(C, 14.6, true);
     for (let i = 0; i < C.length - 1; i++) {
-      if (Math.min(Math.abs(C[i].x), Math.abs(C[i].z)) < 13) continue;   // the avenues pass under here
+      if (Math.min(Math.abs(C[i].x), Math.abs(C[i].z)) < 15) continue;   // the avenues pass under here
       gravel.quad([L14[i].x, .005, L14[i].z], [R14[i].x, .005, R14[i].z], [R14[i + 1].x, .005, R14[i + 1].z], [L14[i + 1].x, .005, L14[i + 1].z], [0, 1, 0]);
     }
     gravel.mesh(mat.gravel, G);
@@ -324,6 +386,14 @@ export class City {
       (k.c ? yellow : white).quad([k.ax - px, ya, k.az - pz], [k.ax + px, ya, k.az + pz], [k.bx + px, yb, k.bz + pz], [k.bx - px, yb, k.bz - pz], [0, 1, 0], () => [0, 0]);
     }
     white.mesh(mat.white, G); yellow.mesh(mat.yellow, G);
+    const arrowsBy = new Map();
+    for (const a of M.arrows) {
+      let b = arrowsBy.get(a.type);
+      if (!b) arrowsBy.set(a.type, (b = new GB(1)));
+      const rx = -a.dz * 1.1, rz = a.dx * 1.1, fx = a.dx * 2.2, fz = a.dz * 2.2, y = .02;
+      b.quadUV([a.x - rx - fx, y, a.z - rz - fz], [a.x + rx - fx, y, a.z + rz - fz], [a.x + rx + fx, y, a.z + rz + fz], [a.x - rx + fx, y, a.z - rz + fz], [[0, 0], [1, 0], [1, 1], [0, 1]], [0, 1, 0]);
+    }
+    for (const [type, b] of arrowsBy) b.mesh(lit({ map: arrowTex(type), alphaTest: .5, color: 0xe8e8e2, roughness: .65, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), G);
 
     // ---- buildings, with a far skyline beyond the wall ----
     const byLook = [[], [], [], [], []];
@@ -388,19 +458,108 @@ export class City {
 
     // ---- signals ----
     const props = new Inst(G, BOXC, mat.metal, M.props.length, { shadow: false });
-    for (const p of M.props) props.add(p.x, p.y + (p.sy > 3 ? p.sy / 2 : 0), p.z, p.sx, p.sy, p.sz, 0);
+    for (const p of M.props) props.add(p.x, p.y === 0 ? p.sy / 2 : p.y, p.z, p.sx, p.sy, p.sz, 0);   // poles stand on the ground; arms hang at their height
     props.end();
-    const housings = new Inst(G, BOXC, mat.housing, M.heads.length, { shadow: false });
-    const off = new Inst(G, BOXC, mat.lens, M.heads.length * 3, { shadow: false, colors: true });
-    const dimR = new THREE.Color(.16, .025, .02), dimA = new THREE.Color(.16, .09, .01), dimG = new THREE.Color(.01, .12, .06);
+    const housings = new Inst(G, BOXC, mat.housing, M.heads.length * 5, { shadow: false });
+    const lensMat = (arrow) => new THREE.MeshBasicMaterial({ map: lensTex(arrow), alphaTest: .4, toneMapped: false });
+    const LENS_GEO = new THREE.PlaneGeometry(.27, .27);
+    const nArrow = M.heads.filter((h) => h.arrow).length, nRound = M.heads.length - nArrow;
+    const off = [new Inst(G, LENS_GEO, lensMat(false), nRound * 3, { shadow: false, colors: true }), new Inst(G, LENS_GEO, lensMat(true), nArrow * 3, { shadow: false, colors: true })];
+    const dim = [new THREE.Color(.01, .13, .07), new THREE.Color(.17, .1, .01), new THREE.Color(.18, .025, .02)];
     for (const h of M.heads) {
       h.rot = Math.atan2(h.fx, h.fz);
-      housings.add(h.x, h.y, h.z, .42, 1.16, .34, h.rot);
-      [[.36, dimR], [0, dimA], [-.36, dimG]].forEach(([dy, c]) => off.add(h.x + h.fx * .18, h.y + dy, h.z + h.fz * .18, .25, .25, .04, h.rot, c));
+      housings.add(h.x, h.y, h.z, .42, 1.16, .34, h.rot);                                                   // the head
+      housings.add(h.x - h.fx * .19, h.y, h.z - h.fz * .19, .82, 1.5, .03, h.rot);                         // its backplate
+      for (const [dy, k] of [[-.36, 0], [0, 1], [.36, 2]]) {
+        housings.add(h.x + h.fx * .3, h.y + dy + .16, h.z + h.fz * .3, .34, .035, .26, h.rot);             // a visor over each lens
+        off[h.arrow ? 1 : 0].add(h.x + h.fx * .175, h.y + dy, h.z + h.fz * .175, 1, 1, 1, h.rot, dim[k]);
+      }
     }
-    housings.end(); off.end();
-    this.lensOn = new Inst(G, BOXC, mat.lens, M.heads.length, { shadow: false, colors: true });
+    housings.end(); off[0].end(); off[1].end();
+    this.lensOn = [new Inst(G, LENS_GEO, lensMat(false), nRound, { shadow: false, colors: true }), new Inst(G, LENS_GEO, lensMat(true), nArrow, { shadow: false, colors: true })];
     this.LENS = [new THREE.Color(.25, 3.4, 1.7), new THREE.Color(4, 2.2, .12), new THREE.Color(4.2, .28, .16)];
+
+    // ---- signs: street names, LEFT ONLY, NO TURN ON RED, speed limits, fuel prices, tower names ----
+    const faces = new Map(), backs = new GB(1);
+    for (const s of M.signs) {
+      let b = faces.get(s.tex);
+      if (!b) faces.set(s.tex, (b = new GB(1)));
+      const rx = s.fz * s.w / 2, rz = -s.fx * s.w / 2, h = s.h / 2, o = .02;   // right, as you look at the face
+      const c = (sx, sy, k) => [s.x + rx * sx + s.fx * o * k, s.y + h * sy, s.z + rz * sx + s.fz * o * k];
+      b.quadUV(c(-1, -1, 1), c(1, -1, 1), c(1, 1, 1), c(-1, 1, 1), [[0, 0], [1, 0], [1, 1], [0, 1]], [s.fx, 0, s.fz]);
+      if (!s.tex.startsWith("logo:")) backs.quad(c(-1, -1, -1), c(1, -1, -1), c(1, 1, -1), c(-1, 1, -1), [-s.fx, 0, -s.fz]);
+    }
+    this.glowFaces = []; this.logoFaces = [];
+    for (const [key, b] of faces) {
+      const map = signFace(key, BRANDS);
+      if (key.startsWith("logo:")) {
+        const m = new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false });
+        b.mesh(m, G);
+        this.logoFaces.push(m);
+      } else {
+        const m = new THREE.MeshStandardMaterial({ map, roughness: .55, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: 0 });
+        b.mesh(m, G);
+        this.glowFaces.push({ m, k: key.startsWith("price:") ? 1.2 : .45 });
+      }
+    }
+    backs.mesh(mat.metal, G);
+
+    // ---- gas stations: canopies, lit fascias, columns, islands, pumps ----
+    const byMat = (k) => M.parts.filter((p) => p.mat === k);
+    const partI = (k, material, opts) => {
+      const list = byMat(k), I = new Inst(G, BOX, material, list.length, opts);
+      for (const p of list) I.add((p.x0 + p.x1) / 2, p.y0, (p.z0 + p.z1) / 2, p.x1 - p.x0, p.y1 - p.y0, p.z1 - p.z0, 0, p.col);
+      I.end();
+      return I;
+    };
+    partI("canopy", lit({ color: 0xf2f2ee, roughness: .5 }));
+    partI("column", lit({ color: 0xdcdcd6, roughness: .45, metalness: .2 }), { shadow: true });
+    partI("island", mat.curb, { shadow: false });
+    partI("pump", lit({ color: 0xeeeeea, roughness: .35, metalness: .1 }), { shadow: false });
+    this.bandMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+    partI("band", this.bandMat, { shadow: false, colors: true });
+    this.stationLights = [];
+
+    // ---- street furniture: hydrants, benches, bins, bus shelters, manholes, tree pits ----
+    const F = M.furniture, cyl = (r, h) => new THREE.CylinderGeometry(r, r, h, 10).translate(0, h / 2, 0);
+    const hyd = new Inst(G, cyl(.16, .72), lit({ color: 0xb3261e, roughness: .5 }), F.hydrants.length);
+    for (const h of F.hydrants) hyd.add(h.x, CURB, h.z, 1, 1, 1);
+    hyd.end();
+    const bins = new Inst(G, cyl(.28, .95), lit({ color: 0x2b3a2e, roughness: .6, metalness: .3 }), F.bins.length);
+    for (const b of F.bins) bins.add(b.x, CURB, b.z, 1, 1, 1);
+    bins.end();
+    const wood = new Inst(G, BOXC, lit({ color: 0x6b4a2c, roughness: .85 }), F.benches.length * 2 + F.shelters.length);
+    const iron = new Inst(G, BOXC, mat.metal, F.benches.length * 2 + F.shelters.length * 5, { shadow: false });
+    const glass = new Inst(G, BOXC, new THREE.MeshStandardMaterial({ color: 0xbfd6e0, roughness: .05, metalness: .2, transparent: true, opacity: .28, depthWrite: false }), F.shelters.length * 3, { shadow: false });
+    for (const b of F.benches) {
+      const r = Math.atan2(b.fx, b.fz), at = (o, y) => [b.x - b.fx * o, CURB + y, b.z - b.fz * o];
+      wood.add(...at(0, .45), 1.8, .07, .46, r); wood.add(...at(.24, .75), 1.8, .42, .06, r);
+      for (const s of [-1, 1]) { const rx = b.fz * s * .8, rz = -b.fx * s * .8; iron.add(b.x + rx, CURB + .22, b.z + rz, .06, .44, .42, r); }
+    }
+    for (const s of F.shelters) {
+      const r = Math.atan2(s.fx, s.fz), at = (o, y) => [s.x - s.fx * o, CURB + y, s.z - s.fz * o];
+      iron.add(...at(.1, 2.55), 4.4, .1, 1.9, r);                                                        // roof
+      for (const e of [-1, 1]) for (const o of [-.75, .75]) iron.add(s.x + s.ux * e * 2.1 - s.fx * o, CURB + 1.25, s.z + s.uz * e * 2.1 - s.fz * o, .07, 2.5, .07, r);
+      glass.add(...at(.82, 1.3), 4.15, 2.1, .04, r);                                                     // back panel
+      for (const e of [-1, 1]) glass.add(s.x + s.ux * e * 2.1 - s.fx * .1, CURB + 1.3, s.z + s.uz * e * 2.1 - s.fz * .1, .04, 2.1, 1.45, r);
+      wood.add(...at(.55, .45), 3.2, .07, .42, r);
+    }
+    wood.end(); iron.end(); glass.end();
+    const man = new Inst(G, cyl(.45, .02), lit({ color: 0x2a2b2e, roughness: .6, metalness: .5 }), F.manholes.length, { shadow: false });
+    for (const m of F.manholes) man.add(m.x, .004, m.z, 1, 1, 1);
+    man.end();
+    const pits = new Inst(G, BOX, lit({ color: 0x2e2923, roughness: 1 }), F.pits.length, { shadow: false });
+    for (const p of F.pits) pits.add(p.x, CURB, p.z, 1.25, .02, 1.25);
+    pits.end();
+
+    // ---- shop fronts: awnings over the windows, signs above them that light up at night ----
+    const awn = new Inst(G, BOXC, lit({ color: 0xffffff, roughness: .9 }), M.awnings.length, { colors: true });
+    for (const a of M.awnings) awn.add(a.x, a.y, a.z, a.sx, a.sy, a.sz, 0, a.col);
+    awn.end();
+    this.shopMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+    const shops = new Inst(G, BOXC, this.shopMat, M.shopSigns.length, { shadow: false, colors: true });
+    for (const s of M.shopSigns) shops.add(s.x, s.y, s.z, s.sx, s.sy, s.sz, 0, s.col);
+    shops.end();
 
     // ---- trees ----
     const trunks = new Inst(G, new THREE.CylinderGeometry(.13, .2, 1, 6).translate(0, .5, 0), mat.trunk, M.trees.length);
@@ -484,6 +643,16 @@ export class City {
     return S[i % S.length];
   }
   heightAt(x, z, y) { return heightAt(this.M, x, z, y); }
+  // the gas station whose canopy (x, z) is under, if any
+  stationAt(x, z, y) {
+    if (!this.M || y > 1.5) return null;
+    return this.M.stations.find((s) => x > s.zone.x0 && x < s.zone.x1 && z > s.zone.z0 && z < s.zone.z1) || null;
+  }
+  nearestStation(x, z) {
+    let best = null, bd = Infinity;
+    for (const s of this.M?.stations || []) { const d = Math.hypot(s.cx - x, s.cz - z); if (d < bd) { bd = d; best = s; } }
+    return best ? { s: best, d: bd } : null;
+  }
   pushCircle(x, z, y, r, res) { return pushCircle(this.M, x, z, y, r, res); }
   insideSolid(x, y, z) { return insideSolid(this.M, x, y, z); }
   district(x, z, y) { return districtAt(x, z, y); }
@@ -508,6 +677,10 @@ export class City {
     this.mat.road.roughness = .9 - wet * .72; this.mat.road.color.setScalar(1 - wet * .4);
     this.mat.head.color.setRGB(.6 + night * 2.4, .55 + night * 1.9, .45 + night * 1.2);
     for (const f of this.signFaces || []) f.emissiveIntensity = nk * .55;
+    for (const f of this.glowFaces) f.m.emissiveIntensity = nk * f.k;
+    for (const m of this.logoFaces) m.color.setScalar(.8 + nk * 1.6);
+    this.shopMat.color.setScalar(.55 + nk * 1.5);
+    this.bandMat.color.setScalar(.85 + nk * .9);
     const fwd = camera.getWorldDirection(_v);
     const honks = this.traffic.step(dt, T, players, { x: focus.x, y: focus.y, z: focus.z, fx: fwd.x, fz: fwd.z });
 
@@ -543,16 +716,28 @@ export class City {
     for (const [c, m] of this.meshes) if (!seen.has(c)) { this.release(m); this.meshes.delete(c); }
 
     // ---- signals: one lit lens per head ----
-    const L = this.lensOn;
-    L.begin();
+    for (const L of this.lensOn) L.begin();
     for (const h of M.heads) {
       const st = signalAt(h.n, h.axis, h.left, T), dy = st === 0 ? -.36 : st === 1 ? 0 : .36;
-      const x = h.x + h.fx * .2, y = h.y + dy, z = h.z + h.fz * .2;
-      L.add(x, y, z, .26, .26, .05, h.rot, this.LENS[st]);
+      const x = h.x + h.fx * .18, y = h.y + dy, z = h.z + h.fz * .18;
+      this.lensOn[h.arrow ? 1 : 0].add(x, y, z, 1, 1, 1, h.rot, this.LENS[st]);
       const d2 = (x - cam.x) ** 2 + (z - cam.z) ** 2;
       if (d2 < 280 * 280) { const c = this.LENS[st]; glows.add(x + h.fx * .05, y, z + h.fz * .05, c.r / 4, c.g / 4, c.b / 4, night ? 1.3 : .55); }
     }
-    L.end();
+    for (const L of this.lensOn) L.end();
+    // the gas stations' canopies light the forecourt after dark
+    if (night) {
+      let si = 0;
+      for (const s of M.stations) {
+        if ((s.cx - cam.x) ** 2 + (s.cz - cam.z) ** 2 > 220 * 220) continue;
+        for (const [x, z] of s.lamps) {
+          glows.add(x, 5.25, z, 1, .97, .92, 2.2);
+          const P = this.stationLights[si++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -1, 0), color: new THREE.Color(1, .97, .92), intensity: 6, range: 14, cosOuter: Math.cos(1.25), cosInner: Math.cos(.7) };
+          P.pos.set(x, 5.2, z);
+          lights.push(P);
+        }
+      }
+    }
 
     // ---- lamps ----
     if (night) {
@@ -598,7 +783,7 @@ export class City {
     this.mapCtx = el.getContext("2d");
   }
   // heading-up, 170 m round the car; dots: [{ x, z, color }]
-  drawMinimap(x, z, yaw, dots) {
+  drawMinimap(x, z, yaw, dots, fuelLow = false) {
     if (!this.mapCtx || this.mapEl.hidden) return;
     const g = this.mapCtx, W = this.mapEl.width, R = W / 2, k = this.mapK, s = (R / 170) / k;
     g.clearRect(0, 0, W, W);
@@ -617,6 +802,20 @@ export class City {
     // you: an arrow in the middle, pointing up the screen
     g.fillStyle = "#ffffff";
     g.beginPath(); g.moveTo(R, R - 16); g.lineTo(R + 10, R + 11); g.lineTo(R, R + 5); g.lineTo(R - 10, R + 11); g.closePath(); g.fill();
+    // gas stations: a pump on the map, and the nearest one pinned to the rim when the tank is low
+    const cy = Math.cos(yaw), sy = Math.sin(yaw), near = fuelLow ? this.nearestStation(x, z)?.s : null;
+    for (const st of this.M.stations) {
+      const dx = (st.cx - x) * k * s, dz = (st.cz - z) * k * s;
+      let px = dx * cy - dz * sy, pz = dx * sy + dz * cy;
+      const d = Math.hypot(px, pz), lim = R - 26;
+      if (d > lim) { if (st !== near) continue; px *= lim / d; pz *= lim / d; }
+      const cx = R + px, cz = R + pz;
+      g.fillStyle = st === near ? "#ffb12a" : "#f4f4f0";
+      g.beginPath(); g.roundRect(cx - 15, cz - 15, 30, 30, 7); g.fill();
+      g.fillStyle = "#16171a";
+      g.fillRect(cx - 7, cz - 8, 9, 17); g.fillStyle = st === near ? "#ffb12a" : "#f4f4f0"; g.fillRect(cx - 5, cz - 6, 5, 5);
+      g.fillStyle = "#16171a"; g.fillRect(cx + 3, cz - 6, 3, 11); g.fillRect(cx + 2, cz - 8, 5, 3);
+    }
     g.strokeStyle = "rgba(255,255,255,.35)"; g.lineWidth = 3; g.beginPath(); g.arc(R, R, R - 3, 0, Math.PI * 2); g.stroke();
     g.fillStyle = "rgba(255,255,255,.75)"; g.font = "bold 22px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle";
     // north marker on the rim

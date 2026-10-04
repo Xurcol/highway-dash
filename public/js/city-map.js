@@ -11,7 +11,17 @@
 //    for each carriageway, so you can merge onto the ring and leave it again on any side.
 //  - The boulevard: a square road at 640 tying the four avenues together, so every lane leads somewhere.
 
-export const LANE = 3.5, HALF = 7, WALK = 4.5, SETBACK = 11, CURB = .15;
+// Every road: a 3.5 m centre lane (a hatched median mid-block that becomes each junction's left-turn
+// pocket as you approach it), then the inside and outside lanes each way.
+export const LANE = 3.5, MED = 1.75, HALF = MED + 2 * LANE, WALK = 4.5, SETBACK = 13.2, CURB = .15;
+export const laneOff = (k) => MED + (k + .5) * LANE;   // lane k's centre, out from the middle of the road
+const POCKET = 30, TAPER = 14;                          // a pocket opens this far before the stop line
+// street names, for the signs on the signal masts: north-south streets by x, east-west by z
+const NS_NAMES = { "-640": "Westgate Blvd", "-300": "Harbor St", "-200": "Pine St", "-100": "Elm St", 0: "Main St", 100: "Oak St", 200: "Cedar St", 300: "Lake St", 640: "Eastgate Blvd" };
+const EW_NAMES = { "-640": "Northgate Blvd", "-300": "1st Ave", "-200": "2nd Ave", "-100": "3rd Ave", 0: "Central Ave", 100: "5th Ave", 200: "6th Ave", 300: "7th Ave", 640: "Southgate Blvd" };
+export const streetName = (northSouth, v) => (northSouth ? NS_NAMES : EW_NAMES)[Math.round(v)] || "";
+export const BRANDS = [{ name: "VOLTA", col: 0xd12a2f }, { name: "NORTHSTAR", col: 0x1f5fbf }, { name: "APEX", col: 0x1c8a4a }];
+const LOGOS = ["MERIDIAN", "NORTHWIND", "ATLAS", "HALCYON", "VANTAGE", "ORION", "CASCADE", "SUMMIT"];
 export const DOWN = 300, PITCH = 100;
 export const RING = 460, RC = 110, DECK_Y = 8, DECK_HW = 14, RAMP_HW = 3.6, RAMP_OFF = 18.5, DECK_T = 1.2;
 export const BLVD = 640, EDGE = 700;
@@ -180,7 +190,8 @@ export function buildCity() {
   const M = {
     nodes: [], roads: [], links: [], surfaces: [], walls: [], slabs: [], buildings: [], roofs: [], beacons: [],
     pillars: [], caps: [], barriers: [], lamps: [], trees: [], heads: [], props: [], marks: [], parked: [], gantries: [],
-    ramps: [], ring: null, spawns: [],
+    ramps: [], ring: null, spawns: [], signs: [], arrows: [], stations: [], parts: [], awnings: [], shopSigns: [],
+    furniture: { hydrants: [], benches: [], bins: [], shelters: [], manholes: [], pits: [] },
     sg: new Grid(16), wg: new Grid(16), bg: new Grid(32), slg: new Grid(32), rg: new Grid(40),
   };
 
@@ -216,36 +227,62 @@ export function buildCity() {
   // two lanes each way on every road, from one junction's exit to the next one's stop line
   for (const r of M.roads) for (const dir of [1, -1]) for (let k = 0; k < 2; k++) {
     const [from, to, e0, e1] = dir > 0 ? [r.a, r.b, r.ea, r.eb] : [r.b, r.a, r.eb, r.ea];
-    const [hx, hz] = AV[e0], off = (k + .5) * LANE, rx = -hz * off, rz = hx * off;
+    const [hx, hz] = AV[e0], off = laneOff(k), rx = -hz * off, rz = hx * off;
     const l = mkLink(M, [P3(from.x + hx * SETBACK + rx, 0, from.z + hz * SETBACK + rz), P3(to.x - hx * SETBACK + rx, 0, to.z - hz * SETBACK + rz)],
       { speed: r.speed, kind: r.kind, lane: k });
     from.out[e0][k] = l; to.in[e1][k] = l;
   }
-  // junction connectors. The inside lane goes straight or left, the outside lane straight or right;
-  // where a lane has neither (a corner), it takes whatever the junction allows, lane for lane.
+  // Junction connectors. The inside lane goes straight or left, the outside lane straight or right;
+  // where a lane has neither (a corner), it takes whatever the junction allows, lane for lane. At a
+  // signal where the inside lane could do both, left turners peel off 30 m out into a pocket in the
+  // centre lane and turn from there, so they never hold up the traffic going straight.
+  const conn = (n, a, k, from, m, e) => {
+    const outL = n.out[e][k], p0 = from.pts[from.pts.length - 1], p3 = outL.pts[0];
+    const h0 = AV[(a + 2) % 4], h3 = AV[e];
+    const pts = m === "S" ? [P3(p0.x, 0, p0.z), P3(p3.x, 0, p3.z)] : bez(p0.x, p0.z, h0[0], h0[1], p3.x, p3.z, h3[0], h3[1]);
+    const rad = Math.hypot(p3.x - p0.x, p3.z - p0.z) / Math.SQRT2;
+    const c = mkLink(M, pts, { speed: m === "S" ? Math.min(from.speed, outL.speed) : Math.min(from.speed, Math.sqrt(3.4 * rad)), kind: "conn", lane: k, turn: m,
+      sig: n.signal ? { n, axis: a % 2, left: m === "L" } : null });
+    c.node = n;
+    join(from, c); join(c, outL);
+  };
   for (const n of M.nodes) {
-    const arms = n.arms.filter(Boolean).length;
-    n.signal = arms >= 3;
+    n.signal = n.arms.filter(Boolean).length >= 3;
     n.off = hash(n.x + 5000, n.z + 5000, 7) * CYCLE;
+    n.pocket = [null, null, null, null];
+    n.moves = [null, null, null, null];   // per arm: what each lane may do ("SL", "SR", ...), and the pocket
+    for (let a = 0; a < 4; a++) {
+      const inner = n.in[a][0];
+      if (!inner) continue;
+      n.moves[a] = {};
+      if (!n.signal || !n.out[(a + 2) % 4][0] || !n.out[(a + 1) % 4][0] || inner.len < POCKET + 12) continue;
+      const [hx, hz] = AV[(a + 2) % 4], rx = -hz, rz = hx, o0 = laneOff(0);
+      const tail = splitAt(M, inner, inner.len - POCKET);
+      n.in[a][0] = tail;
+      const p0 = tail.pts[0], end = tail.pts[tail.pts.length - 1], pts = [];
+      for (let i = 0; i <= 8; i++) { const t = i / 8, o = o0 * smooth(t); pts.push(P3(p0.x + hx * TAPER * t - rx * o, 0, p0.z + hz * TAPER * t - rz * o)); }
+      pts.push(P3(end.x - rx * o0, 0, end.z - rz * o0));
+      const pk = mkLink(M, pts, { speed: Math.min(inner.speed, 11), kind: inner.kind, lane: 0, stop: true });
+      pk.pocket = true; pk.node = n;
+      join(inner, pk);
+      n.pocket[a] = pk;
+    }
     for (let a = 0; a < 4; a++) for (let k = 0; k < 2; k++) {
       const inL = n.in[a][k];
       if (!inL) continue;
       const moves = [["S", (a + 2) % 4], ["R", (a + 3) % 4], ["L", (a + 1) % 4]].filter(([, e]) => n.out[e][k]);
-      const pref = k === 0 ? ["S", "L"] : ["S", "R"];
-      let use = moves.filter(([m]) => pref.includes(m));
-      if (!use.length) use = moves;
-      for (const [m, e] of use) {
-        const outL = n.out[e][k], p0 = inL.pts[inL.pts.length - 1], p3 = outL.pts[0];
-        const h0 = AV[(a + 2) % 4], h3 = AV[e];
-        const pts = m === "S" ? [P3(p0.x, 0, p0.z), P3(p3.x, 0, p3.z)] : bez(p0.x, p0.z, h0[0], h0[1], p3.x, p3.z, h3[0], h3[1]);
-        const rad = Math.hypot(p3.x - p0.x, p3.z - p0.z) / Math.SQRT2;
-        const c = mkLink(M, pts, { speed: m === "S" ? Math.min(inL.speed, outL.speed) : Math.min(inL.speed, Math.sqrt(3.4 * rad)), kind: "conn", lane: k, turn: m,
-          sig: n.signal ? { n, axis: a % 2, left: m === "L" } : null });
-        c.node = n;
-        join(inL, c); join(c, outL);
+      let use;
+      if (k === 0 && n.pocket[a]) use = moves.filter(([m]) => m === "S");
+      else {
+        const pref = k === 0 ? ["S", "L"] : ["S", "R"];
+        use = moves.filter(([m]) => pref.includes(m));
+        if (!use.length) use = moves;
       }
+      for (const [m, e] of use) conn(n, a, k, inL, m, e);
+      n.moves[a][k] = use.map(([m]) => m).join("");
       inL.stop = n.signal;
       inL.node = n;
+      if (k === 0 && n.pocket[a]) { conn(n, a, 0, n.pocket[a], "L", (a + 1) % 4); n.moves[a].p = "L"; }
     }
   }
 
@@ -270,7 +307,7 @@ export function buildCity() {
 
   // ---- interchanges: the north one, turned to each side ----
   const zR = -RING, IN2 = zR + HW_OFF[2], OUT2 = zR - HW_OFF[2], zi = zR + RAMP_OFF, zo = zR - RAMP_OFF, J = 55, X1 = 240, X2 = 170, X3 = 50;
-  const LX = LANE * 1.5;
+  const LX = laneOff(1);   // the avenue's outside lanes, where the ramps join and leave it
   const curveSpeed = (p) => Math.min(20, Math.sqrt(3.4 * Math.hypot(p[p.length - 1].x - p[0].x, p[p.length - 1].z - p[0].z) / Math.SQRT2));
   const T = [
     // clockwise traffic (eastbound here) leaves before the avenue and drops into downtown
@@ -318,7 +355,7 @@ export function buildCity() {
   // ---- what holds it up: pier pairs with a cap every 32 m, clear of the avenues ----
   for (let i = 0; i < C.length - 1; i += 8) {
     const p = C[i], q = C[i + 1], dx = q.x - p.x, dz = q.z - p.z, L = Math.hypot(dx, dz), ux = dx / L, uz = dz / L;
-    if (Math.min(Math.abs(p.x), Math.abs(p.z)) < 14) continue;
+    if (Math.min(Math.abs(p.x), Math.abs(p.z)) < 16) continue;
     M.caps.push({ x: p.x, y: DECK_Y - DECK_T - .45, z: p.z, sx: 1.6, sy: .9, sz: 24, rotY: Math.atan2(-uz, ux) });
     for (const o of [-8, 8]) addPillar(M, p.x - uz * o, p.z + ux * o, .85, DECK_Y - DECK_T - .9);
   }
@@ -384,10 +421,39 @@ export function buildCity() {
   };
   const TILE = 40;
   let parkedN = 0;
+  // Gas stations go on lots that face a road a short drive-in away (nothing like a ramp in between),
+  // picked so they spread round the whole city: each next one as far as it can be from the rest.
+  const facing = (cx, cz) => [0, 1, 2, 3].find((f) => {
+    for (let d = TILE / 2 - 1; d <= TILE / 2 + 30; d += 1.5) {
+      const px = cx + AV[f][0] * d, pz = cz + AV[f][1] * d;
+      if (surfaceAt(M, px, pz, 50, -1, 0) > -Infinity) return false;
+      if (roadAt(M, px, pz)) return true;
+    }
+    return false;
+  });
+  const cands = [];
+  for (let tx = -EDGE; tx < EDGE; tx += TILE) for (let tz = -EDGE; tz < EDGE; tz += TILE) {
+    const cx = tx + TILE / 2, cz = tz + TILE / 2;
+    if (!free(tx, tz, tx + TILE, tz + TILE) || Math.max(Math.abs(cx), Math.abs(cz)) > BLVD) continue;
+    const f = facing(cx, cz);
+    if (f !== undefined) cands.push({ tx, tz, cx, cz, f });
+  }
+  const chosen = new Map();
+  for (let i = 0; i < 6 && cands.length; i++) {
+    let best = null, bd = -Infinity;
+    for (const c of cands) {
+      const d = chosen.size ? Math.min(...[...chosen.values()].map((o) => Math.hypot(o.cx - c.cx, o.cz - c.cz))) : -Math.hypot(c.cx - 300, c.cz + 300);
+      if (d > bd) { bd = d; best = c; }
+    }
+    if (chosen.size && bd < 260) break;
+    chosen.set(best.tx + "," + best.tz, best);
+  }
   for (let tx = -EDGE; tx < EDGE; tx += TILE) for (let tz = -EDGE; tz < EDGE; tz += TILE) {
     if (!free(tx, tz, tx + TILE, tz + TILE)) continue;
     const x0 = tx + 3, z0 = tz + 3, x1 = tx + TILE - 3, z1 = tz + TILE - 3, cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
     const m = Math.max(Math.abs(cx), Math.abs(cz)), r = hash(tx + 9000, tz + 9000, 3), r2 = hash(tx + 9000, tz + 9000, 4);
+    const st = chosen.get(tx + "," + tz);
+    if (st) { gasStation(M, slab, x0, z0, x1, z1, st.f, M.stations.length); continue; }
     const inner = m < RING;
     const kind = inner ? (r < .62 ? "bldg" : r < .84 ? "park" : "parking") : m < BLVD ? (r < .46 ? "shed" : r < .72 ? "parking" : "park") : "park";
     if (kind === "park") {
@@ -427,24 +493,60 @@ export function buildCity() {
         const px = ax + ux * d + nx * s * (HALF + 2.6), pz = az + uz * d + nz * s * (HALF + 2.6);
         if (groundAt(M, px, pz) < .1 || Math.abs(ringSD(px, pz)) < DECK_HW + 3) continue;
         M.trees.push({ x: px, z: pz, s: .7 + hash(px, pz, 5) * .35 });
+        M.furniture.pits.push({ x: px, z: pz });
+      }
+      // the speed limit, just after each junction, on the right
+      {
+        const d = s > 0 ? SETBACK + 20 : L - SETBACK - 20, px = ax + ux * d + nx * s * (HALF + .55), pz = az + uz * d + nz * s * (HALF + .55);
+        if (groundAt(M, px, pz) > .1 && Math.abs(ringSD(px, pz)) > DECK_HW + 3) {
+          M.props.push({ x: px, y: 0, z: pz, sx: .09, sy: 2.4, sz: .09, rotY: 0 });
+          M.signs.push({ x: px, y: 2.75, z: pz, fx: -ux * s, fz: -uz * s, w: .65, h: .85, tex: r.kind === "street" ? "speed30" : "speed45" });
+        }
+      }
+      // a bench and a bin halfway along each block; a bus shelter every so often on the big roads
+      const mid = L / 2 + s * 6, bx0 = ax + ux * mid + nx * s * (HALF + WALK - .7), bz0 = az + uz * mid + nz * s * (HALF + WALK - .7);
+      if (r.kind === "street" && groundAt(M, bx0, bz0) > .1) {
+        M.furniture.benches.push({ x: bx0, z: bz0, fx: -nx * s, fz: -nz * s });
+        const d2 = mid + s * 2.6;
+        M.furniture.bins.push({ x: ax + ux * d2 + nx * s * (HALF + .8), z: az + uz * d2 + nz * s * (HALF + .8) });
+      }
+      if (r.kind !== "street") for (let d = 60; d < L - 40; d += 170) {
+        const dd = s > 0 ? d : L - d, px = ax + ux * dd + nx * s * (HALF + 3), pz = az + uz * dd + nz * s * (HALF + 3);
+        if (groundAt(M, px, pz) < .1 || Math.abs(ringSD(px, pz)) < DECK_HW + 6) continue;
+        M.furniture.shelters.push({ x: px, z: pz, fx: -nx * s, fz: -nz * s, ux, uz });
+        M.bg.add(px - 2.3, pz - 2.3, px + 2.3, pz + 2.3, { x0: px - Math.abs(ux) * 2.1 - Math.abs(nx) * .8, x1: px + Math.abs(ux) * 2.1 + Math.abs(nx) * .8, z0: pz - Math.abs(uz) * 2.1 - Math.abs(nz) * .8, z1: pz + Math.abs(uz) * 2.1 + Math.abs(nz) * .8, y0: .15, y1: 2.6, solid: true });
       }
     }
+    // a couple of manholes in the lanes
+    for (const [t, o] of [[.32, laneOff(0)], [.68, -laneOff(1)]]) M.furniture.manholes.push({ x: ax + ux * L * t + nx * o, z: az + uz * L * t + nz * o });
   }
   for (let i = 0; i < C.length - 1; i += 12) M.lamps.push({ x: C[i].x, z: C[i].z, y: DECK_Y + 10, ax: 0, az: 0, twin: true, base: DECK_Y });
+  // Signals: on a mast from the far right corner, a head over each lane - an arrow head over a left
+  // pocket (or the inside lane of a T-junction's stem, which can only turn left) - with the cross
+  // street's name on the mast, LEFT ONLY by the pocket's head and NO TURN ON RED on the pole.
   for (const n of M.nodes) {
     if (!n.signal) continue;
+    if (hash(n.x + 77, n.z + 77) < .7) {
+      const sx = hash(n.x, n.z, 3) < .5 ? -1 : 1, sz = hash(n.x, n.z, 4) < .5 ? -1 : 1;
+      const hx = n.x + sx * (HALF + 1.1), hz = n.z + sz * (HALF + 2.3);
+      if (groundAt(M, hx, hz) > .1) M.furniture.hydrants.push({ x: hx, z: hz });
+    }
     for (let a = 0; a < 4; a++) {
       if (!n.in[a][0]) continue;
-      const [hx, hz] = AV[(a + 2) % 4], rx = -hz, rz = hx, bx = n.x + hx * (HALF + 2.4), bz = n.z + hz * (HALF + 2.4);
-      const px = bx + rx * (HALF + 1.1), pz = bz + rz * (HALF + 1.1);
-      M.props.push({ x: px, y: 0, z: pz, sx: .28, sy: 7, sz: .28, rotY: 0 });                                     // pole
-      const armL = HALF + .3, mx = bx + rx * (HALF + 1.1 - armL / 2), mz = bz + rz * (HALF + 1.1 - armL / 2);
-      M.props.push({ x: mx, y: 6.55, z: mz, sx: a % 2 ? .18 : armL, sy: .18, sz: a % 2 ? armL : .18, rotY: 0 });  // mast arm over the lanes
-      const leftOK = n.out[(a + 1) % 4][0] && n.in[a][0].next.some((c) => c.turn === "L");
-      for (let k = 0; k < 2; k++) {
-        const off = (k + .5) * LANE;
-        M.heads.push({ x: bx + rx * off, y: 5.75, z: bz + rz * off, fx: -hx, fz: -hz, n, axis: a % 2, left: k === 0 && !!leftOK });
-      }
+      const [hx, hz] = AV[(a + 2) % 4], rx = -hz, rz = hx, bx = n.x + hx * (HALF + 2.6), bz = n.z + hz * (HALF + 2.6);
+      const P = (lat) => [bx + rx * lat, bz + rz * lat];
+      const [px, pz] = P(HALF + 1.2), pocket = !!n.pocket[a], mv = n.moves[a] || {};
+      M.props.push({ x: px, y: 0, z: pz, sx: .3, sy: 7.2, sz: .3, rotY: 0 });                                       // pole
+      const lat0 = pocket ? -1.1 : laneOff(0) - 1.3, armL = HALF + 1.2 - lat0, [mx, mz] = P(HALF + 1.2 - armL / 2);
+      M.props.push({ x: mx, y: 6.75, z: mz, sx: a % 2 ? .2 : armL, sy: .2, sz: a % 2 ? armL : .2, rotY: 0 });     // mast arm
+      const head = (lat, left) => { const [x, z] = P(lat); M.heads.push({ x, y: 5.9, z, fx: -hx, fz: -hz, n, axis: a % 2, left, arrow: left }); };
+      if (pocket) head(0, true);
+      head(laneOff(0), mv[0] === "L");
+      head(laneOff(1), false);
+      const cross = a % 2 === 0 ? streetName(false, n.z) : streetName(true, n.x);
+      if (cross) { const [x, z] = P(HALF - 1.7); M.signs.push({ x, y: 7.3, z, fx: -hx, fz: -hz, w: 2.7, h: .55, tex: "street:" + cross }); }
+      if (pocket) { const [x, z] = P(MED + .1); M.signs.push({ x, y: 5.9, z, fx: -hx, fz: -hz, w: .9, h: 1.15, tex: "leftonly" }); }
+      M.signs.push({ x: px - hx * .2, y: 3.3, z: pz - hz * .2, fx: -hx, fz: -hz, w: .7, h: .9, tex: "notor" });
     }
   }
 
@@ -471,15 +573,17 @@ export function buildCity() {
   for (const L of M.lamps) addPost(M, L.x, L.z, .2, (L.base || 0) - .5, L.y);
   for (const p of M.props) if (p.sy > 3) addPost(M, p.x, p.z, .22, -1, p.sy);
   for (const t of M.trees) addPost(M, t.x, t.z, .2 + .12 * t.s, -1, 3);
+  for (const h of M.furniture.hydrants) addPost(M, h.x, h.z, .22, -1, .8);
   for (const p of M.parked) {
     const b = { x0: p.x - .98, z0: p.z - 2.4, x1: p.x + .98, z1: p.z + 2.4, y0: .05, y1: 1.5, solid: true };   // bays run north-south
     M.bg.add(b.x0, b.z0, b.x1, b.z1, b);
   }
 
   // ---- where a player starts: downtown, in lane, pointing along the street ----
+  const o1 = laneOff(1), o0 = laneOff(0);
   M.spawns = [
-    { x: 5.25, z: 50, yaw: 0 }, { x: -5.25, z: -50, yaw: Math.PI }, { x: -50, z: 5.25, yaw: -Math.PI / 2 }, { x: 50, z: -5.25, yaw: Math.PI / 2 },
-    { x: 1.75, z: 70, yaw: 0 }, { x: -1.75, z: -70, yaw: Math.PI }, { x: -70, z: 1.75, yaw: -Math.PI / 2 }, { x: 70, z: -1.75, yaw: Math.PI / 2 },
+    { x: o1, z: 50, yaw: 0 }, { x: -o1, z: -50, yaw: Math.PI }, { x: -50, z: o1, yaw: -Math.PI / 2 }, { x: 50, z: -o1, yaw: Math.PI / 2 },
+    { x: o0, z: 70, yaw: 0 }, { x: -o0, z: -70, yaw: Math.PI }, { x: -70, z: o0, yaw: -Math.PI / 2 }, { x: 70, z: -o0, yaw: Math.PI / 2 },
   ];
 
   // bounding boxes, for picking the lanes near someone
@@ -501,11 +605,90 @@ export const PAL = [
   [0x8a4a36, 0x7a3f2e, 0x9c5a44, 0x6e3a2c, 0x8c5642],
   [0xc8c6c0, 0xb0b4b8, 0x9ea3a8, 0xd8d2c4, 0xa8a090],
 ];
+const shade = (col, k) => (Math.round(((col >> 16) & 255) * k) << 16) | (Math.round(((col >> 8) & 255) * k) << 8) | Math.round((col & 255) * k);
 function addBuilding(M, x0, z0, x1, z1, y0, h, v, col) {
   const b = { x0, z0, x1, z1, y0, y1: y0 + h, v, col, solid: y0 < .3 };
   M.buildings.push(b);
   if (b.solid) M.bg.add(x0, z0, x1, z1, b);
+  // a parapet round the roof, standing a touch proud of the walls: the line that makes a box a building
+  if (x1 - x0 > 4 && z1 - z0 > 4) {
+    const y = y0 + h, t = .4, o = .14, ph = h > 30 ? 1.1 : .75, pc = shade(col, .7);
+    M.roofs.push({ x: (x0 + x1) / 2, y, z: z0 + t / 2 - o, sx: x1 - x0 + 2 * o, sy: ph, sz: t, col: pc });
+    M.roofs.push({ x: (x0 + x1) / 2, y, z: z1 - t / 2 + o, sx: x1 - x0 + 2 * o, sy: ph, sz: t, col: pc });
+    M.roofs.push({ x: x0 + t / 2 - o, y, z: (z0 + z1) / 2, sx: t, sy: ph, sz: z1 - z0, col: pc });
+    M.roofs.push({ x: x1 - t / 2 + o, y, z: (z0 + z1) / 2, sx: t, sy: ph, sz: z1 - z0, col: pc });
+  }
   return b;
+}
+// shop fronts along the street side of a ground-floor building: an awning over each, a sign above it
+// that lights up at night
+function storefronts(M, b, lot, seed) {
+  const AWN = [0x8c1d1d, 0x1d4d2e, 0x1c2c4c, 0x232323, 0x6b4a1d, 0x3d2a52, 0x7a6a50];
+  const NEON = [0xff3b6b, 0x3bd6ff, 0xffd23b, 0x7cff6b, 0xff8a3b, 0xf4f4f0];
+  const sides = [
+    [Math.abs(b.z0 - lot.z0) < .6, 0, b.x0, b.x1, b.z0, -1], [Math.abs(b.z1 - lot.z1) < .6, 0, b.x0, b.x1, b.z1, 1],
+    [Math.abs(b.x0 - lot.x0) < .6, 1, b.z0, b.z1, b.x0, -1], [Math.abs(b.x1 - lot.x1) < .6, 1, b.z0, b.z1, b.x1, 1],
+  ];
+  let n = 0;
+  for (const [ok, alongZ, a0, a1, face, out] of sides) {
+    if (!ok) continue;
+    for (let p = a0 + 2 + hash(seed, n++, 1) * 3; ;) {
+      const w = 4 + hash(seed, n++, 2) * 4;
+      if (p + w > a1 - 1.5) break;
+      const c = p + w / 2, col = AWN[Math.floor(hash(seed, n++, 3) * AWN.length)], neon = NEON[Math.floor(hash(seed, n++, 4) * NEON.length)], dep = 1.6;
+      const at = (along, outBy) => (alongZ ? [face + out * outBy, along] : [along, face + out * outBy]);
+      const [ax, az] = at(c, dep / 2), [sx, sz] = at(c, .08);
+      M.awnings.push({ x: ax, y: CURB + 3.3, z: az, sx: alongZ ? dep : w, sy: .14, sz: alongZ ? w : dep, col });
+      M.shopSigns.push({ x: sx, y: CURB + 3.8, z: sz, sx: alongZ ? .12 : w * .78, sy: .55, sz: alongZ ? w * .78 : .12, col: neon });
+      p += w + 1.5 + hash(seed, n++, 5) * 3.5;
+    }
+  }
+}
+// a company's name near the top of a tower, on all four faces, lit at night
+function logos(M, x0, z0, x1, z1, y, name) {
+  const w = Math.min(24, (x1 - x0) * .72), d = Math.min(24, (z1 - z0) * .72), cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, tex = "logo:" + name;
+  M.signs.push({ x: cx, y, z: z0 - .15, fx: 0, fz: -1, w, h: w / 4.6, tex }, { x: cx, y, z: z1 + .15, fx: 0, fz: 1, w, h: w / 4.6, tex },
+    { x: x0 - .15, y, z: cz, fx: -1, fz: 0, w: d, h: d / 4.6, tex }, { x: x1 + .15, y, z: cz, fx: 1, fz: 0, w: d, h: d / 4.6, tex });
+}
+export function roadAt(M, x, z) { return M.rg.query(x, z, 0, _q).some((q) => x >= q.x0 && x <= q.x1 && z >= q.z0 && z <= q.z1); }
+// A gas station on a lot whose front faces a road: a canopy over two pump islands, the shop at the
+// back, a price pylon by the road and an apron of asphalt out to the sidewalk. Laid out in the lot's
+// own frame - u across the front, w back from it - then turned to whichever way the road is.
+function gasStation(M, slab, x0, z0, x1, z1, f, i) {
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, half = (x1 - x0) / 2;
+  const [fx, fz] = AV[f], dx = -fx, dz = -fz, ax = -dz, az = dx;
+  const Fx = cx + fx * half, Fz = cz + fz * half;
+  const W = (u, w) => [Fx + ax * u + dx * w, Fz + az * u + dz * w];
+  const rect = (u0, u1, w0, w1) => { const p = W(u0, w0), q = W(u1, w1); return { x0: Math.min(p[0], q[0]), z0: Math.min(p[1], q[1]), x1: Math.max(p[0], q[0]), z1: Math.max(p[1], q[1]) }; };
+  const part = (u0, u1, w0, w1, y0, y1, mat, col) => { const r = rect(u0, u1, w0, w1); M.parts.push({ ...r, y0, y1, mat, col }); return r; };
+  const brand = BRANDS[i % BRANDS.length];
+  slab(x0, z0, x1, z1, "parking", .05);
+  let gap = 0;
+  for (; gap < 30; gap++) { const px = Fx + fx * (gap + .5), pz = Fz + fz * (gap + .5); if (groundAt(M, px, pz) > .1 || roadAt(M, px, pz)) break; }
+  if (gap > 0) { const r = rect(-half, half, -gap, 0); slab(r.x0, r.z0, r.x1, r.z1, "parking", .05); }
+  // the canopy and its lit fascia, the columns, the islands and their pumps
+  const canopy = part(-10, 10, 6, 18, 5.3, 5.95, "canopy");
+  part(-10.2, 10.2, 5.8, 18.2, 5.75, 6.35, "band", brand.col);
+  for (const w of [9.6, 14.4]) {
+    const isl = part(-6.4, 6.4, w - .55, w + .55, .05, .24, "island");
+    M.bg.add(isl.x0, isl.z0, isl.x1, isl.z1, { ...isl, y0: .05, y1: .3, solid: true });
+    for (const u of [-7.6, 7.6]) { const [x, z] = W(u, w); part(u - .2, u + .2, w - .2, w + .2, 0, 5.3, "column"); addPost(M, x, z, .3, -1, 5.3); }
+    for (const u of [-3.3, 3.3]) {
+      const [x, z] = W(u, w);
+      part(u - .4, u + .4, w - .25, w + .25, .24, 1.75, "pump");
+      part(u - .42, u + .42, w - .27, w + .27, 1.75, 2.05, "band", brand.col);
+      addPost(M, x, z, .5, -1, 2);
+    }
+  }
+  // the shop at the back with its name over the door, and the price pylon by the road
+  const shop = rect(-9.5, 9.5, 23.5, 32.5);
+  addBuilding(M, shop.x0, shop.z0, shop.x1, shop.z1, .05, 4.6, 1, 0xe6e6e2);
+  part(-6.5, 6.5, 23.15, 23.5, 3.5, 4.4, "band", brand.col);
+  const [px, pz] = W(half - 2.5, 2.2);
+  part(half - 2.7, half - 2.3, 2, 2.4, 0, 7.4, "column");
+  addPost(M, px, pz, .35, -1, 7.4);
+  for (const s of [1, -1]) M.signs.push({ x: px + ax * s * .16, y: 9.3, z: pz + az * s * .16, fx: ax * s, fz: az * s, w: 3.2, h: 4, tex: "price:" + brand.name });
+  M.stations.push({ cx, cz, brand: brand.name, col: brand.col, zone: canopy, lamps: [W(-5, 9.6), W(5, 9.6), W(-5, 14.4), W(5, 14.4)] });
 }
 // plant on the roof: fans, housings, a water tank
 function roofKit(M, x0, z0, x1, z1, y, s1, s2) {
@@ -519,6 +702,12 @@ function roofKit(M, x0, z0, x1, z1, y, s1, s2) {
 }
 // one downtown block: a tower on a podium, a pair of slabs, four smaller buildings, or a tower and a plaza
 function downtownBlock(M, gi, gj, x0, z0, x1, z1) {
+  const first = M.buildings.length;
+  buildBlock(M, gi, gj, x0, z0, x1, z1);
+  // shop fronts on whatever stands at street level along the sidewalk
+  M.buildings.slice(first).forEach((b, i) => { if (b.y0 < .3 && b.y1 - b.y0 > 5) storefronts(M, b, { x0, z0, x1, z1 }, gi * 97 + gj * 13 + i); });
+}
+function buildBlock(M, gi, gj, x0, z0, x1, z1) {
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, f = Math.max(0, 1 - Math.hypot(cx, cz) / 330);
   const r = (n) => hash(gi + 50, gj + 50, n);
   const pat = Math.floor(r(1) * 4);
@@ -529,6 +718,7 @@ function downtownBlock(M, gi, gj, x0, z0, x1, z1) {
     let top = y + h, tx0 = bx0, tz0 = bz0, tx1 = bx1, tz1 = bz1;
     // tall ones step back near the top, and the tallest carry a mast with a warning light
     if (h > 110) {
+      logos(M, bx0, bz0, bx1, bz1, y + h - 6, LOGOS[Math.floor(r(n + 9) * LOGOS.length)]);
       const s = 3 + r(n + 2) * 4;
       tx0 += s; tz0 += s; tx1 -= s; tz1 -= s;
       const h2 = 8 + r(n + 3) * 16;
@@ -635,19 +825,42 @@ function buildMarks(M) {
       }
     }
   };
-  // streets: double yellow down the middle, dashed lane lines, stop lines, zebra crossings
+  // Streets. The centre lane: yellow edges against the other direction and diagonal hatching
+  // mid-block; as it nears a signal it becomes that direction's left pocket - a dashed white taper,
+  // then a solid white line beside it. Lane lines go solid for the last 20 m, then stop lines, zebra
+  // crossings, and arrows painted in each lane saying what it may do at the junction ahead.
   for (const r of M.roads) {
     const ax = r.a.x, az = r.a.z, bx = r.b.x, bz = r.b.z, L = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / L, uz = (bz - az) / L, nx = -uz, nz = ux;
     const s0 = SETBACK, s1 = L - SETBACK, P = (s, o) => [ax + ux * s + nx * o, az + uz * s + nz * o];
-    for (const o of [-.2, .2]) { const [x0, z0] = P(s0, o), [x1, z1] = P(s1, o); mk(x0, 0, z0, x1, 0, z1, .12, 1); }
-    for (const o of [-LANE, LANE]) { const [x0, z0] = P(s0, o), [x1, z1] = P(s1, o); dashed([{ x: x0, y: 0, z: z0 }, { x: x1, y: 0, z: z1 }], 3, 6, .12, 0); }
-    // stop lines across the half of the road that arrives at each end
-    { const [x0, z0] = P(s1 - .15, .35), [x1, z1] = P(s1 - .15, HALF - .2); mk(x0, 0, z0, x1, 0, z1, .45); }
-    { const [x0, z0] = P(s0 + .15, -.35), [x1, z1] = P(s0 + .15, -HALF + .2); mk(x0, 0, z0, x1, 0, z1, .45); }
-    // crossings at both ends
-    for (const [sa, sb] of [[7.4, 10.4], [L - 10.4, L - 7.4]]) {
+    const pb = !!r.b.pocket?.[r.eb], pa = !!r.a.pocket?.[r.ea];       // A->B's pocket at B, B->A's at A
+    const seg = (sa, sb, o, w, c) => { if (sb - sa < .3) return; const [x0, z0] = P(sa, o), [x1, z1] = P(sb, o); mk(x0, 0, z0, x1, 0, z1, w, c); };
+    const dash = (sa, sb, o, on = 3, off = 6, w = .12) => { if (sb - sa < .3) return; const [x0, z0] = P(sa, o), [x1, z1] = P(sb, o); dashed([{ x: x0, y: 0, z: z0 }, { x: x1, y: 0, z: z1 }], on, off, w, 0); };
+    if (pb) { seg(s0, s1 - POCKET, MED, .14, 1); dash(s1 - POCKET, s1 - POCKET + TAPER, MED, 1.2, 1.2, .14); seg(s1 - POCKET + TAPER, s1, MED, .14, 0); }
+    else seg(s0, s1, MED, .14, 1);
+    if (pa) { seg(s0, s0 + POCKET - TAPER, -MED, .14, 0); dash(s0 + POCKET - TAPER, s0 + POCKET, -MED, 1.2, 1.2, .14); seg(s0 + POCKET, s1, -MED, .14, 1); }
+    else seg(s0, s1, -MED, .14, 1);
+    for (let s = (pa ? s0 + POCKET : s0) + 1.5; s + 2.6 < (pb ? s1 - POCKET : s1) - .5; s += 4) {
+      const [x0, z0] = P(s, -MED + .3), [x1, z1] = P(s + 2.6, MED - .3);
+      mk(x0, 0, z0, x1, 0, z1, .3, 1);
+    }
+    const D = MED + LANE;
+    dash(s0, s1 - 20, D); seg(s1 - 20, s1, D, .12, 0);
+    seg(s0, s0 + 20, -D, .12, 0); dash(s0 + 20, s1, -D);
+    if (r.b.signal) { const [x0, z0] = P(s1 + .2, pb ? -MED + .15 : MED + .15), [x1, z1] = P(s1 + .2, HALF - .2); mk(x0, 0, z0, x1, 0, z1, .45); }
+    if (r.a.signal) { const [x0, z0] = P(s0 - .2, pa ? MED - .15 : -MED - .15), [x1, z1] = P(s0 - .2, -HALF + .2); mk(x0, 0, z0, x1, 0, z1, .45); }
+    for (const [sa, sb] of [[HALF + .6, HALF + 3.6], [L - HALF - 3.6, L - HALF - .6]]) {
       for (let o = -HALF + .7; o <= HALF - .5; o += 1.2) { const [x0, z0] = P(sa, o), [x1, z1] = P(sb, o); mk(x0, 0, z0, x1, 0, z1, .6); }
     }
+    const arrows = (end, sg, mv, pocket) => {
+      if (!mv) return;
+      for (const back of [7, 26]) {
+        const s = end - sg * back;
+        for (const k of [0, 1]) if (mv[k]) { const [x, z] = P(s, sg * laneOff(k)); M.arrows.push({ x, z, dx: ux * sg, dz: uz * sg, type: mv[k] }); }
+        if (pocket && back === 7) { const [x, z] = P(s, 0); M.arrows.push({ x, z, dx: ux * sg, dz: uz * sg, type: "L" }); }
+      }
+    };
+    arrows(s1, 1, r.b.moves?.[r.eb], pb);
+    arrows(s0, -1, r.a.moves?.[r.ea], pa);
   }
   // the ring: yellow by the median, dashed lane lines, a white edge that breaks into dashes where a
   // ramp joins or leaves
@@ -765,7 +978,7 @@ export class CityTraffic {
     if (!n.length) return null;
     if (n.length === 1) return n[0];
     let tot = 0;
-    const w = n.map((x) => { const v = x.kind === "conn" ? (x.turn === "S" ? 3 : 1.1) : x.kind === "ramp" && l.kind === "hwy" ? .7 : x.kind === "ramp" ? .8 : 2.4; tot += v; return v; });
+    const w = n.map((x) => { const v = x.pocket ? 1.1 : x.kind === "conn" ? (x.turn === "S" ? 3 : 1.1) : x.kind === "ramp" && l.kind === "hwy" ? .7 : x.kind === "ramp" ? .8 : 2.4; tot += v; return v; });
     let r = Math.random() * tot;
     for (let i = 0; i < n.length; i++) if ((r -= w[i]) <= 0) return n[i];
     return n[n.length - 1];
@@ -775,6 +988,15 @@ export class CityTraffic {
     if ((body === "bus" || body === "truck") && l.kind === "ramp") return null;
     const sz = this.sizes[body] || { L: 4.6, W: 1.9 };
     if (l.cars.some((o) => Math.abs(o.s - s) < (o.L + sz.L) / 2 + 9)) return null;
+    // it sets off no faster than it could stop for whatever is ahead - a queue, a stop line - and
+    // never just in front of a car that couldn't stop for it
+    let ahead = l.len - s + 40;
+    for (const o of l.cars) if (o.s > s) ahead = Math.min(ahead, o.s - s - (o.L + sz.L) / 2);
+    for (const x of l.next) for (const o of x.cars) ahead = Math.min(ahead, l.len - s + o.s - (o.L + sz.L) / 2);
+    if (l.stop) ahead = Math.min(ahead, l.len - s - sz.L / 2);
+    if (ahead < 6) return null;
+    v = Math.min(v, Math.sqrt(2 * 3 * (ahead - 5)));
+    for (const o of l.cars) if (o.s < s && s - o.s - (o.L + sz.L) / 2 < 5 + Math.max(0, o.v * o.v - v * v) / 10) return null;
     const color = body === "sedan" && Math.random() < .3 ? TAXI : body === "bus" ? 0xe8e6e0 : CITY_COLORS[Math.floor(Math.random() * CITY_COLORS.length)];
     const c = { id: this.nid++, link: l, s, v, L: sz.L, W: sz.W, body, color, k: .88 + Math.random() * .24, next: null, next2: null, acc: 0,
       x: 0, y: 0, z: 0, yaw: 0, pitch: 0, sig: 0, stopT: 0, honkT: 0, playerBlock: false, bump: null, mesh: null };
@@ -830,15 +1052,24 @@ export class CityTraffic {
       const rest = l.len - c.s;
       for (const o of l.cars) if (o !== c && o.s > c.s) { const g = o.s - c.s - (o.L + c.L) / 2; if (g < gap) { gap = g; lv = o.v; } }
       const n = c.next;
+      // where lanes part (a junction, a turn pocket, an exit) the car just into the other branch is
+      // still in front of me for a few metres
+      if (n && l.next.length > 1) for (const x of l.next) if (x !== n) for (const o of x.cars) if (o.s < 8) { const g = rest + o.s - (o.L + c.L) / 2; if (g < gap) { gap = g; lv = o.v; } }
       if (n && gap > rest) {
         for (const o of n.cars) { const g = rest + o.s - (o.L + c.L) / 2; if (g < gap) { gap = g; lv = o.v; } }
         if (c.next2 && gap > rest + n.len) for (const o of c.next2.cars) { const g = rest + n.len + o.s - (o.L + c.L) / 2; if (g < gap) { gap = g; lv = o.v; } }
-        // two lanes becoming one: whoever is nearer the join goes first
-        if (n.prev.length > 1 && rest < 70) for (const p of n.prev) {
-          if (p === l) continue;
-          for (const o of p.cars) {
-            const ro = p.len - o.s;
-            if (ro < rest - .01 || (Math.abs(ro - rest) <= .01 && o.id < c.id)) { const g = rest - ro - (o.L + c.L) / 2 - 1.5; if (g < gap) { gap = g; lv = o.v; } }
+        // two lanes becoming one: whoever will get to the join first goes first (by time, not distance,
+        // so a fast car is never told to give way to one it can no longer stop for)
+        if (n.prev.length > 1 && rest < 90) {
+          const eta = rest / Math.max(3, c.v);
+          for (const p of n.prev) {
+            if (p === l) continue;
+            for (const o of p.cars) {
+              const ro = p.len - o.s, oeta = ro / Math.max(3, o.v);
+              if (ro > 90 || !(oeta < eta - .01 || (Math.abs(oeta - eta) <= .01 && o.id < c.id))) continue;
+              const g = rest - ro - (o.L + c.L) / 2 - 1.5;
+              if (g < gap) { gap = g; lv = o.v; }
+            }
           }
         }
       }
