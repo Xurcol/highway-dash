@@ -7,7 +7,7 @@ import { patchLit } from "./lights.js";
 import { makeTrafficCar, BODIES } from "./cars.js";
 import {
   buildCity, CityTraffic, CITY_BODIES, signalAt, heightAt, groundAt, pushCircle, insideSolid, districtAt, ringSD, offsetPts, hash,
-  DOWN, RING, DECK_Y, DECK_HW, DECK_T, RAMP_HW, EDGE, CURB, BRANDS,
+  DOWN, RING, DECK_Y, DECK_HW, DECK_T, RAMP_HW, EDGE, CURB, BRANDS, PARK0, roadAt,
 } from "./city-map.js";
 
 // ---------------------------------------------------------------- textures
@@ -92,15 +92,34 @@ function signTex(tab, a, b) {
   return t;
 }
 
-// one canvas, drawn once, as a texture that is not tiled
-function picture(w, h, draw) {
+// one canvas, drawn once - as a canvas (paint) or a texture that is not tiled (picture)
+function paint(w, h, draw) {
   const c = document.createElement("canvas"); c.width = w; c.height = h;
   draw(c.getContext("2d"), w, h);
-  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
-  return t;
+  return c;
+}
+const asTexture = (c) => { const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8; return t; };
+const picture = (w, h, draw) => asTexture(paint(w, h, draw));
+// Many small pictures packed onto one texture, so they cost one draw call between them. Rows are
+// filled left to right; anything wider than half the sheet is scaled down to fit. Returns the texture
+// and each key's rectangle in texture space [u0, v0, u1, v1].
+function atlas(items, W = 2048) {
+  let x = 0, y = 0, row = 0;
+  const placed = items.map(({ key, canvas }) => {
+    const k = Math.min(1, (W / 2) / canvas.width), w = Math.floor(canvas.width * k), h = Math.floor(canvas.height * k);
+    if (x + w > W) { x = 0; y += row + 4; row = 0; }
+    const p = { key, canvas, x, y, w, h };
+    x += w + 4; row = Math.max(row, h);
+    return p;
+  });
+  let H = 64;
+  while (H < y + row) H *= 2;
+  const sheet = paint(W, H, (g) => { for (const p of placed) g.drawImage(p.canvas, p.x, p.y, p.w, p.h); });
+  const uv = new Map(placed.map((p) => [p.key, [p.x / W, 1 - (p.y + p.h) / H, (p.x + p.w) / W, 1 - p.y / H]]));
+  return { tex: asTexture(sheet), uv };
 }
 // lane arrows, painted white on a transparent ground: a stem, and a head for each way the lane may go
-const arrowTex = (type) => picture(160, 320, (g) => {
+const arrowCanvas = (type) => paint(160, 320, (g) => {
   g.fillStyle = g.strokeStyle = "#fff"; g.lineWidth = 16; g.lineJoin = "round";
   const head = (x, y, ang) => { g.save(); g.translate(x, y); g.rotate(ang); g.beginPath(); g.moveTo(0, -28); g.lineTo(24, 6); g.lineTo(-24, 6); g.closePath(); g.fill(); g.restore(); };
   g.beginPath(); g.moveTo(80, 318); g.lineTo(80, 150); g.stroke();
@@ -119,8 +138,8 @@ const lensTex = (arrow) => picture(64, 64, (g) => {
 const PRICES = { VOLTA: ["3.49", "3.89", "4.29"], NORTHSTAR: ["3.45", "3.85", "4.25"], APEX: ["3.39", "3.79", "4.19"] };
 function signFace(key, brands) {
   const i = key.indexOf(":"), kind = i < 0 ? key : key.slice(0, i), arg = i < 0 ? "" : key.slice(i + 1);
-  const plate = (w, h, draw) => picture(w, h, (g) => { g.fillStyle = "#f4f4f0"; g.fillRect(0, 0, w, h); g.strokeStyle = "#141414"; g.lineWidth = 8; g.strokeRect(10, 10, w - 20, h - 20); g.fillStyle = "#141414"; g.textAlign = "center"; g.textBaseline = "middle"; draw(g, w, h); });
-  if (kind === "street") return picture(640, 130, (g, w, h) => {
+  const plate = (w, h, draw) => paint(w, h, (g) => { g.fillStyle = "#f4f4f0"; g.fillRect(0, 0, w, h); g.strokeStyle = "#141414"; g.lineWidth = 8; g.strokeRect(10, 10, w - 20, h - 20); g.fillStyle = "#141414"; g.textAlign = "center"; g.textBaseline = "middle"; draw(g, w, h); });
+  if (kind === "street") return paint(640, 130, (g, w, h) => {
     g.fillStyle = "#17643a"; g.fillRect(0, 0, w, h); g.strokeStyle = "#f4f4f0"; g.lineWidth = 6; g.strokeRect(8, 8, w - 16, h - 16);
     g.fillStyle = "#f4f4f0"; g.font = "bold 72px sans-serif"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(arg, w / 2, h / 2 + 3);
   });
@@ -133,7 +152,7 @@ function signFace(key, brands) {
   if (kind === "speed30" || kind === "speed45") return plate(250, 330, (g, w) => {
     g.font = "bold 42px sans-serif"; g.fillText("SPEED", w / 2, 58); g.fillText("LIMIT", w / 2, 104); g.font = "bold 128px sans-serif"; g.fillText(kind.slice(5), w / 2, 222);
   });
-  if (kind === "price") return picture(320, 400, (g, w, h) => {
+  if (kind === "price") return paint(320, 400, (g, w, h) => {
     const b = brands.find((x) => x.name === arg), col = "#" + b.col.toString(16).padStart(6, "0"), p = PRICES[arg] || PRICES.APEX;
     g.fillStyle = "#16171a"; g.fillRect(0, 0, w, h);
     g.fillStyle = col; g.fillRect(0, 0, w, 120);
@@ -144,7 +163,7 @@ function signFace(key, brands) {
     p.forEach((t, k) => g.fillText(t, w - 18, 174 + k * 82));
   });
   // a tower's name: white letters on nothing, lit from inside at night
-  return picture(1024, 222, (g, w, h) => {
+  return paint(1024, 222, (g, w, h) => {
     g.fillStyle = "#fff"; g.textAlign = "center"; g.textBaseline = "middle";
     let size = 170; g.font = `bold ${size}px sans-serif`;
     while (g.measureText(arg).width > w * .92 && size > 40) { size -= 8; g.font = `bold ${size}px sans-serif`; }
@@ -163,6 +182,7 @@ const FACADES = [
   { cw: 2.2, ch: 3.9, fx: .06, y0: .1, y1: .9, glass: [.09, .07, .05], lit: .3, r: .5, shop: true },
   { cw: 2.8, ch: 3.4, fx: .24, y0: .28, y1: .78, glass: [.05, .06, .07], lit: .5, r: .92, shop: true },
   { cw: 7, ch: 8, fx: .12, y0: .62, y1: .8, glass: [.12, .14, .16], lit: .18, r: .8, shop: false },
+  { cw: 3.4, ch: 3.1, fx: .3, y0: .3, y1: .72, glass: [.07, .08, .09], lit: .55, r: .92, shop: false },   // houses
 ];
 function facadeMaterial(i) {
   const F = FACADES[i], f = (v) => v.toFixed(3), v3 = (a) => `vec3(${a.map(f).join(",")})`;
@@ -230,14 +250,17 @@ class GB {
     S.quad([x0, y0, z0], [x0, y0, z1], [x0, y1, z1], [x0, y1, z0], [-1, 0, 0]);
     S.quad([x1, y0, z0], [x1, y0, z1], [x1, y1, z1], [x1, y1, z0], [1, 0, 0]);
   }
-  mesh(mat, parent, { shadow = false, receive = true } = {}) {
-    if (!this.p.length) return null;
+  geometry() {
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.Float32BufferAttribute(this.p, 3));
     g.setAttribute("normal", new THREE.Float32BufferAttribute(this.n, 3));
     g.setAttribute("uv", new THREE.Float32BufferAttribute(this.u, 2));
     g.computeBoundingSphere();
-    const m = new THREE.Mesh(g, mat);
+    return g;
+  }
+  mesh(mat, parent, { shadow = false, receive = true } = {}) {
+    if (!this.p.length) return null;
+    const m = new THREE.Mesh(this.geometry(), mat);
     m.castShadow = shadow; m.receiveShadow = receive;
     parent.add(m);
     return m;
@@ -283,7 +306,38 @@ class Inst {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 }
+// Static instances bucketed into 600 m squares of the map, one InstancedMesh each with bounds of its
+// own, so the renderer - and the shadow pass - skips whatever is out of view rather than drawing the
+// whole city every frame. Same add() / span() as Inst.
+class CInst {
+  constructor(parent, geo, mat, opts = {}) { this.parent = parent; this.geo = geo; this.mat = mat; this.opts = opts; this.b = new Map(); }
+  put(x, z, op) { const k = Math.floor(x / 600) + "," + Math.floor(z / 600); let a = this.b.get(k); if (!a) this.b.set(k, (a = [])); a.push(op); }
+  add(x, y, z, sx, sy, sz, rotY = 0, color) { this.put(x, z, (I) => I.add(x, y, z, sx, sy, sz, rotY, color)); }
+  span(ax, ay, az, bx, by, bz, sy, sz, color) { this.put((ax + bx) / 2, (az + bz) / 2, (I) => I.span(ax, ay, az, bx, by, bz, sy, sz, color)); }
+  end() {
+    this.meshes = [];
+    for (const ops of this.b.values()) {
+      const I = new Inst(this.parent, this.geo, this.mat, ops.length, this.opts);
+      for (const op of ops) op(I);
+      I.end();
+      I.mesh.frustumCulled = true; I.mesh.computeBoundingSphere();
+      this.meshes.push(I);
+    }
+    this.b = null;
+    return this;
+  }
+}
 const BOX = new THREE.BoxGeometry(1, 1, 1).translate(0, .5, 0);
+const CYL = new THREE.CylinderGeometry(1, 1, 1, 12).translate(0, .5, 0);
+// a pitched roof, ridge along x: two slopes and two gable ends, in a 1 x 1 x 1 box
+const PRISM = (() => {
+  const g = new GB(1);
+  g.quad([-.5, 0, -.5], [.5, 0, -.5], [.5, 1, 0], [-.5, 1, 0], [0, 1, -1]);
+  g.quad([-.5, 0, .5], [.5, 0, .5], [.5, 1, 0], [-.5, 1, 0], [0, 1, 1]);
+  g.tri([-.5, 0, -.5], [-.5, 0, .5], [-.5, 1, 0], [-1, 0, 0]);
+  g.tri([.5, 0, -.5], [.5, 0, .5], [.5, 1, 0], [1, 0, 0]);
+  return g.geometry();
+})();
 const BOXC = new THREE.BoxGeometry(1, 1, 1);
 
 // ---------------------------------------------------------------- the city
@@ -319,24 +373,19 @@ export class City {
       white: lit({ color: 0xe8e8e2, roughness: .65, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
       yellow: lit({ color: 0xd6a22a, roughness: .65, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }),
       metal: lit({ color: 0x4d5258, roughness: .45, metalness: .65 }),
-      housing: lit({ color: 0x1b1d20, roughness: .55, metalness: .3 }),
-      trunk: lit({ color: 0x57412e, roughness: .95 }),
       crown: lit({ color: 0xffffff, roughness: .9, flatShading: true }),
       roof: lit({ color: 0xffffff, roughness: .75, metalness: .25 }),
-      rail: lit({ color: 0xb4b9bf, roughness: .35, metalness: .75 }),
-      head: new THREE.MeshBasicMaterial({ color: 0xfff0d0, toneMapped: false }),
-      lens: new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false }),
     };
     tex.road.repeat.set(1, 1);
 
     // ---- ground: grass everywhere, gravel under the ring ----
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(4200, 4200).rotateX(-Math.PI / 2), mat.grass);
-    ground.geometry.attributes.uv.array.forEach((v, i, a) => (a[i] = v * 4200 / TILE.grass));
+    const ground = new THREE.Mesh(new THREE.PlaneGeometry(7000, 7000).rotateX(-Math.PI / 2), mat.grass);
+    ground.geometry.attributes.uv.array.forEach((v, i, a) => (a[i] = v * 7000 / TILE.grass));
     ground.position.y = -.03; ground.receiveShadow = true;
     G.add(ground);
     const gravel = new GB(TILE.gravel), C = M.ring, L14 = offsetPts(C, -14.6, true), R14 = offsetPts(C, 14.6, true);
     for (let i = 0; i < C.length - 1; i++) {
-      if (Math.min(Math.abs(C[i].x), Math.abs(C[i].z)) < 15) continue;   // the avenues pass under here
+      if ([C[i], L14[i], R14[i], C[i + 1]].some((p) => roadAt(M, p.x, p.z))) continue;   // a street passes under here
       gravel.quad([L14[i].x, .005, L14[i].z], [R14[i].x, .005, R14[i].z], [R14[i + 1].x, .005, R14[i + 1].z], [L14[i + 1].x, .005, L14[i + 1].z], [0, 1, 0]);
     }
     gravel.mesh(mat.gravel, G);
@@ -386,59 +435,74 @@ export class City {
       (k.c ? yellow : white).quad([k.ax - px, ya, k.az - pz], [k.ax + px, ya, k.az + pz], [k.bx + px, yb, k.bz + pz], [k.bx - px, yb, k.bz - pz], [0, 1, 0], () => [0, 0]);
     }
     white.mesh(mat.white, G); yellow.mesh(mat.yellow, G);
-    const arrowsBy = new Map();
+    const arrowSheet = atlas([...new Set(M.arrows.map((a) => a.type))].map((key) => ({ key, canvas: arrowCanvas(key) })), 1024);
+    const arrows = new GB(1);
     for (const a of M.arrows) {
-      let b = arrowsBy.get(a.type);
-      if (!b) arrowsBy.set(a.type, (b = new GB(1)));
-      const rx = -a.dz * 1.1, rz = a.dx * 1.1, fx = a.dx * 2.2, fz = a.dz * 2.2, y = .02;
-      b.quadUV([a.x - rx - fx, y, a.z - rz - fz], [a.x + rx - fx, y, a.z + rz - fz], [a.x + rx + fx, y, a.z + rz + fz], [a.x - rx + fx, y, a.z - rz + fz], [[0, 0], [1, 0], [1, 1], [0, 1]], [0, 1, 0]);
+      const rx = -a.dz * 1.1, rz = a.dx * 1.1, fx = a.dx * 2.2, fz = a.dz * 2.2, y = .02, [u0, v0, u1, v1] = arrowSheet.uv.get(a.type);
+      arrows.quadUV([a.x - rx - fx, y, a.z - rz - fz], [a.x + rx - fx, y, a.z + rz - fz], [a.x + rx + fx, y, a.z + rz + fz], [a.x - rx + fx, y, a.z - rz + fz], [[u0, v0], [u1, v0], [u1, v1], [u0, v1]], [0, 1, 0]);
     }
-    for (const [type, b] of arrowsBy) b.mesh(lit({ map: arrowTex(type), alphaTest: .5, color: 0xe8e8e2, roughness: .65, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), G);
+    arrows.mesh(lit({ map: arrowSheet.tex, alphaTest: .5, color: 0xe8e8e2, roughness: .65, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), G);
 
     // ---- buildings, with a far skyline beyond the wall ----
-    const byLook = [[], [], [], [], []];
+    const byLook = [[], [], [], [], [], []];
     for (const b of M.buildings) byLook[b.v].push(b);
     const sky = [];
     for (let i = 0; i < 110; i++) {
-      const a = hash(i, 5, 99) * Math.PI * 2, d = 900 + hash(i, 6, 99) * 700, w = 30 + hash(i, 7, 99) * 40, dd = 30 + hash(i, 8, 99) * 40;
+      const a = hash(i, 5, 99) * Math.PI * 2, d = 1500 + hash(i, 6, 99) * 900, w = 30 + hash(i, 7, 99) * 40, dd = 30 + hash(i, 8, 99) * 40;
       const cl = Math.pow(Math.max(0, Math.cos(a * 3 + 1)), 3), h = 25 + hash(i, 9, 99) * 70 + cl * 180, v = h > 110 ? 1 + (i % 2) : i % 3 === 0 ? 3 : 0;
       sky.push({ x0: Math.cos(a) * d - w / 2, z0: Math.sin(a) * d - dd / 2, x1: Math.cos(a) * d + w / 2, z1: Math.sin(a) * d + dd / 2, y0: 0, y1: h, v, col: 0x8a9098 });
     }
     for (const b of sky) byLook[b.v].push(b);
+    const facades = byLook.map((_, v) => facadeMaterial(v));
     this.bldg = byLook.map((list, v) => {
-      const I = new Inst(G, BOX, facadeMaterial(v), list.length, { colors: true });
+      const I = new CInst(G, BOX, facades[v], { colors: true });
       for (const b of list) I.add((b.x0 + b.x1) / 2, b.y0, (b.z0 + b.z1) / 2, b.x1 - b.x0, b.y1 - b.y0, b.z1 - b.z0, 0, b.col);
-      I.end();
-      return I;
+      return I.end();
     });
-    const roofs = new Inst(G, BOX, mat.roof, M.roofs.length, { colors: true });
-    for (const r of M.roofs) roofs.add(r.x, r.y, r.z, r.sx, r.sy, r.sz, 0, r.col);
-    roofs.end();
+    const roundGeo = new THREE.CylinderGeometry(1, 1, 1, 36).translate(0, .5, 0);
+    for (const v of new Set(M.rounds.map((r) => r.v))) {
+      const I = new Inst(G, roundGeo, facades[v], M.rounds.filter((r) => r.v === v).length, { colors: true });
+      for (const r of M.rounds) if (r.v === v) I.add(r.x, r.y0, r.z, r.r, r.h, r.r, 0, r.col);
+      I.end();
+    }
+    // Shared batches with a colour per instance, so the city is a handful of draw calls per map square
+    // rather than one per kind of thing: small boxes (signal gear, lamp arms, benches, awnings), big
+    // boxes (roof plant and parapets, barriers, gas stations, the wall), cylinders (posts, piers, tree
+    // trunks, tanks, hydrants, bins) and the things that glow (lamp heads, shop signs, fascias).
+    const small = new CInst(G, BOXC, lit({ color: 0xffffff, roughness: .6, metalness: .3 }), { shadow: false, colors: true });
+    const big = new CInst(G, BOX, mat.roof, { colors: true });
+    const cyls = new CInst(G, CYL, lit({ color: 0xffffff, roughness: .55, metalness: .3 }), { colors: true });
+    this.glowMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
+    const glow = new CInst(G, BOXC, this.glowMat, { shadow: false, colors: true });
+    const K = { metal: 0x4d5258, dark: 0x1b1d20, concrete: 0xb9b5ac, curb: 0xc9c5bc, rail: 0xb4b9bf, wood: 0x6b4a2c, timber: 0x6e4b30, trunk: 0x57412e, head: 0xfff1d6 };
+
+    for (const r of M.roofs) big.add(r.x, r.y, r.z, r.sx, r.sy, r.sz, 0, r.col);
+    const pitched = new CInst(G, PRISM, lit({ color: 0xffffff, roughness: .85, flatShading: true }), { colors: true });
+    for (const p of M.prisms) pitched.add(p.x, p.y, p.z, p.sx, p.sy, p.sz, p.rotY, p.col);
+    pitched.end();
+    for (const t of M.tanks) cyls.add(t.x, t.y, t.z, t.r, t.h, t.r, 0, t.col);
+    const cone = new CInst(G, new THREE.ConeGeometry(1, 1, 16).translate(0, .5, 0), lit({ color: 0x3e3a36, roughness: .7 }));
+    for (const w of M.waterTowers) {
+      cyls.add(w.x, w.y + 3.2, w.z, w.r, w.h, w.r, 0, K.timber);
+      cone.add(w.x, w.y + 3.2 + w.h, w.z, w.r * 1.08, 1.6, w.r * 1.08);
+      for (const [lx, lz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) small.add(w.x + lx * w.r * .7, w.y + 1.65, w.z + lz * w.r * .7, .18, 3.3, .18, 0, K.metal);
+    }
+    cone.end();
 
     // ---- the ring's structure: piers, caps, barriers, the rail on top ----
-    const pier = new Inst(G, new THREE.CylinderGeometry(1, 1, 1, 14).translate(0, .5, 0), mat.concrete, M.pillars.length);
-    for (const p of M.pillars) pier.add(p.x, 0, p.z, p.r, p.y1, p.r);
-    pier.end();
-    const caps = new Inst(G, BOXC, mat.concrete, M.caps.length);
-    for (const c of M.caps) caps.add(c.x, c.y, c.z, c.sx, c.sy, c.sz, c.rotY);
-    caps.end();
-    const jersey = new Inst(G, BOX, mat.concrete, M.barriers.length, { shadow: false });
-    const rail = new Inst(G, BOX, mat.rail, M.barriers.length, { shadow: false });
+    for (const p of M.pillars) cyls.add(p.x, 0, p.z, p.r, p.y1, p.r, 0, K.concrete);
+    for (const c of M.caps) big.add(c.x, c.y - c.sy / 2, c.z, c.sx, c.sy, c.sz, c.rotY, K.concrete);
     for (const b of M.barriers) {
-      jersey.span(b.ax, b.ay, b.az, b.bx, b.by, b.bz, .95, .42);
-      rail.span(b.ax, b.ay + .95, b.az, b.bx, b.by + .95, b.bz, .12, .2);
+      big.span(b.ax, b.ay, b.az, b.bx, b.by, b.bz, .95, .42, K.concrete);
+      big.span(b.ax, b.ay + .95, b.az, b.bx, b.by + .95, b.bz, .12, .2, K.rail);
     }
-    jersey.end(); rail.end();
 
     // ---- street lamps ----
     this.heads = [];
-    const poles = new Inst(G, new THREE.CylinderGeometry(.09, .14, 1, 8).translate(0, .5, 0), mat.metal, M.lamps.length, { shadow: false });
-    const arms = new Inst(G, BOXC, mat.metal, M.lamps.length * 2, { shadow: false });
-    const lampHeads = new Inst(G, BOXC, mat.head, M.lamps.length * 2, { shadow: false });
     const C0 = M.ring;
     for (const L of M.lamps) {
       const base = L.base || groundAt(M, L.x, L.z);
-      poles.add(L.x, base, L.z, 1, L.y - base, 1);
+      cyls.add(L.x, base, L.z, .12, L.y - base, .12, 0, K.metal);
       let dirs = [[L.ax, L.az]];
       if (L.twin) {
         // on the ring's median: one arm over each carriageway
@@ -449,136 +513,115 @@ export class City {
       }
       for (const [ax, az] of dirs) {
         const hx = L.x + ax * 1.9, hz = L.z + az * 1.9;
-        arms.span(L.x, L.y - .05, L.z, hx, L.y - .05, hz, .1, .1);
-        lampHeads.add(hx, L.y - .12, hz, .75, .16, .75);
+        small.span(L.x, L.y - .05, L.z, hx, L.y - .05, hz, .1, .1, K.metal);
+        glow.add(hx, L.y - .12, hz, .75, .16, .75, 0, K.head);
         this.heads.push({ x: hx, y: L.y - .25, z: hz });
       }
     }
-    poles.end(); arms.end(); lampHeads.end();
 
-    // ---- signals ----
-    const props = new Inst(G, BOXC, mat.metal, M.props.length, { shadow: false });
-    for (const p of M.props) props.add(p.x, p.y === 0 ? p.sy / 2 : p.y, p.z, p.sx, p.sy, p.sz, 0);   // poles stand on the ground; arms hang at their height
-    props.end();
-    const housings = new Inst(G, BOXC, mat.housing, M.heads.length * 5, { shadow: false });
+    // ---- signals: poles and masts, heads with backplates and visors, and their dark lenses ----
+    for (const p of M.props) small.add(p.x, p.y === 0 ? p.sy / 2 : p.y, p.z, p.sx, p.sy, p.sz, 0, K.metal);   // poles stand on the ground; arms hang at their height
     const lensMat = (arrow) => new THREE.MeshBasicMaterial({ map: lensTex(arrow), alphaTest: .4, toneMapped: false });
     const LENS_GEO = new THREE.PlaneGeometry(.27, .27);
     const nArrow = M.heads.filter((h) => h.arrow).length, nRound = M.heads.length - nArrow;
-    const off = [new Inst(G, LENS_GEO, lensMat(false), nRound * 3, { shadow: false, colors: true }), new Inst(G, LENS_GEO, lensMat(true), nArrow * 3, { shadow: false, colors: true })];
+    const lensMats = [lensMat(false), lensMat(true)];
+    const off = [new CInst(G, LENS_GEO, lensMats[0], { shadow: false, colors: true }), new CInst(G, LENS_GEO, lensMats[1], { shadow: false, colors: true })];
     const dim = [new THREE.Color(.01, .13, .07), new THREE.Color(.17, .1, .01), new THREE.Color(.18, .025, .02)];
     for (const h of M.heads) {
       h.rot = Math.atan2(h.fx, h.fz);
-      housings.add(h.x, h.y, h.z, .42, 1.16, .34, h.rot);                                                   // the head
-      housings.add(h.x - h.fx * .19, h.y, h.z - h.fz * .19, .82, 1.5, .03, h.rot);                         // its backplate
+      small.add(h.x, h.y, h.z, .42, 1.16, .34, h.rot, K.dark);                                              // the head
+      small.add(h.x - h.fx * .19, h.y, h.z - h.fz * .19, .82, 1.5, .03, h.rot, K.dark);                    // its backplate
       for (const [dy, k] of [[-.36, 0], [0, 1], [.36, 2]]) {
-        housings.add(h.x + h.fx * .3, h.y + dy + .16, h.z + h.fz * .3, .34, .035, .26, h.rot);             // a visor over each lens
+        small.add(h.x + h.fx * .3, h.y + dy + .16, h.z + h.fz * .3, .34, .035, .26, h.rot, K.dark);        // a visor over each lens
         off[h.arrow ? 1 : 0].add(h.x + h.fx * .175, h.y + dy, h.z + h.fz * .175, 1, 1, 1, h.rot, dim[k]);
       }
     }
-    housings.end(); off[0].end(); off[1].end();
-    this.lensOn = [new Inst(G, LENS_GEO, lensMat(false), nRound, { shadow: false, colors: true }), new Inst(G, LENS_GEO, lensMat(true), nArrow, { shadow: false, colors: true })];
+    off[0].end(); off[1].end();
+    this.lensOn = [new Inst(G, LENS_GEO, lensMats[0], nRound, { shadow: false, colors: true }), new Inst(G, LENS_GEO, lensMats[1], nArrow, { shadow: false, colors: true })];
     this.LENS = [new THREE.Color(.25, 3.4, 1.7), new THREE.Color(4, 2.2, .12), new THREE.Color(4.2, .28, .16)];
 
-    // ---- signs: street names, LEFT ONLY, NO TURN ON RED, speed limits, fuel prices, tower names ----
-    const faces = new Map(), backs = new GB(1);
-    for (const s of M.signs) {
-      let b = faces.get(s.tex);
-      if (!b) faces.set(s.tex, (b = new GB(1)));
-      const rx = s.fz * s.w / 2, rz = -s.fx * s.w / 2, h = s.h / 2, o = .02;   // right, as you look at the face
-      const c = (sx, sy, k) => [s.x + rx * sx + s.fx * o * k, s.y + h * sy, s.z + rz * sx + s.fz * o * k];
-      b.quadUV(c(-1, -1, 1), c(1, -1, 1), c(1, 1, 1), c(-1, 1, 1), [[0, 0], [1, 0], [1, 1], [0, 1]], [s.fx, 0, s.fz]);
-      if (!s.tex.startsWith("logo:")) backs.quad(c(-1, -1, -1), c(1, -1, -1), c(1, 1, -1), c(-1, 1, -1), [-s.fx, 0, -s.fz]);
+    // ---- signs: every face on one of two atlases - plates (lit at night like reflective sheeting)
+    // and the tower and store names (lit from inside) - so all of them are three draw calls ----
+    const keys = [...new Set(M.signs.map((x) => x.tex))];
+    const plates = atlas(keys.filter((k) => !k.startsWith("logo:")).map((key) => ({ key, canvas: signFace(key, BRANDS) })));
+    const names = atlas(keys.filter((k) => k.startsWith("logo:")).map((key) => ({ key, canvas: signFace(key, BRANDS) })));
+    const plateGB = new GB(1), nameGB = new GB(1), backs = new GB(1);
+    for (const sg of M.signs) {
+      const logo = sg.tex.startsWith("logo:"), [u0, v0, u1, v1] = (logo ? names : plates).uv.get(sg.tex);
+      const rx = sg.fz * sg.w / 2, rz = -sg.fx * sg.w / 2, h = sg.h / 2, o = .02;   // right, as you look at the face
+      const c = (sx, sy, k) => [sg.x + rx * sx + sg.fx * o * k, sg.y + h * sy, sg.z + rz * sx + sg.fz * o * k];
+      (logo ? nameGB : plateGB).quadUV(c(-1, -1, 1), c(1, -1, 1), c(1, 1, 1), c(-1, 1, 1), [[u0, v0], [u1, v0], [u1, v1], [u0, v1]], [sg.fx, 0, sg.fz]);
+      if (!logo) backs.quad(c(-1, -1, -1), c(1, -1, -1), c(1, 1, -1), c(-1, 1, -1), [-sg.fx, 0, -sg.fz]);
     }
-    this.glowFaces = []; this.logoFaces = [];
-    for (const [key, b] of faces) {
-      const map = signFace(key, BRANDS);
-      if (key.startsWith("logo:")) {
-        const m = new THREE.MeshBasicMaterial({ map, transparent: true, depthWrite: false, toneMapped: false });
-        b.mesh(m, G);
-        this.logoFaces.push(m);
-      } else {
-        const m = new THREE.MeshStandardMaterial({ map, roughness: .55, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: 0 });
-        b.mesh(m, G);
-        this.glowFaces.push({ m, k: key.startsWith("price:") ? 1.2 : .45 });
-      }
-    }
-    backs.mesh(mat.metal, G);
+    this.plateMat = new THREE.MeshStandardMaterial({ map: plates.tex, roughness: .55, emissiveMap: plates.tex, emissive: 0xffffff, emissiveIntensity: 0 });
+    this.nameMat = new THREE.MeshBasicMaterial({ map: names.tex, transparent: true, depthWrite: false, toneMapped: false });
+    plateGB.mesh(this.plateMat, G); nameGB.mesh(this.nameMat, G); backs.mesh(mat.metal, G);
 
-    // ---- gas stations: canopies, lit fascias, columns, islands, pumps ----
-    const byMat = (k) => M.parts.filter((p) => p.mat === k);
-    const partI = (k, material, opts) => {
-      const list = byMat(k), I = new Inst(G, BOX, material, list.length, opts);
-      for (const p of list) I.add((p.x0 + p.x1) / 2, p.y0, (p.z0 + p.z1) / 2, p.x1 - p.x0, p.y1 - p.y0, p.z1 - p.z0, 0, p.col);
-      I.end();
-      return I;
-    };
-    partI("canopy", lit({ color: 0xf2f2ee, roughness: .5 }));
-    partI("column", lit({ color: 0xdcdcd6, roughness: .45, metalness: .2 }), { shadow: true });
-    partI("island", mat.curb, { shadow: false });
-    partI("pump", lit({ color: 0xeeeeea, roughness: .35, metalness: .1 }), { shadow: false });
-    this.bandMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-    partI("band", this.bandMat, { shadow: false, colors: true });
+    // ---- gas stations: canopies, columns, islands and pumps; their fascias glow ----
+    const PART = { canopy: 0xf2f2ee, column: 0xdcdcd6, island: K.curb, pump: 0xeeeeea };
+    for (const p of M.parts) {
+      const cx = (p.x0 + p.x1) / 2, cz = (p.z0 + p.z1) / 2, sx = p.x1 - p.x0, sy = p.y1 - p.y0, sz = p.z1 - p.z0;
+      if (p.mat === "band") glow.add(cx, (p.y0 + p.y1) / 2, cz, sx, sy, sz, 0, new THREE.Color(p.col).multiplyScalar(1.3));
+      else big.add(cx, p.y0, cz, sx, sy, sz, 0, PART[p.mat]);
+    }
     this.stationLights = [];
 
     // ---- street furniture: hydrants, benches, bins, bus shelters, manholes, tree pits ----
-    const F = M.furniture, cyl = (r, h) => new THREE.CylinderGeometry(r, r, h, 10).translate(0, h / 2, 0);
-    const hyd = new Inst(G, cyl(.16, .72), lit({ color: 0xb3261e, roughness: .5 }), F.hydrants.length);
-    for (const h of F.hydrants) hyd.add(h.x, CURB, h.z, 1, 1, 1);
-    hyd.end();
-    const bins = new Inst(G, cyl(.28, .95), lit({ color: 0x2b3a2e, roughness: .6, metalness: .3 }), F.bins.length);
-    for (const b of F.bins) bins.add(b.x, CURB, b.z, 1, 1, 1);
-    bins.end();
-    const wood = new Inst(G, BOXC, lit({ color: 0x6b4a2c, roughness: .85 }), F.benches.length * 2 + F.shelters.length);
-    const iron = new Inst(G, BOXC, mat.metal, F.benches.length * 2 + F.shelters.length * 5, { shadow: false });
-    const glass = new Inst(G, BOXC, new THREE.MeshStandardMaterial({ color: 0xbfd6e0, roughness: .05, metalness: .2, transparent: true, opacity: .28, depthWrite: false }), F.shelters.length * 3, { shadow: false });
+    const F = M.furniture;
+    for (const h of F.hydrants) cyls.add(h.x, CURB, h.z, .16, .72, .16, 0, 0xb3261e);
+    for (const b of F.bins) cyls.add(b.x, CURB, b.z, .28, .95, .28, 0, 0x2b3a2e);
+    for (const m of F.manholes) cyls.add(m.x, .004, m.z, .45, .02, .45, 0, 0x2a2b2e);
+    for (const p of F.pits) big.add(p.x, CURB, p.z, 1.25, .02, 1.25, 0, 0x2e2923);
+    const glass = new CInst(G, BOXC, new THREE.MeshStandardMaterial({ color: 0xbfd6e0, roughness: .05, metalness: .2, transparent: true, opacity: .28, depthWrite: false }), { shadow: false });
     for (const b of F.benches) {
       const r = Math.atan2(b.fx, b.fz), at = (o, y) => [b.x - b.fx * o, CURB + y, b.z - b.fz * o];
-      wood.add(...at(0, .45), 1.8, .07, .46, r); wood.add(...at(.24, .75), 1.8, .42, .06, r);
-      for (const s of [-1, 1]) { const rx = b.fz * s * .8, rz = -b.fx * s * .8; iron.add(b.x + rx, CURB + .22, b.z + rz, .06, .44, .42, r); }
+      small.add(...at(0, .45), 1.8, .07, .46, r, K.wood); small.add(...at(.24, .75), 1.8, .42, .06, r, K.wood);
+      for (const e of [-1, 1]) small.add(b.x + b.fz * e * .8, CURB + .22, b.z - b.fx * e * .8, .06, .44, .42, r, K.metal);
     }
-    for (const s of F.shelters) {
-      const r = Math.atan2(s.fx, s.fz), at = (o, y) => [s.x - s.fx * o, CURB + y, s.z - s.fz * o];
-      iron.add(...at(.1, 2.55), 4.4, .1, 1.9, r);                                                        // roof
-      for (const e of [-1, 1]) for (const o of [-.75, .75]) iron.add(s.x + s.ux * e * 2.1 - s.fx * o, CURB + 1.25, s.z + s.uz * e * 2.1 - s.fz * o, .07, 2.5, .07, r);
-      glass.add(...at(.82, 1.3), 4.15, 2.1, .04, r);                                                     // back panel
-      for (const e of [-1, 1]) glass.add(s.x + s.ux * e * 2.1 - s.fx * .1, CURB + 1.3, s.z + s.uz * e * 2.1 - s.fz * .1, .04, 2.1, 1.45, r);
-      wood.add(...at(.55, .45), 3.2, .07, .42, r);
+    for (const sh of F.shelters) {
+      const r = Math.atan2(sh.fx, sh.fz), at = (o, y) => [sh.x - sh.fx * o, CURB + y, sh.z - sh.fz * o];
+      small.add(...at(.1, 2.55), 4.4, .1, 1.9, r, K.metal);                                                // roof
+      for (const e of [-1, 1]) for (const o of [-.75, .75]) small.add(sh.x + sh.ux * e * 2.1 - sh.fx * o, CURB + 1.25, sh.z + sh.uz * e * 2.1 - sh.fz * o, .07, 2.5, .07, r, K.metal);
+      glass.add(...at(.82, 1.3), 4.15, 2.1, .04, r);                                                       // back panel
+      for (const e of [-1, 1]) glass.add(sh.x + sh.ux * e * 2.1 - sh.fx * .1, CURB + 1.3, sh.z + sh.uz * e * 2.1 - sh.fz * .1, .04, 2.1, 1.45, r);
+      small.add(...at(.55, .45), 3.2, .07, .42, r, K.wood);
     }
-    wood.end(); iron.end(); glass.end();
-    const man = new Inst(G, cyl(.45, .02), lit({ color: 0x2a2b2e, roughness: .6, metalness: .5 }), F.manholes.length, { shadow: false });
-    for (const m of F.manholes) man.add(m.x, .004, m.z, 1, 1, 1);
-    man.end();
-    const pits = new Inst(G, BOX, lit({ color: 0x2e2923, roughness: 1 }), F.pits.length, { shadow: false });
-    for (const p of F.pits) pits.add(p.x, CURB, p.z, 1.25, .02, 1.25);
-    pits.end();
+    glass.end();
 
     // ---- shop fronts: awnings over the windows, signs above them that light up at night ----
-    const awn = new Inst(G, BOXC, lit({ color: 0xffffff, roughness: .9 }), M.awnings.length, { colors: true });
-    for (const a of M.awnings) awn.add(a.x, a.y, a.z, a.sx, a.sy, a.sz, 0, a.col);
-    awn.end();
-    this.shopMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
-    const shops = new Inst(G, BOXC, this.shopMat, M.shopSigns.length, { shadow: false, colors: true });
-    for (const s of M.shopSigns) shops.add(s.x, s.y, s.z, s.sx, s.sy, s.sz, 0, s.col);
-    shops.end();
+    for (const aw of M.awnings) small.add(aw.x, aw.y, aw.z, aw.sx, aw.sy, aw.sz, 0, aw.col);
+    for (const sh of M.shopSigns) glow.add(sh.x, sh.y, sh.z, sh.sx, sh.sy, sh.sz, 0, sh.col);
+
+    // ---- the lakeside park: the water, its stone edge, the paths ----
+    if (M.lake) {
+      const L = M.lake, water = new THREE.Mesh(new THREE.CircleGeometry(1, 72).rotateX(-Math.PI / 2), lit({ color: 0x1b3846, roughness: .05, metalness: .55, envMapIntensity: 1.4 }));
+      water.scale.set(L.rx + .3, 1, L.rz + .3); water.position.set(L.x, CURB + .12, L.z); water.receiveShadow = true;
+      G.add(water);
+      for (let i = 0; i < L.rim.length - 1; i++) { const a = L.rim[i], b = L.rim[i + 1]; big.span(a.x, CURB, a.z, b.x, CURB, b.z, .45, .9, K.curb); }
+    }
+    const paths = new GB(TILE.walk);
+    for (const p of M.paths) {
+      const Lp = offsetPts(p.pts, -p.w / 2), Rp = offsetPts(p.pts, p.w / 2), y = CURB + .015;
+      for (let i = 0; i < p.pts.length - 1; i++) paths.quad([Lp[i].x, y, Lp[i].z], [Rp[i].x, y, Rp[i].z], [Rp[i + 1].x, y, Rp[i + 1].z], [Lp[i + 1].x, y, Lp[i + 1].z], [0, 1, 0]);
+    }
+    paths.mesh(lit({ map: pavingTex(), color: 0xc8c0b0, roughness: .95, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }), G);
 
     // ---- trees ----
-    const trunks = new Inst(G, new THREE.CylinderGeometry(.13, .2, 1, 6).translate(0, .5, 0), mat.trunk, M.trees.length);
-    const crowns = new Inst(G, new THREE.IcosahedronGeometry(1, 1), mat.crown, M.trees.length, { colors: true });
+    const crowns = new CInst(G, new THREE.IcosahedronGeometry(1, 1), mat.crown, { colors: true });
     const GREENS = [0x3f6a2e, 0x4c7a34, 0x36602a, 0x5a843c, 0x2f5626];
     for (const t of M.trees) {
-      const y = groundAt(M, t.x, t.z), s = t.s, th = 2.2 + s * 1.4;
-      trunks.add(t.x, y, t.z, s, th, s);
-      crowns.add(t.x, y + th + 1.3 * s, t.z, 2.3 * s, 2.7 * s, 2.3 * s, hash(t.x * 10, t.z * 10) * 6, GREENS[Math.floor(hash(t.x * 7, t.z * 7) * GREENS.length)]);
+      const y = groundAt(M, t.x, t.z), sc = t.s, th = 2.2 + sc * 1.4;
+      cyls.add(t.x, y, t.z, .17 * sc, th, .17 * sc, 0, K.trunk);
+      crowns.add(t.x, y + th + 1.3 * sc, t.z, 2.3 * sc, 2.7 * sc, 2.3 * sc, hash(t.x * 10, t.z * 10) * 6, GREENS[Math.floor(hash(t.x * 7, t.z * 7) * GREENS.length)]);
     }
-    trunks.end(); crowns.end();
+    crowns.end();
 
     // ---- exit signs over the ring ----
-    const signs = { down: signTex("EXIT 1", "Downtown", "City Centre  Midtown"), out: signTex("EXIT 2", "Outer Blvd", "Warehouse District") };
-    const postI = new Inst(G, BOXC, mat.metal, M.gantries.length * 3, { shadow: false });
+    const signs = { down: signTex("EXIT 1", "Downtown", "City Centre  Midtown"), out: signTex("EXIT 2", "Outer Blvd", "Industrial District") };
     for (const g of M.gantries) {
       const rx = -g.dz, rz = g.dx;   // right of travel
-      for (const o of [1.2, 13.9]) postI.add(g.x + rx * o, DECK_Y + 3.6, g.z + rz * o, .35, 7.2, .35, 0);
-      postI.add(g.x + rx * 7.55, DECK_Y + 7.1, g.z + rz * 7.55, Math.abs(rx) > .5 ? 13.2 : .3, .3, Math.abs(rx) > .5 ? .3 : 13.2, 0);
+      for (const o of [1.2, 13.9]) small.add(g.x + rx * o, DECK_Y + 3.6, g.z + rz * o, .35, 7.2, .35, 0, K.metal);
+      small.add(g.x + rx * 7.55, DECK_Y + 7.1, g.z + rz * 7.55, Math.abs(rx) > .5 ? 13.2 : .3, .3, Math.abs(rx) > .5 ? .3 : 13.2, 0, K.metal);
       const face = new THREE.MeshStandardMaterial({ map: signs[g.text], roughness: .6, emissiveMap: signs[g.text], emissive: 0xffffff, emissiveIntensity: 0 });
       const edge = new THREE.MeshStandardMaterial({ color: 0x0f4a2e, roughness: .7 });
       const board = new THREE.Mesh(BOXC, [edge, edge, edge, edge, face, edge]);
@@ -588,15 +631,14 @@ export class City {
       G.add(board);
       (this.signFaces ||= []).push(face);
     }
-    postI.end();
 
     // ---- the wall round the edge ----
-    const W = EDGE - 3, wallI = new Inst(G, BOX, mat.curb, 4 * Math.ceil((W * 2) / 6), { shadow: false });
+    const W = EDGE - 3;
     for (let k = 0; k < 4; k++) for (let u = -W + 3; u < W; u += 6) {
       const [x, z] = k === 0 ? [u, -W] : k === 1 ? [W, u] : k === 2 ? [-u, W] : [-W, -u];
-      wallI.add(x, 0, z, k % 2 ? .4 : 6.02, 5.5, k % 2 ? 6.02 : .4, 0);
+      big.add(x, 0, z, k % 2 ? .4 : 6.02, 5.5, k % 2 ? 6.02 : .4, 0, 0xd6d2c8);
     }
-    wallI.end();
+    small.end(); big.end(); cyls.end(); glow.end();
 
     // ---- parked cars ----
     this.parked = M.parked.map((p) => {
@@ -664,6 +706,7 @@ export class City {
     // a touch of the tunnel's flutter echo between the towers
     if (m < DOWN + 12) return { env: 1, boost: 1, tunnel: .12, reverb: .24 };
     if (m < RING) return { env: .75, boost: .4, tunnel: .05, reverb: .15 };
+    if (x < -PARK0 && z > PARK0) return { env: .2, boost: 0, tunnel: 0, reverb: .05 };
     return { env: .4, boost: 0, tunnel: 0, reverb: .08 };
   }
 
@@ -675,12 +718,11 @@ export class City {
     cityGlow.value = nk;
     const wet = sky.w?.wet || 0;
     this.mat.road.roughness = .9 - wet * .72; this.mat.road.color.setScalar(1 - wet * .4);
-    this.mat.head.color.setRGB(.6 + night * 2.4, .55 + night * 1.9, .45 + night * 1.2);
+
     for (const f of this.signFaces || []) f.emissiveIntensity = nk * .55;
-    for (const f of this.glowFaces) f.m.emissiveIntensity = nk * f.k;
-    for (const m of this.logoFaces) m.color.setScalar(.8 + nk * 1.6);
-    this.shopMat.color.setScalar(.55 + nk * 1.5);
-    this.bandMat.color.setScalar(.85 + nk * .9);
+    this.plateMat.emissiveIntensity = nk * .6;
+    this.nameMat.color.setScalar(.8 + nk * 1.6);
+    this.glowMat.color.setScalar(.6 + nk * 1.7);
     const fwd = camera.getWorldDirection(_v);
     const honks = this.traffic.step(dt, T, players, { x: focus.x, y: focus.y, z: focus.z, fx: fwd.x, fz: fwd.z });
 
@@ -755,13 +797,13 @@ export class City {
     }
     // warning lights on the tallest towers, and the parked cars only when near
     if (Math.floor(T * 1.1) % 2 === 0) for (const b of M.beacons) glows.add(b.x, b.y, b.z, 1, .06, .05, night ? 5 : 2.5);
-    if ((this.pk = (this.pk || 0) + 1) % 15 === 0) for (const m of this.parked) m.visible = (m.position.x - cam.x) ** 2 + (m.position.z - cam.z) ** 2 < 260 * 260;
+    if ((this.pk = (this.pk || 0) + 1) % 15 === 0) for (const m of this.parked) m.visible = (m.position.x - cam.x) ** 2 + (m.position.z - cam.z) ** 2 < 190 * 190;
     return honks;
   }
 
   // ---------------------------------------------------------------- minimap
   buildMinimap() {
-    const M = this.M, S = 700, k = S / (EDGE * 2);
+    const M = this.M, S = 1100, k = S / (EDGE * 2);
     const c = document.createElement("canvas"); c.width = c.height = S;
     const g = c.getContext("2d"), X = (v) => (v + EDGE) * k;
     g.fillStyle = "#101114"; g.fillRect(0, 0, S, S);
@@ -772,6 +814,8 @@ export class City {
     g.fillStyle = "#5d6168";
     for (const r of M.roads) { const q = r.rect; g.fillRect(X(q.x0), X(q.z0), (q.x1 - q.x0) * k, (q.z1 - q.z0) * k); }
     const stroke = (pts, w, col) => { g.strokeStyle = col; g.lineWidth = w * k; g.lineJoin = "round"; g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(X(p.x), X(p.z)) : g.moveTo(X(p.x), X(p.z)))); g.stroke(); };
+    if (M.lake) { g.fillStyle = "#1d3d52"; g.beginPath(); g.ellipse(X(M.lake.x), X(M.lake.z), M.lake.rx * k, M.lake.rz * k, 0, 0, Math.PI * 2); g.fill(); }
+    for (const p of M.paths) stroke(p.pts, p.w, "#3a4a36");
     for (const r of M.ramps) stroke(r.pts, RAMP_HW * 2, "#8d9199");
     stroke(M.ring, DECK_HW * 2, "#9ca0a8");
     stroke(M.ring, .8, "#e0b43a");

@@ -3,13 +3,15 @@
 // city.js draws it and main.js drives on it.
 //
 // Metres; x runs east, z runs south, so north is -z - the way every car faces at yaw 0.
-//  - Downtown: a 7 x 7 grid of streets 100 m apart (-300..300), two lanes each way. Every junction
-//    with three or more arms has signals; sidewalks sit on 15 cm curbs; towers are tallest in the middle.
+//  - Downtown: an 11 x 11 grid of streets 100 m apart (-500..500). Every junction with three or more
+//    arms has signals; sidewalks sit on 15 cm curbs; towers are tallest in the middle.
 //  - The ring: an elevated six-lane expressway, 8 m up, round downtown - a square with rounded corners.
-//  - An avenue leaves the middle of each side of downtown, runs under the ring and on to the outer
-//    boulevard. Where it passes under the ring there is a diamond interchange: an off and an on ramp
-//    for each carriageway, so you can merge onto the ring and leave it again on any side.
-//  - The boulevard: a square road at 640 tying the four avenues together, so every lane leads somewhere.
+//  - Three streets each way (-300, 0, 300) run on out of downtown as avenues, under the ring, to the
+//    outer boulevard; the middle one has a diamond interchange with the ring on every side, so you can
+//    merge on and leave again anywhere. More streets (+-600, +-900) carry the outer districts.
+//  - Outside the ring, a district per quarter: industry to the north-east, houses to the north-west and
+//    south-west, big stores to the south-east, and a park round a lake in the south-west corner.
+//  - The boulevard: a square road at 1100 tying everything together, so every lane leads somewhere.
 
 // Every road: a 3.5 m centre lane (a hatched median mid-block that becomes each junction's left-turn
 // pocket as you approach it), then the inside and outside lanes each way.
@@ -17,14 +19,21 @@ export const LANE = 3.5, MED = 1.75, HALF = MED + 2 * LANE, WALK = 4.5, SETBACK 
 export const laneOff = (k) => MED + (k + .5) * LANE;   // lane k's centre, out from the middle of the road
 const POCKET = 30, TAPER = 14;                          // a pocket opens this far before the stop line
 // street names, for the signs on the signal masts: north-south streets by x, east-west by z
-const NS_NAMES = { "-640": "Westgate Blvd", "-300": "Harbor St", "-200": "Pine St", "-100": "Elm St", 0: "Main St", 100: "Oak St", 200: "Cedar St", 300: "Lake St", 640: "Eastgate Blvd" };
-const EW_NAMES = { "-640": "Northgate Blvd", "-300": "1st Ave", "-200": "2nd Ave", "-100": "3rd Ave", 0: "Central Ave", 100: "5th Ave", 200: "6th Ave", 300: "7th Ave", 640: "Southgate Blvd" };
+const NS_NAMES = { "-1100": "Westgate Blvd", "-900": "Foundry Rd", "-600": "Ridge St", "-500": "Bay St", "-400": "Harbor St", "-300": "Pine St", "-200": "Elm St", "-100": "Birch St", 0: "Main St",
+  100: "Oak St", 200: "Cedar St", 300: "Maple St", 400: "Lake St", 500: "Park St", 600: "Mill St", 900: "Canal Rd", 1100: "Eastgate Blvd" };
+const EW_NAMES = { "-1100": "Northgate Blvd", "-900": "Quarry Rd", "-600": "North Ave", "-500": "1st Ave", "-400": "2nd Ave", "-300": "3rd Ave", "-200": "4th Ave", "-100": "5th Ave", 0: "Central Ave",
+  100: "7th Ave", 200: "8th Ave", 300: "9th Ave", 400: "10th Ave", 500: "11th Ave", 600: "South Ave", 900: "Lakeview Rd", 1100: "Southgate Blvd" };
 export const streetName = (northSouth, v) => (northSouth ? NS_NAMES : EW_NAMES)[Math.round(v)] || "";
 export const BRANDS = [{ name: "VOLTA", col: 0xd12a2f }, { name: "NORTHSTAR", col: 0x1f5fbf }, { name: "APEX", col: 0x1c8a4a }];
 const LOGOS = ["MERIDIAN", "NORTHWIND", "ATLAS", "HALCYON", "VANTAGE", "ORION", "CASCADE", "SUMMIT"];
-export const DOWN = 300, PITCH = 100;
-export const RING = 460, RC = 110, DECK_Y = 8, DECK_HW = 14, RAMP_HW = 3.6, RAMP_OFF = 18.5, DECK_T = 1.2;
-export const BLVD = 640, EDGE = 700;
+export const DOWN = 500, PITCH = 100;
+export const RING = 720, RC = 140, DECK_Y = 8, DECK_HW = 14, RAMP_HW = 3.6, RAMP_OFF = 18.5, DECK_T = 1.2;
+export const BLVD = 1100, EDGE = 1180;
+const OUTER = [-BLVD, -900, -600, 600, 900, BLVD];        // street lines that exist only outside downtown
+const THROUGH = new Set([-300, 0, 300, ...OUTER]);         // lines that run the whole width of the map
+export const PARK0 = 600;                                  // the lakeside park: x < -600, z > 600
+export const LAKE = { x: -860, z: 860, rx: 150, rz: 115 };
+const OUT_SPEED = 16;
 export const HW_OFF = [3.8, 7.4, 11];           // expressway lane centres, out from the median
 const HW_SPEED = [33, 30, 27];                  // m/s: the fast lane is the one by the median
 const ST_SPEED = 14, AVE_SPEED = 19, BLVD_SPEED = 20;
@@ -192,6 +201,7 @@ export function buildCity() {
     pillars: [], caps: [], barriers: [], lamps: [], trees: [], heads: [], props: [], marks: [], parked: [], gantries: [],
     ramps: [], ring: null, spawns: [], signs: [], arrows: [], stations: [], parts: [], awnings: [], shopSigns: [],
     furniture: { hydrants: [], benches: [], bins: [], shelters: [], manholes: [], pits: [] },
+    prisms: [], tanks: [], waterTowers: [], rounds: [], paths: [], lake: null,
     sg: new Grid(16), wg: new Grid(16), bg: new Grid(32), slg: new Grid(32), rg: new Grid(40),
   };
 
@@ -212,17 +222,25 @@ export function buildCity() {
     r.rect = { x0, z0, x1, z1 };
     M.rg.add(x0, z0, x1, z1, r.rect);
   };
-  for (let i = -3; i <= 3; i++) for (let j = -3; j <= 3; j++) {
-    if (i < 3) road(node(i * PITCH, j * PITCH), node((i + 1) * PITCH, j * PITCH), ST_SPEED, "street");
-    if (j < 3) road(node(i * PITCH, j * PITCH), node(i * PITCH, (j + 1) * PITCH), ST_SPEED, "street");
+  // The street lattice: downtown's lines every 100 m reach as far as downtown does; the through lines
+  // cross the whole map. A junction wherever two lines both reach; a road between each pair of
+  // neighbouring junctions on a line - except inside the park, which no street crosses.
+  const lines = [];
+  for (let c = -DOWN; c <= DOWN; c += PITCH) lines.push(c);
+  for (const c of OUTER) lines.push(c);
+  lines.sort((p, q) => p - q);
+  const reach = (c) => (THROUGH.has(c) ? BLVD : DOWN);
+  const kindOf = (c, a, b) => (Math.abs(c) === BLVD ? ["blvd", BLVD_SPEED] : Math.max(Math.abs(a), Math.abs(b)) <= DOWN ? ["street", ST_SPEED] : Math.abs(c) <= 300 ? ["ave", AVE_SPEED] : ["street", OUT_SPEED]);
+  for (const c of lines) {
+    const on = lines.filter((d) => Math.abs(d) <= reach(c) && Math.abs(c) <= reach(d));
+    for (let i = 0; i + 1 < on.length; i++) {
+      const a = on[i], b = on[i + 1];
+      // north-south (x = c)
+      if (!(c < -PARK0 && c > -BLVD && a >= PARK0)) { const [k, sp] = kindOf(c, a, b); road(node(c, a), node(c, b), sp, k); }
+      // east-west (z = c)
+      if (!(c > PARK0 && c < BLVD && b <= -PARK0)) { const [k, sp] = kindOf(c, a, b); road(node(a, c), node(b, c), sp, k); }
+    }
   }
-  for (let k = 0; k < 4; k++) {
-    const [ax, az] = rot(k, 0, -DOWN), [bx, bz] = rot(k, 0, -BLVD);
-    road(node(ax, az), node(bx, bz), AVE_SPEED, "ave");
-  }
-  const blvd = [];
-  for (let k = 0; k < 4; k++) blvd.push(rot(k, -BLVD, -BLVD), rot(k, 0, -BLVD));
-  for (let i = 0; i < blvd.length; i++) { const a = blvd[i], b = blvd[(i + 1) % blvd.length]; road(node(a[0], a[1]), node(b[0], b[1]), BLVD_SPEED, "blvd"); }
 
   // two lanes each way on every road, from one junction's exit to the next one's stop line
   for (const r of M.roads) for (const dir of [1, -1]) for (let k = 0; k < 2; k++) {
@@ -355,7 +373,7 @@ export function buildCity() {
   // ---- what holds it up: pier pairs with a cap every 32 m, clear of the avenues ----
   for (let i = 0; i < C.length - 1; i += 8) {
     const p = C[i], q = C[i + 1], dx = q.x - p.x, dz = q.z - p.z, L = Math.hypot(dx, dz), ux = dx / L, uz = dz / L;
-    if (Math.min(Math.abs(p.x), Math.abs(p.z)) < 16) continue;
+    if ([[0, 0], [12, 0], [-12, 0], [0, 12], [0, -12]].some(([ox, oz]) => roadAt(M, p.x + ox, p.z + oz))) continue;   // a street passes under here
     M.caps.push({ x: p.x, y: DECK_Y - DECK_T - .45, z: p.z, sx: 1.6, sy: .9, sz: 24, rotY: Math.atan2(-uz, ux) });
     for (const o of [-8, 8]) addPillar(M, p.x - uz * o, p.z + ux * o, .85, DECK_Y - DECK_T - .9);
   }
@@ -366,7 +384,7 @@ export function buildCity() {
       run += Math.hypot(q.x - p.x, q.z - p.z);
       if (p.y < 5.2 || Math.abs(ringSD(p.x, p.z)) < DECK_HW + 1.2 || run < 22) continue;
       run = 0;
-      addPillar(M, p.x, p.z, .7, p.y - DECK_T);
+      if (!roadAt(M, p.x, p.z)) addPillar(M, p.x, p.z, .7, p.y - DECK_T);
     }
   }
 
@@ -376,32 +394,42 @@ export function buildCity() {
     M.slabs.push(s); M.slg.add(s.x0, s.z0, s.x1, s.z1, s);
     return s;
   };
-  const rslab = (k, x0, z0, x1, z1, kind) => { const [ax, az] = rot(k, x0, z0), [bx, bz] = rot(k, x1, z1); return slab(ax, az, bx, bz, kind); };
   // downtown blocks: kerb to kerb, buildings on the lot inside the sidewalk
-  for (let i = -3; i < 3; i++) for (let j = -3; j < 3; j++) {
+  const NB = DOWN / PITCH;
+  for (let i = -NB; i < NB; i++) for (let j = -NB; j < NB; j++) {
     const x0 = i * PITCH + HALF, x1 = (i + 1) * PITCH - HALF, z0 = j * PITCH + HALF, z1 = (j + 1) * PITCH - HALF;
     slab(x0, z0, x1, z1);
     downtownBlock(M, i, j, x0 + WALK, z0 + WALK, x1 - WALK, z1 - WALK);
   }
-  const E0 = DOWN + HALF, E1 = E0 + WALK;
-  for (let k = 0; k < 4; k++) {
-    // the outer sidewalk of downtown's edge streets, open where the avenue leaves
-    rslab(k, -E1, -E1, -HALF, -E0); rslab(k, HALF, -E1, E1, -E0);
-    // the avenue's sidewalks, broken where a ramp comes down beside it
+  // Every other road gets sidewalks down both sides - broken where another road crosses, where a
+  // block's sidewalk already is, and where a ramp comes down beside it - with the corners filled in
+  // and the mouth of a missing arm closed off.
+  const rampCells = new Set(), RC4 = (v) => Math.floor(v / 4);
+  for (const r of M.ramps) for (const p of r.pts) if (p.y < 1.5) for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) rampCells.add(RC4(p.x) + i + "," + (RC4(p.z) + j));
+  const rampNear = (x, z) => rampCells.has(RC4(x) + "," + RC4(z));
+  const walkable = (x, z) => groundAt(M, x, z) < .1 && !roadAt(M, x, z) && !rampNear(x, z);
+  for (const r of M.roads) {
+    const ax = r.a.x, az = r.a.z, L = Math.hypot(r.b.x - ax, r.b.z - az), ux = (r.b.x - ax) / L, uz = (r.b.z - az) / L, nx = -uz, nz = ux;
     for (const s of [-1, 1]) {
       let run = null;
-      for (let z = -E0; z > -BLVD + HALF; z -= 4) {
-        const cx = s * (HALF + WALK / 2), cz = z - 2, [wx, wz] = rot(k, cx, cz);
-        const gap = M.ramps.some((r) => r.pts.some((p) => p.y < 1.5 && Math.hypot(p.x - wx, p.z - wz) < RAMP_HW + 4));
-        if (!gap && !run) run = [z, z];
-        if (!gap) run[1] = z - 4;
-        if ((gap || z - 4 <= -BLVD + HALF) && run) { rslab(k, s * HALF, run[0], s * (HALF + WALK), run[1]); run = null; }
+      const flush = () => { if (!run) return; const [d0, d1] = run; slab(ax + ux * d0 + nx * s * HALF, az + uz * d0 + nz * s * HALF, ax + ux * d1 + nx * s * (HALF + WALK), az + uz * d1 + nz * s * (HALF + WALK)); run = null; };
+      for (let d = HALF; d < L - HALF - .01; d += 4) {
+        const d1 = Math.min(d + 4, L - HALF), dm = (d + d1) / 2, o = s * (HALF + WALK / 2);
+        if (walkable(ax + ux * dm + nx * o, az + uz * dm + nz * o)) { if (run) run[1] = d1; else run = [d, d1]; } else flush();
       }
+      flush();
     }
-    // the boulevard's sidewalks, both sides
-    const B0 = BLVD - HALF, B1 = B0 - WALK, O0 = BLVD + HALF, O1 = O0 + WALK;
-    rslab(k, -B0, -B0, -HALF, -B1); rslab(k, HALF, -B0, B0, -B1);
-    rslab(k, -O1, -O1, O1, -O0);
+  }
+  for (const n of M.nodes) {
+    for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+      const cx = n.x + sx * (HALF + WALK / 2), cz = n.z + sz * (HALF + WALK / 2);
+      if (walkable(cx, cz)) slab(n.x + sx * HALF, n.z + sz * HALF, n.x + sx * (HALF + WALK), n.z + sz * (HALF + WALK));
+    }
+    for (let a = 0; a < 4; a++) {
+      if (n.arms[a]) continue;
+      const [hx, hz] = AV[a], cx = n.x + hx * (HALF + WALK / 2), cz = n.z + hz * (HALF + WALK / 2);
+      if (walkable(cx, cz)) slab(n.x + hx * HALF - hz * HALF, n.z + hz * HALF - hx * HALF, n.x + hx * (HALF + WALK) + hz * HALF, n.z + hz * (HALF + WALK) + hx * HALF);
+    }
   }
 
   // ---- the land between downtown and the edge, on a 4 m raster of what is already taken ----
@@ -410,10 +438,12 @@ export function buildCity() {
   const stamp = (x, z, r) => {
     for (let i = cellOf(x - r); i <= cellOf(x + r); i++) for (let j = cellOf(z - r); j <= cellOf(z + r); j++) if (i >= 0 && j >= 0 && i < NR && j < NR) used[i * NR + j] = 1;
   };
+  const E1 = DOWN + HALF + WALK, P1 = PARK0 + HALF + WALK;
   for (let i = 0; i < NR; i++) for (let j = 0; j < NR; j++) {
     const x = -EDGE + (i + .5) * RES, z = -EDGE + (j + .5) * RES, m = Math.max(Math.abs(x), Math.abs(z));
-    if (m < E1 + 3 || (Math.min(Math.abs(x), Math.abs(z)) < HALF + WALK + 3) || Math.abs(m - BLVD) < HALF + WALK + 3 || Math.abs(ringSD(x, z)) < DECK_HW + 6 || m > EDGE - 14) used[i * NR + j] = 1;
+    if (m < E1 + 3 || Math.abs(ringSD(x, z)) < DECK_HW + 6 || m > EDGE - 14 || (x < -P1 + 3 && z > P1 - 3)) used[i * NR + j] = 1;
   }
+  for (const r of M.roads) { const q = r.rect, g = WALK + 3; for (let x = q.x0 - g; x <= q.x1 + g; x += RES) for (let z = q.z0 - g; z <= q.z1 + g; z += RES) stamp(x, z, 0); }
   for (const r of M.ramps) for (const p of r.pts) stamp(p.x, p.z, RAMP_HW + 5);
   const free = (x0, z0, x1, z1) => {
     for (let i = cellOf(x0); i <= cellOf(x1 - .01); i++) for (let j = cellOf(z0); j <= cellOf(z1 - .01); j++) if (i < 0 || j < 0 || i >= NR || j >= NR || used[i * NR + j]) return false;
@@ -439,13 +469,13 @@ export function buildCity() {
     if (f !== undefined) cands.push({ tx, tz, cx, cz, f });
   }
   const chosen = new Map();
-  for (let i = 0; i < 6 && cands.length; i++) {
+  for (let i = 0; i < 9 && cands.length; i++) {
     let best = null, bd = -Infinity;
     for (const c of cands) {
       const d = chosen.size ? Math.min(...[...chosen.values()].map((o) => Math.hypot(o.cx - c.cx, o.cz - c.cz))) : -Math.hypot(c.cx - 300, c.cz + 300);
       if (d > bd) { bd = d; best = c; }
     }
-    if (chosen.size && bd < 260) break;
+    if (chosen.size && bd < 330) break;
     chosen.set(best.tx + "," + best.tz, best);
   }
   for (let tx = -EDGE; tx < EDGE; tx += TILE) for (let tz = -EDGE; tz < EDGE; tz += TILE) {
@@ -454,15 +484,22 @@ export function buildCity() {
     const m = Math.max(Math.abs(cx), Math.abs(cz)), r = hash(tx + 9000, tz + 9000, 3), r2 = hash(tx + 9000, tz + 9000, 4);
     const st = chosen.get(tx + "," + tz);
     if (st) { gasStation(M, slab, x0, z0, x1, z1, st.f, M.stations.length); continue; }
-    const inner = m < RING;
-    const kind = inner ? (r < .62 ? "bldg" : r < .84 ? "park" : "parking") : m < BLVD ? (r < .46 ? "shed" : r < .72 ? "parking" : "park") : "park";
+    // a district per quarter outside the ring; offices and flats inside it
+    const dist = m < RING ? "mid" : cx > 0 && cz < 0 ? "ind" : cx > 0 && cz > 0 ? "retail" : "res";
+    const kind = dist === "mid" ? (r < .62 ? "bldg" : r < .84 ? "park" : "parking")
+      : dist === "ind" ? (r < .5 ? "shed" : r < .72 ? "tanks" : r < .87 ? "parking" : "park")
+        : dist === "retail" ? (r < .5 ? "store" : r < .88 ? "parking" : "park")
+          : r < .86 ? "houses" : "park";
+    if (kind === "houses") { houses(M, slab, x0, z0, x1, z1, tx, tz); continue; }
+    if (kind === "tanks") { tankFarm(M, slab, x0, z0, x1, z1, tx, tz); continue; }
+    if (kind === "store") { bigStore(M, slab, x0, z0, x1, z1, tx, tz, facing(cx, cz)); continue; }
     if (kind === "park") {
       slab(x0, z0, x1, z1, "park");
       const n = 3 + Math.floor(r2 * 6);
       for (let t = 0; t < n; t++) M.trees.push({ x: x0 + 3 + hash(tx, tz, 20 + t) * (x1 - x0 - 6), z: z0 + 3 + hash(tx, tz, 40 + t) * (z1 - z0 - 6), s: .8 + hash(tx, tz, 60 + t) * .6 });
     } else if (kind === "parking") {
       slab(x0, z0, x1, z1, "parking", .05);
-      parkingLot(M, x0, z0, x1, z1, tx, tz, () => parkedN++ < 44);
+      parkingLot(M, x0, z0, x1, z1, tx, tz, () => parkedN++ < 90);
     } else {
       slab(x0, z0, x1, z1, "lot");
       const ins = 2 + r2 * 4;
@@ -479,13 +516,15 @@ export function buildCity() {
     }
   }
 
+  lakesidePark(M, slab);
+
   // ---- street lamps, trees and signals along every road ----
   for (const r of M.roads) {
     const ax = r.a.x, az = r.a.z, bx = r.b.x, bz = r.b.z, L = Math.hypot(bx - ax, bz - az), ux = (bx - ax) / L, uz = (bz - az) / L, nx = -uz, nz = ux;
     for (const s of [-1, 1]) {
       for (let d = 17; d < L - 16; d += 29) {
         const px = ax + ux * d + nx * s * (HALF + .7), pz = az + uz * d + nz * s * (HALF + .7);
-        if (r.kind === "ave" && groundAt(M, px, pz) < .1) continue;   // no sidewalk here: a ramp comes down
+        if (groundAt(M, px, pz) < .1) continue;                         // no sidewalk here (a ramp comes down, or the park)
         if (Math.abs(ringSD(px, pz)) < DECK_HW + 3) continue;           // under the ring: its own lamps light it
         M.lamps.push({ x: px, z: pz, y: 8.4, ax: -nx * s, az: -nz * s });
       }
@@ -606,12 +645,12 @@ export const PAL = [
   [0xc8c6c0, 0xb0b4b8, 0x9ea3a8, 0xd8d2c4, 0xa8a090],
 ];
 const shade = (col, k) => (Math.round(((col >> 16) & 255) * k) << 16) | (Math.round(((col >> 8) & 255) * k) << 8) | Math.round((col & 255) * k);
-function addBuilding(M, x0, z0, x1, z1, y0, h, v, col) {
+function addBuilding(M, x0, z0, x1, z1, y0, h, v, col, parapet = true) {
   const b = { x0, z0, x1, z1, y0, y1: y0 + h, v, col, solid: y0 < .3 };
   M.buildings.push(b);
   if (b.solid) M.bg.add(x0, z0, x1, z1, b);
   // a parapet round the roof, standing a touch proud of the walls: the line that makes a box a building
-  if (x1 - x0 > 4 && z1 - z0 > 4) {
+  if (parapet && x1 - x0 > 4 && z1 - z0 > 4) {
     const y = y0 + h, t = .4, o = .14, ph = h > 30 ? 1.1 : .75, pc = shade(col, .7);
     M.roofs.push({ x: (x0 + x1) / 2, y, z: z0 + t / 2 - o, sx: x1 - x0 + 2 * o, sy: ph, sz: t, col: pc });
     M.roofs.push({ x: (x0 + x1) / 2, y, z: z1 - t / 2 + o, sx: x1 - x0 + 2 * o, sy: ph, sz: t, col: pc });
@@ -690,6 +729,83 @@ function gasStation(M, slab, x0, z0, x1, z1, f, i) {
   for (const s of [1, -1]) M.signs.push({ x: px + ax * s * .16, y: 9.3, z: pz + az * s * .16, fx: ax * s, fz: az * s, w: 3.2, h: 4, tex: "price:" + brand.name });
   M.stations.push({ cx, cz, brand: brand.name, col: brand.col, zone: canopy, lamps: [W(-5, 9.6), W(5, 9.6), W(-5, 14.4), W(5, 14.4)] });
 }
+// a timber water tank on legs, in a corner of a roof
+function waterTower(M, x0, z0, x1, z1, y, s1, s2) {
+  if (x1 - x0 < 12 || z1 - z0 < 12) return;
+  const sx = hash(s1, s2, 401) < .5 ? -1 : 1, sz = hash(s1, s2, 402) < .5 ? -1 : 1;
+  M.waterTowers.push({ x: (x0 + x1) / 2 + sx * ((x1 - x0) / 2 - 4.5), y, z: (z0 + z1) / 2 + sz * ((z1 - z0) / 2 - 4.5), r: 2.3 + hash(s1, s2, 403) * .6, h: 4 + hash(s1, s2, 404) * 1.5 });
+}
+// Four houses on a lot - one or two floors, a pitched roof, a lawn and a tree or two in the yard.
+const HOUSE_WALLS = [0xe8e2d4, 0xd9cdb8, 0xc9d2d6, 0xe6d8c0, 0xb8c4b0, 0xd8c8c0, 0xf0ece4, 0xc8b8a4];
+const HOUSE_ROOFS = [0x5a3a32, 0x3d4248, 0x6b4a3a, 0x4a5058, 0x7a5a48, 0x2f3438];
+function houses(M, slab, x0, z0, x1, z1, s1, s2) {
+  slab(x0, z0, x1, z1, "park");
+  const hw = (x1 - x0) / 2, hd = (z1 - z0) / 2;
+  for (const [qx, qz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+    const r = (k) => hash(s1 + qx * 7 + 3000, s2 + qz * 11 + 3000, k + 100);
+    const w = 9 + r(1) * 3, d = 10 + r(2) * 3, cx = x0 + hw * (qx + .5) + (r(3) - .5) * 2, cz = z0 + hd * (qz + .5) + (r(4) - .5) * 2;
+    const h = (r(5) < .55 ? 2 : 1) * 3.1 + .4, along = r(7) < .5;
+    addBuilding(M, cx - w / 2, cz - d / 2, cx + w / 2, cz + d / 2, CURB, h, 5, HOUSE_WALLS[Math.floor(r(6) * HOUSE_WALLS.length)], false);
+    M.prisms.push({ x: cx, y: CURB + h, z: cz, sx: (along ? w : d) + .9, sy: 2.2 + r(8) * 1.3, sz: (along ? d : w) + .9, rotY: along ? 0 : Math.PI / 2, col: HOUSE_ROOFS[Math.floor(r(9) * HOUSE_ROOFS.length)] });
+    if (r(10) < .75) M.trees.push({ x: cx + (w / 2 + 2.6) * (r(11) < .5 ? -1 : 1), z: cz + (r(12) - .5) * (d - 2), s: .7 + r(13) * .45 });
+  }
+}
+// A tank farm: a row of storage tanks, sometimes a chimney stack with a warning light on top.
+function tankFarm(M, slab, x0, z0, x1, z1, s1, s2) {
+  slab(x0, z0, x1, z1, "lot");
+  const r = (k) => hash(s1 + 4000, s2 + 4000, k + 200), n = 2 + Math.floor(r(1) * 3), pitch = (x1 - x0 - 8) / n;
+  for (let i = 0; i < n; i++) {
+    const rad = Math.min(3.5 + r(2 + i) * 3, pitch / 2 - .8), cx = x0 + 4 + (i + .5) * pitch, cz = z0 + rad + 3 + r(10 + i) * Math.max(0, z1 - z0 - 2 * rad - 6), h = 6 + r(20 + i) * 9;
+    M.tanks.push({ x: cx, y: CURB, z: cz, r: rad, h, col: [0xd8dadc, 0xbfc4c8, 0xe2ddd0][i % 3] });
+    const k = rad * .85, b = { x0: cx - k, z0: cz - k, x1: cx + k, z1: cz + k, y0: CURB, y1: CURB + h, solid: true };
+    M.bg.add(b.x0, b.z0, b.x1, b.z1, b);
+  }
+  if (r(30) < .55) {
+    const sx = x1 - 4, sz = z0 + 4, sh = 32 + r(31) * 24;
+    M.tanks.push({ x: sx, y: CURB, z: sz, r: 1.4, h: sh, col: 0x8a8580, stack: true });
+    M.beacons.push({ x: sx, y: CURB + sh + .4, z: sz });
+    addPost(M, sx, sz, 1.4, -1, sh);
+  }
+}
+// A big-box store, its name across the front facing the road.
+const STORES = ["MEGAMART", "HOMEPOINT", "VOLTSTORE", "FRESHCO", "OUTFITTERS", "GEARHAUS", "BRIGHTLINE", "PANTRY+"];
+function bigStore(M, slab, x0, z0, x1, z1, s1, s2, front) {
+  slab(x0, z0, x1, z1, "lot");
+  const h = 8 + hash(s1 + 5000, s2, 301) * 4, b = { x0: x0 + 2, z0: z0 + 2, x1: x1 - 2, z1: z1 - 2 };
+  addBuilding(M, b.x0, b.z0, b.x1, b.z1, CURB, h, 4, [0xd8d2c4, 0xc8c6c0, 0xe0dcd2, 0xb8bcc0][Math.floor(hash(s1 + 5000, s2, 302) * 4)]);
+  const [fx, fz] = AV[front ?? 2], cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2, half = (b.x1 - b.x0) / 2, w = Math.min(22, half * 1.4);
+  M.signs.push({ x: cx + fx * (half + .16), y: CURB + h - 2.4, z: cz + fz * (half + .16), fx, fz, w, h: w / 4.6, tex: "logo:" + STORES[Math.floor(hash(s1 + 5000, s2, 303) * STORES.length)] });
+  roofKit(M, b.x0, b.z0, b.x1, b.z1, CURB + h, s1, s2);
+}
+const segDist = (x, z, a, b) => {
+  const dx = b.x - a.x, dz = b.z - a.z, t = Math.max(0, Math.min(1, ((x - a.x) * dx + (z - a.z) * dz) / (dx * dx + dz * dz || 1)));
+  return Math.hypot(a.x + dx * t - x, a.z + dz * t - z);
+};
+// The lakeside park: lawns, a lake with a stone edge you can't drive through, a path round the
+// water and out to each side, lamps along the paths, benches facing the water, and a lot of trees.
+function lakesidePark(M, slab) {
+  const x0 = -BLVD + HALF + WALK, x1 = -PARK0 - HALF - WALK, z0 = PARK0 + HALF + WALK, z1 = BLVD - HALF - WALK, L = LAKE;
+  slab(x0, z0, x1, z1, "park");
+  const inLake = (x, z, m = 0) => ((x - L.x) / (L.rx + m)) ** 2 + ((z - L.z) / (L.rz + m)) ** 2 < 1;
+  const N = 80, ring = (m) => Array.from({ length: N + 1 }, (_, i) => { const a = (i / N) * Math.PI * 2; return { x: L.x + Math.cos(a) * (L.rx + m), y: CURB, z: L.z + Math.sin(a) * (L.rz + m) }; });
+  const rim = ring(.6);
+  for (let i = 0; i < N; i++) addWall(M, rim[i].x, rim[i].z, rim[i + 1].x, rim[i + 1].z, -1, .9);
+  M.lake = { ...L, rim };
+  const loop = ring(14);
+  M.paths.push({ pts: loop, w: 3.4 });
+  for (const [ax, az] of AV) {
+    const s = { x: L.x + ax * (L.rx + 14), y: CURB, z: L.z + az * (L.rz + 14) }, e = { x: ax ? (ax > 0 ? x1 : x0) : L.x, y: CURB, z: az ? (az > 0 ? z1 : z0) : L.z };
+    M.paths.push({ pts: [s, e], w: 3 });
+  }
+  const onPath = (x, z, m) => M.paths.some((p) => p.pts.some((q, i) => i > 0 && segDist(x, z, p.pts[i - 1], q) < p.w / 2 + m));
+  for (let i = 0; i < 320; i++) {
+    const x = x0 + 4 + hash(i, 1, 501) * (x1 - x0 - 8), z = z0 + 4 + hash(i, 2, 501) * (z1 - z0 - 8);
+    if (inLake(x, z, 9) || onPath(x, z, 2.5) || Math.abs(ringSD(x, z)) < DECK_HW + 4) continue;
+    M.trees.push({ x, z, s: .8 + hash(i, 3, 501) * .8 });
+  }
+  for (let i = 0; i < N; i += 3) { const p = loop[i], a = Math.atan2(p.z - L.z, p.x - L.x); M.lamps.push({ x: p.x + Math.cos(a) * 2.5, z: p.z + Math.sin(a) * 2.5, y: 4.6, ax: 0, az: 0 }); }
+  for (let i = 1; i < N; i += 5) { const p = loop[i], a = Math.atan2(p.z - L.z, p.x - L.x); M.furniture.benches.push({ x: p.x - Math.cos(a) * 2.6, z: p.z - Math.sin(a) * 2.6, fx: -Math.cos(a), fz: -Math.sin(a) }); }
+}
 // plant on the roof: fans, housings, a water tank
 function roofKit(M, x0, z0, x1, z1, y, s1, s2) {
   const n = 1 + Math.floor(hash(s1, s2, 31) * 3);
@@ -710,6 +826,16 @@ function downtownBlock(M, gi, gj, x0, z0, x1, z1) {
 function buildBlock(M, gi, gj, x0, z0, x1, z1) {
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, f = Math.max(0, 1 - Math.hypot(cx, cz) / 330);
   const r = (n) => hash(gi + 50, gj + 50, n);
+  // two landmarks by the centre: round glass towers on stone podiums, each with a spire and a light
+  if ((gi === 0 && gj === -1) || (gi === -1 && gj === 0)) {
+    const ph = 12, R = (Math.min(x1 - x0, z1 - z0) / 2) * .78, h = gi === 0 ? 245 : 205, glass = PAL[1][gi === 0 ? 0 : 3];
+    addBuilding(M, x0, z0, x1, z1, CURB, ph, 0, PAL[0][5]);
+    M.rounds.push({ x: cx, z: cz, r: R, y0: CURB + ph, h, v: 1, col: glass });
+    M.rounds.push({ x: cx, z: cz, r: R * .7, y0: CURB + ph + h, h: 16, v: 1, col: glass });
+    M.roofs.push({ x: cx, y: CURB + ph + h + 16, z: cz, sx: .9, sy: 36, sz: .9, col: 0xb0b6bc });
+    M.beacons.push({ x: cx, y: CURB + ph + h + 52.3, z: cz });
+    return;
+  }
   const pat = Math.floor(r(1) * 4);
   const look = (h, n) => (h > 95 ? (r(n) < .55 ? 1 : 2) : r(n) < .2 ? 1 : r(n) < .6 ? 0 : 3);
   const col = (v, n) => PAL[v][Math.floor(r(n) * PAL[v].length)];
@@ -731,6 +857,8 @@ function buildBlock(M, gi, gj, x0, z0, x1, z1) {
       }
     }
     roofKit(M, tx0, tz0, tx1, tz1, top, gi * 10 + n, gj * 10 + n);
+    // the older brick ones keep a timber water tank up on the roof
+    if (v === 3 && h < 80 && r(n + 6) < .6) waterTower(M, tx0, tz0, tx1, tz1, top, gi * 31 + n, gj * 17 + n);
     return b;
   };
   const W = x1 - x0, D = z1 - z0;
@@ -947,11 +1075,12 @@ export function insideSolid(M, x, y, z) {
 export function districtAt(x, z, y) {
   if (y > 3) return "RING EXPRESSWAY";
   const m = Math.max(Math.abs(x), Math.abs(z));
-  if (m < DOWN + 12) return Math.hypot(x, z) < 160 ? "DOWNTOWN · FINANCIAL DISTRICT" : "DOWNTOWN";
+  if (m < DOWN + 12) return Math.hypot(x, z) < 220 ? "DOWNTOWN · FINANCIAL DISTRICT" : "DOWNTOWN";
   if (Math.abs(ringSD(x, z)) < DECK_HW + 2) return "UNDER THE RING";
   if (m < RING) return "MIDTOWN";
-  if (m < BLVD + 12) return Math.min(Math.abs(x), Math.abs(z)) < 12 ? "AVENUE" : "WAREHOUSE DISTRICT";
-  return "OUTER BOULEVARD";
+  if (m > BLVD - 12) return "OUTER BOULEVARD";
+  if (x < -PARK0 && z > PARK0) return "LAKESIDE PARK";
+  return x > 0 && z < 0 ? "INDUSTRIAL DISTRICT" : x > 0 && z > 0 ? "EASTGATE RETAIL PARK" : x < 0 && z < 0 ? "NORTHWEST HEIGHTS" : "WESTWOOD";
 }
 
 // ---------------------------------------------------------------- traffic
