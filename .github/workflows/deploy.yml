@@ -1,0 +1,49 @@
+# Builds the site and publishes it to the gh-pages branch, which GitHub Pages serves at xurco.xyz.
+# Runs on every push to main, so any change merged into main - from any editor or tool - goes live
+# by itself a minute or two later. It can also be started by hand from the Actions tab.
+name: Deploy site
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write   # push the built site to gh-pages
+  pages: write      # ask Pages to rebuild straight away
+
+# a newer push replaces a deploy that is still running
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # the same build as a manual deploy: three.js vendored, module URLs cache-busted, CNAME written,
+      # the loading-screen media and engine sound banks left out
+      - run: node scripts/build-pages.mjs xurco.xyz
+
+      - name: Publish to gh-pages
+        working-directory: dist
+        run: |
+          git init -q -b gh-pages
+          git add -A
+          git -c user.name="github-actions[bot]" -c user.email="41898299+github-actions[bot]@users.noreply.github.com" \
+            commit -q -m "Deploy ${GITHUB_SHA::7}"
+          git push -q -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" gh-pages
+
+      - name: Rebuild Pages now
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh api -X POST "repos/${{ github.repository }}/pages/builds" || true

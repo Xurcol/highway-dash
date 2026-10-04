@@ -31,6 +31,7 @@ export class Drivetrain {
     this.tcCut = 0;        // how much torque traction control is taking away right now
     this.antilag = 0;      // 1 while rolling anti-lag is holding the revs against the brake
     this.drive = spec.drive || "rwd";
+    this.demand = 0;       // smoothed throttle demand (Comfort's gearbox shifts on it)
   }
   // gear 0 = neutral, 1..n = forward. There is no reverse: the road only runs one way.
   ratio(g = this.gear) {
@@ -160,15 +161,34 @@ export class Drivetrain {
     this.v = (brake > .02 || throttle < .05) && Math.sign(v1) !== Math.sign(this.v) && this.v !== 0 ? 0 : v1;
     if (this.v < 0) this.v = 0;   // braking or drag can bring the car to rest, never push it backwards
 
+    // How hard the driver is really asking, with the jabs smoothed out: a keyboard pedal is either
+    // off or flat, so Comfort shifts on this instead - a tap to hold your speed isn't "flat out".
+    this.demand += Math.max(-dt * 2.5, Math.min(dt * 1.2, throttle - this.demand));
     if (!this.manual && fwd && this.shiftT <= 0 && this.lastShift > 0.35) {
-      const sport = this.mode !== "comfort";
-      // comfort changes up early while you cruise; flat out it runs to the same point as sport
-      const up = s.redline * (sport ? .72 + .24 * throttle : .4 + .56 * throttle * throttle);
-      if (this.rpm > up && this.gear < s.ratios.length) this.shiftUp(true);
-      else if (this.gear > 1) {
-        const lower = this.rpmFor(this.v, this.gear - 1);
-        const floor = sport ? (brake > .2 ? .55 : .42) : .26;
-        if ((this.rpm < s.redline * floor || (throttle > 0.9 && this.rpm < s.redline * (sport ? .62 : .5))) && lower < s.redline * (sport ? .9 : .7)) this.shiftDown(true);
+      if (this.mode !== "comfort") {
+        const up = s.redline * (.72 + .24 * throttle);
+        if (this.rpm > up && this.gear < s.ratios.length) this.shiftUp(true);
+        else if (this.gear > 1) {
+          const lower = this.rpmFor(this.v, this.gear - 1);
+          const floor = brake > .2 ? .55 : .42;
+          if ((this.rpm < s.redline * floor || (throttle > 0.9 && this.rpm < s.redline * .62)) && lower < s.redline * .9) this.shiftDown(true);
+        }
+      } else {
+        // Comfort: a relaxed automatic. It changes up as soon as the next gear pulls cleanly and holds
+        // the tallest gear it can at a steady pace - low revs, quiet. Keep your foot in and it kicks
+        // down, as many gears as it takes, and flat out it runs to the same shift point as Sport.
+        const dmd = this.demand, n = s.ratios.length;
+        const down = Math.max(s.idle * 1.35, s.redline * (.14 + .5 * Math.max(0, dmd - .25))) * (brake > .2 ? 1.25 : 1);
+        const up = s.redline * (.26 + .7 * dmd * dmd);
+        if (this.gear < n && this.rpm > up && (this.rpmFor(this.v, this.gear + 1) > down * 1.05 || this.rpm > s.redline * .93)) this.shiftUp(true);
+        else if (this.gear > 1 && this.rpm < down) {
+          let g = this.gear - 1;
+          while (g > 1 && this.rpmFor(this.v, g) < down && this.rpmFor(this.v, g - 1) < s.redline * .8) g--;
+          if (this.rpmFor(this.v, g) < s.redline * .85) {
+            this.gear = g; this.shiftT = s.shiftTime * .6; this.lastShift = 0; this.revMatch = .22;
+            this.events.push("autoDown");
+          }
+        }
       }
     }
     this.prevThr = throttle;

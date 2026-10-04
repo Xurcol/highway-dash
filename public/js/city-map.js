@@ -852,7 +852,9 @@ export class CityTraffic {
       if (n && n.kind === "conn" && front > -.5 && front < 25 && c.next2) {
         for (const o of c.next2.cars) if (o.s < o.L / 2 + c.L + 2 && o.v < 2.5) { const g = front - .4; if (g < gap) { gap = g; lv = 0; } break; }
       }
-      // players ahead, near my line
+      // players ahead, near my line. gapNP is what would stop this driver anyway (a red light, the
+      // queue): they only lean on the horn when the player is the one thing holding them up.
+      const gapNP = gap;
       for (const p of players) {
         const rx = p.x - c.x, rz = p.z - c.z, along = rx * c.hx + rz * c.hz, lat = rx * -c.hz + rz * c.hx;
         if (along <= 0 || along > 46 || Math.abs(lat) > (c.W + p.W) / 2 + .5 || Math.abs(p.y - c.y) > 2.5) continue;
@@ -875,7 +877,7 @@ export class CityTraffic {
       c.s += c.v * dt;
       // ---- honking at a player who won't move ----
       c.playerBlock = block;
-      if (block && c.v < .4 && gap < 14) {
+      if (block && c.v < .4 && gap < 14 && gapNP - gap > 9) {
         c.stopT += dt;
         if (c.stopT > 2.2 && c.honkT <= 0) { c.honkT = 2.4 + Math.random() * 2.6; ev.push({ c, heavy: c.body === "bus" || c.body === "truck" }); }
       } else c.stopT = Math.max(0, c.stopT - dt * 2);
