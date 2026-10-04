@@ -240,6 +240,11 @@
           <span>S + W</span>Rolling anti-lag (while moving)<span>H</span>Horn
           <span>N</span>Sport / comfort (comfort: quiet exhaust, no burbles)
         </div>
+        <h3>WHEEL / GAMEPAD</h3>
+        <div class="keys">
+          <span>Wheel</span>Logitech G29 / G920 / G923 and others: set it up once in Settings, CONTROLLER
+          <span>Gamepad</span>Left stick steer, RT gas, LT brake, RB / LB shift, A handbrake, B look back, X horn, Y camera
+        </div>
         <h3>CITY DRIVE</h3>
         <div class="keys">
           <span>Shift</span>Handbrake (slide it)<span>S (stopped)</span>Reverse - W to drive on
@@ -374,7 +379,7 @@
   <div class="panel modal-box settings-box">
     <button class="close" data-close><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
     <h2>Settings</h2>
-    <div class="set-tabs" role="tablist"><button class="set-tab on" data-stab="world">WORLD</button><button class="set-tab" data-stab="audio">AUDIO</button><button class="set-tab" data-stab="drive">DRIVING</button><button class="set-tab" data-stab="gfx">GRAPHICS</button><button class="set-tab" data-stab="keys">KEYBINDS</button><button class="set-tab" data-stab="acct">ACCOUNT</button></div>
+    <div class="set-tabs" role="tablist"><button class="set-tab on" data-stab="world">WORLD</button><button class="set-tab" data-stab="audio">AUDIO</button><button class="set-tab" data-stab="drive">DRIVING</button><button class="set-tab" data-stab="gfx">GRAPHICS</button><button class="set-tab" data-stab="keys">KEYBINDS</button><button class="set-tab" data-stab="pad">CONTROLLER</button><button class="set-tab" data-stab="acct">ACCOUNT</button></div>
     <div class="set-pane on" data-spane="world">
         <h3>TIME OF DAY <b id="timeLabel">18:36</b></h3>
         <input type="range" id="timeSlider" min="0" max="24" step="0.05">
@@ -421,6 +426,7 @@
         <div id="bindList" class="bind-list"></div>
         <button class="btn ghost" id="bindReset">RESET KEYBINDS</button>
     </div>
+    <div class="set-pane" data-spane="pad"><div id="padPane"></div></div>
     <div class="set-pane" data-spane="acct">
         <h3>SIGNED IN</h3>
         <div class="acct-row"><div><b id="acctName">—</b><small>Saved in this browser</small></div><button class="btn ghost" id="signOut">SIGN OUT</button></div>

@@ -36,6 +36,14 @@ Then open http://localhost:3000.
 | Shift | Handbrake (City Drive) |
 | S at a standstill | Reverse (City Drive); W drives on again |
 
+## Steering wheel / gamepad
+
+Plug in a wheel (Logitech G29 / G920 / G923, Thrustmaster, Fanatec, Moza...) or a gamepad and press any button on it.
+
+- **Gamepad** (Xbox / PlayStation): works straight away. Left stick steers, RT gas, LT brake, RB / LB shift up / down, A handbrake, B look back, X horn, Y camera, Menu start / pause, View sport / comfort, D-pad left / right signals, D-pad up manual.
+- **Wheel**: Settings, CONTROLLER, SET UP WHEEL - turn it left and right, press each pedal, pull each paddle (and pick buttons for handbrake, horn, camera, look back, pause and sport / comfort, or skip them). Saved per wheel. Pedals are analog. Steering lock sets how far you turn the wheel for full lock.
+- No force feedback: browsers cannot drive a wheel's motor. Turn on the centering spring for non-force-feedback games in Logitech G HUB. Gamepads that can rumble do.
+
 ## City Drive
 
 A free-roam 3D mode (solo, or as a server mode): a downtown grid with signalised junctions, sidewalks, towers that get taller towards the middle, and traffic that obeys the lights, queues, zip-merges and honks at you if you sit in its way. An elevated six-lane ring expressway runs round downtown, with a diamond interchange on every side, so you can take an on-ramp, merge, and leave again by any exit. Engine sound echoes off the buildings, and booms under the ring. Every road has a centre lane that turns into a left-turn pocket before each signal, with painted lane arrows, arrow signal heads over the pockets, and street-name, LEFT ONLY, NO TURN ON RED and speed-limit signs. Downtown has shop fronts with awnings and signs that light up at night, company names on the tallest towers, benches, hydrants, bus shelters and manholes.

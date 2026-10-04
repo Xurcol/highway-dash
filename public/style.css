@@ -1052,6 +1052,17 @@ h1,h2,.tab,.mode-hud{font-family:var(--display)}
 .set-pane{display:none;max-width:520px}
 .set-pane.on{display:block}
 
+/* Controller settings: the device, live bars for steering / throttle / brake, the guided setup */
+.pad-status{display:flex;flex-direction:column;gap:2px;padding:var(--s3);border:1px solid var(--line);border-radius:var(--r2);background:var(--surface-2);margin-bottom:var(--s3)}
+.pad-status small{color:var(--ink-3)}
+.pad-bars{display:grid;grid-template-columns:auto 1fr;gap:6px var(--s3);align-items:center;margin-bottom:var(--s3);font-size:var(--t-sm);color:var(--ink-2)}
+.pad-bar{position:relative;height:10px;border-radius:var(--r1);background:var(--surface-3);overflow:hidden}
+.pad-bar i{position:absolute;left:0;top:0;bottom:0;width:0;background:var(--accent)}
+.pad-bar.mid::after{content:"";position:absolute;left:50%;top:0;bottom:0;width:1px;background:var(--ink-3)}
+.pad-setup{padding:var(--s3);border:1px solid var(--accent);border-radius:var(--r2);margin-bottom:var(--s3)}
+.pad-step{margin:0 0 var(--s3);font:700 var(--t-lg)/1.2 var(--display);text-transform:uppercase}
+.pad-map{display:grid;grid-template-columns:1fr auto;gap:4px var(--s3);margin:var(--s3) 0;font-size:var(--t-sm);color:var(--ink-2)}
+.pad-map b{color:var(--ink)}
 .bind-list{display:grid;gap:var(--s2);margin:var(--s3) 0}
 .bind-row{display:flex;justify-content:space-between;align-items:center;gap:var(--s3);color:var(--ink-2)}
 .bind-key{min-width:120px;background:var(--surface-3);color:var(--ink);border:1px solid var(--line-2);border-bottom-width:2px;border-radius:var(--r2);

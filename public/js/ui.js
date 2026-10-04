@@ -178,6 +178,7 @@ export class UI {
       document.querySelectorAll("[data-stab]").forEach((x) => x.classList.toggle("on", x === b));
       document.querySelectorAll("[data-spane]").forEach((x) => x.classList.toggle("on", x.dataset.spane === b.dataset.stab));
       if (b.dataset.stab === "keys") this.renderBinds();
+      if (b.dataset.stab === "pad") this.ctx.mountPad?.();
     });
   }
   // keybinds tab: click an action, press its new key

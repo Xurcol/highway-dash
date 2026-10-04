@@ -19,6 +19,7 @@ import { dailyTrack, dailyBest, dailyFlush, dailyHooks } from "./daily.js";
 import { signIn } from "./auth.js";
 import { youtubeAPI } from "./media.js";
 import { City } from "./city.js";
+import { Pads, mountPadPane } from "./pad.js";
 import { loadModels, makeCar, ensureModel, hasModel, MODELS, missingModels, downloadModels } from "./models.js";
 
 // ---------------- renderer / scenes ----------------
@@ -570,6 +571,17 @@ async function loadCarAssets() {
 
 // ---------------- input ----------------
 const keys = {};
+// Steering wheels and gamepads: steering and pedals are read straight from them every frame; their
+// buttons arrive as the same key codes the keyboard sends, so every key action works from them too.
+const pads = new Pads(() => P.settings, {
+  down(code) {
+    if (code === "Start") return onKey(state === "ready" ? "Enter" : "KeyP");
+    keys[code] = true; onKey(code);
+  },
+  up(code) { if (code === "Start") return; keys[code] = false; if (code === "KeyH") audio.horn(false); },
+  save: () => save(),
+  connected: ({ name, wheel, configured }) => ui.toast(wheel && !configured ? `${name} connected - set it up in Settings, CONTROLLER` : `${name} connected`, [], "info"),
+});
 const typing = () => ["INPUT", "TEXTAREA"].includes(document.activeElement?.tagName) && document.activeElement.type !== "range" && document.activeElement.type !== "checkbox";
 // Rebindable keys. The game reads fixed "logical" codes (KeyH, KeyE ...); the player's choices map a
 // physical key onto the logical one, so nothing else in the game has to know about rebinding.
@@ -868,6 +880,7 @@ function crash(hitCar) {
   audio.crash(Math.min(1, v / 50));
   audio.musicHit?.();
   G.crashT = 0; G.shake = 1;
+  pads.rumble(1, .8, 450);
   G.engine?.params(G.dt.s.idle, 0, 0);
   if (respawnMode()) { if (!freeMode()) { G.score *= .9; ui.toast("Crashed — respawning (-10% score)", [], "warn"); } else ui.toast("Respawning", [], "info"); G.combo = 0; if (mode === "online") net.send({ t: "event", kind: "crash", v: Math.floor(G.score) }); return; }
   if (mode === "online" && partyRound) { const res = awardRun(); ui.toast(`+${res.coins.toLocaleString()} coins`); G.awarded = true; net.send({ t: "crash", round: partyRound, score: Math.floor(G.score) }); }
@@ -1723,14 +1736,16 @@ function pedals(dt, thrIn, brkIn) {
 }
 function updateDrive(dt, T) {
   const d = G.dt, def = G.def, B = BODIES[def.body];
-  const thrIn = held("KeyW", "ArrowUp") ? 1 : 0, brkIn = held("KeyS", "ArrowDown") ? 1 : 0;   // Space is look-back now
+  const pad = pads.state;   // a wheel's or pad's pedals are analog: part throttle, part brake
+  const thrIn = Math.max(held("KeyW", "ArrowUp") ? 1 : 0, pad.throttle), brkIn = Math.max(held("KeyS", "ArrowDown") ? 1 : 0, pad.brake);   // Space is look-back now
   pedals(dt, thrIn, brkIn);
   const v = d.v, kmh = v * 3.6;
   d.surface = 1 - (sky.w?.rain || 0) * .22; // wet road
 
-  // steering
-  const steerIn = (held("KeyD", "ArrowRight") ? 1 : 0) - (held("KeyA", "ArrowLeft") ? 1 : 0);
-  G.steer += (steerIn - G.steer) * Math.min(1, dt * 9);
+  // steering: the keys when they are pressed, otherwise the wheel or stick - a wheel directly, no lag
+  const keySteer = (held("KeyD", "ArrowRight") ? 1 : 0) - (held("KeyA", "ArrowLeft") ? 1 : 0);
+  const steerIn = keySteer || !pad.steering ? keySteer : pad.steer;
+  G.steer += (steerIn - G.steer) * Math.min(1, dt * (pad.wheel && !keySteer ? 30 : 9));
   const hMul = d.s.handlingMul || 1;
   const maxLat = (4.5 + def.handling * .07) * hMul * Math.min(1, v / 14);
   // grip-driven steering, no sliding: the car goes where it is pointed
@@ -1850,17 +1865,18 @@ function updateDrive(dt, T) {
 const _hit = { x: 0, z: 0, nx: 0, nz: 0, d: 0 }, _ccSeen = new Set();
 function updateCityDrive(dt, T) {
   const d = G.dt, def = G.def, B = BODIES[def.body];
-  const up = held("KeyW", "ArrowUp") ? 1 : 0, down = held("KeyS", "ArrowDown") ? 1 : 0, hb = held("ShiftLeft", "ShiftRight") ? 1 : 0;
-  if (!G.rev && d.v < .35 && down && !up) { G.revT += dt; if (G.revT > .3) { G.rev = true; G.rv = 0; } }
-  else if (!down) G.revT = 0;
-  if (G.rev && up && G.rv > -.6) { G.rev = false; G.revT = 0; }
+  const pad = pads.state;
+  const up = Math.max(held("KeyW", "ArrowUp") ? 1 : 0, pad.throttle), down = Math.max(held("KeyS", "ArrowDown") ? 1 : 0, pad.brake), hb = held("ShiftLeft", "ShiftRight") ? 1 : 0;
+  if (!G.rev && d.v < .35 && down > .5 && up < .1) { G.revT += dt; if (G.revT > .3) { G.rev = true; G.rv = 0; } }
+  else if (down < .2) G.revT = 0;
+  if (G.rev && up > .3 && G.rv > -.6) { G.rev = false; G.revT = 0; }
   // in reverse the engine only revs - the speed backwards is set here, not by the gearbox
   const gas = G.fuel > 0 ? 1 : d.v < 5 ? .3 : 0;   // an empty tank: just enough to limp along
   pedals(dt, (G.rev ? down * .45 : up) * gas, G.rev ? up : down);
   if (G.rev) {
     d.v = 0;
-    if (up) G.rv = Math.min(0, G.rv + 9 * dt);
-    else if (down) G.rv = Math.max(-8, G.rv - 3.4 * dt);
+    if (up > .05) G.rv = Math.min(0, G.rv + 9 * up * dt);
+    else if (down > .05) G.rv = Math.max(-8 * down, G.rv - 3.4 * down * dt);
     else G.rv = Math.min(0, G.rv + 1.5 * dt);
   }
   d.surface = 1 - (sky.w?.rain || 0) * .22;
@@ -1871,8 +1887,9 @@ function updateCityDrive(dt, T) {
   // cornering grip (0.92 g stock, never more than 1.1 g), never a quicker rack. Full lock at a crawl;
   // at speed the lock narrows so that full input asks for about what the tyres can hold, and the
   // wheel turns in more gently the faster you go.
-  const steerIn = (held("KeyD", "ArrowRight") ? 1 : 0) - (held("KeyA", "ArrowLeft") ? 1 : 0);
-  G.steer += (steerIn - G.steer) * Math.min(1, dt * (steerIn ? 5 - 2.5 * Math.min(1, sp / 40) : 7));
+  const keySteer = (held("KeyD", "ArrowRight") ? 1 : 0) - (held("KeyA", "ArrowLeft") ? 1 : 0);
+  const steerIn = keySteer || !pad.steering ? keySteer : pad.steer;
+  G.steer += (steerIn - G.steer) * Math.min(1, dt * (pad.wheel && !keySteer ? 30 : steerIn ? 5 - 2.5 * Math.min(1, sp / 40) : 7));
   const hMul = d.s.handlingMul || 1, wb = B.L * .6;
   const grip = 9.81 * Math.min(1.1, .92 + ((d.s.grip || 1) - 1) * .25 + (hMul - 1) * .15);
   const lock = Math.min(.55, Math.atan((grip * 1.05 * wb) / Math.max(1, sp * sp)));
@@ -1933,6 +1950,7 @@ function updateCityDrive(dt, T) {
   G.hitT = Math.max(0, G.hitT - dt);
   if (impact > 2.5 && G.hitT <= 0) {
     G.hitT = .25;
+    pads.rumble(Math.min(1, impact / 20), Math.min(1, impact / 12), 180);
     audio.crash(Math.min(1, impact / 30));
     if (impact > 12) audio.musicHit?.();
     G.shake = Math.max(G.shake || 0, Math.min(1, impact / 14));
@@ -1952,7 +1970,7 @@ function updateCityDrive(dt, T) {
     if (G.y <= ground) {
       const hard = -G.vy;
       G.y = ground; G.vy = 0; G.air = false;
-      if (hard > 5) { audio.crash(Math.min(.7, hard / 22)); G.shake = Math.max(G.shake || 0, Math.min(1, hard / 14)); }
+      if (hard > 5) { pads.rumble(Math.min(1, hard / 14), .5, 150); audio.crash(Math.min(.7, hard / 22)); G.shake = Math.max(G.shake || 0, Math.min(1, hard / 14)); }
     }
   } else { G.vyS = (ground - G.y) / Math.max(dt, 1e-3); G.y = ground; }
   if (!G.air) {
@@ -2184,7 +2202,7 @@ function updateEngineSound(dt) {
   if (!G.engine) return;
   const d = G.dt;
   if (state === "ready") {
-    const thr = held("KeyW", "ArrowUp") ? 1 : 0;
+    const thr = Math.max(held("KeyW", "ArrowUp") ? 1 : 0, pads.state.throttle);
     const target = d.s.idle + thr * d.s.redline * .72;
     const before = G.readyRpm;
     G.readyRpm += (target - G.readyRpm) * Math.min(1, dt * (thr ? 5 : 2.2));
@@ -2301,6 +2319,7 @@ const playerLight = { pos: new THREE.Vector3(), dir: new THREE.Vector3(), color:
 function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(.05, (now - last) / 1000);
+  pads.poll(dt);
   last = now;
   if (state === "drive" && !paused && !document.hidden) adaptRes(dt);
   document.body.classList.toggle("cine-active", !!P.settings.cinematic && (state === "drive" || state === "crashed" || state === "ended"));
@@ -2653,6 +2672,7 @@ const ui = new UI({
   getCustomCam: () => customCam(),
   useCustomCam: () => { camMode = CUSTOM_CAM; P.settings.cam = camMode; G.snapCam = true; save(); ui.toast(CAMS[camMode], [], "info"); },
   SOLO_MODES, PARTY_MODES,
+  mountPad: () => mountPadPane(document.getElementById("padPane"), pads, { save }),
   // preview: shown on the garage car only, nothing saved or charged
   previewStyle: (id, style) => { if (showCarId === id) showTarget()?.applyStyle?.(style); showFlamePreview = { id, flame: style.flame ?? null }; },
   styleCar: (id) => {
