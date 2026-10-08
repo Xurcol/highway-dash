@@ -195,8 +195,11 @@ export function sampleLink(l, s, out) {
 }
 
 // ---------------------------------------------------------------- build
-export function buildCity() {
+// opts.hero: the hero mode's New Meridian - the same streets, a far taller and denser skyline. City Drive
+// passes nothing and gets exactly the city it always had.
+export function buildCity(opts = {}) {
   const M = {
+    hero: !!opts.hero,
     nodes: [], roads: [], links: [], surfaces: [], walls: [], slabs: [], buildings: [], roofs: [], beacons: [],
     pillars: [], caps: [], barriers: [], lamps: [], trees: [], heads: [], props: [], marks: [], parked: [], gantries: [],
     ramps: [], ring: null, spawns: [], signs: [], arrows: [], stations: [], parts: [], awnings: [], shopSigns: [],
@@ -508,7 +511,7 @@ export function buildCity() {
         addBuilding(M, x0 + 2, z0 + 2, x1 - 2, z1 - 2, CURB, h, 4, PAL[4][Math.floor(hash(tx, tz, 10) * PAL[4].length)]);
         roofKit(M, x0 + 2, z0 + 2, x1 - 2, z1 - 2, CURB + h, tx, tz);
       } else {
-        const near = Math.max(0, 1 - (m - DOWN) / (RING - DOWN)), h = 14 + hash(tx, tz, 9) * 26 + near * 22;
+        const near = Math.max(0, 1 - (m - DOWN) / (RING - DOWN)), h = (14 + hash(tx, tz, 9) * 26 + near * 22) * (M.hero ? 1.55 : 1);
         const v = hash(tx, tz, 11) < .25 ? 3 : hash(tx, tz, 11) < .7 ? 0 : 1;
         addBuilding(M, x0 + ins, z0 + ins, x1 - ins, z1 - ins, CURB, h, v, PAL[v][Math.floor(hash(tx, tz, 10) * PAL[v].length)]);
         roofKit(M, x0 + ins, z0 + ins, x1 - ins, z1 - ins, CURB + h, tx, tz);
@@ -824,11 +827,11 @@ function downtownBlock(M, gi, gj, x0, z0, x1, z1) {
   M.buildings.slice(first).forEach((b, i) => { if (b.y0 < .3 && b.y1 - b.y0 > 5) storefronts(M, b, { x0, z0, x1, z1 }, gi * 97 + gj * 13 + i); });
 }
 function buildBlock(M, gi, gj, x0, z0, x1, z1) {
-  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, f = Math.max(0, 1 - Math.hypot(cx, cz) / 330);
+  const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2, f = Math.max(0, 1 - Math.hypot(cx, cz) / (M.hero ? 760 : 330)), H = M.hero;
   const r = (n) => hash(gi + 50, gj + 50, n);
   // two landmarks by the centre: round glass towers on stone podiums, each with a spire and a light
   if ((gi === 0 && gj === -1) || (gi === -1 && gj === 0)) {
-    const ph = 12, R = (Math.min(x1 - x0, z1 - z0) / 2) * .78, h = gi === 0 ? 245 : 205, glass = PAL[1][gi === 0 ? 0 : 3];
+    const ph = 12, R = (Math.min(x1 - x0, z1 - z0) / 2) * .78, h = H ? (gi === 0 ? 335 : 290) : gi === 0 ? 245 : 205, glass = PAL[1][gi === 0 ? 0 : 3];
     addBuilding(M, x0, z0, x1, z1, CURB, ph, 0, PAL[0][5]);
     M.rounds.push({ x: cx, z: cz, r: R, y0: CURB + ph, h, v: 1, col: glass });
     M.rounds.push({ x: cx, z: cz, r: R * .7, y0: CURB + ph + h, h: 16, v: 1, col: glass });
@@ -836,7 +839,8 @@ function buildBlock(M, gi, gj, x0, z0, x1, z1) {
     M.beacons.push({ x: cx, y: CURB + ph + h + 52.3, z: cz });
     return;
   }
-  const pat = Math.floor(r(1) * 4);
+  // the hero city has fewer clusters of small buildings and more towers
+  const pat = H ? [0, 0, 1, 1, 2, 3, 3, 0][Math.floor(r(1) * 8)] : Math.floor(r(1) * 4);
   const look = (h, n) => (h > 95 ? (r(n) < .55 ? 1 : 2) : r(n) < .2 ? 1 : r(n) < .6 ? 0 : 3);
   const col = (v, n) => PAL[v][Math.floor(r(n) * PAL[v].length)];
   const tower = (bx0, bz0, bx1, bz1, y, h, n) => {
@@ -866,23 +870,23 @@ function buildBlock(M, gi, gj, x0, z0, x1, z1) {
     const ph = 9 + r(5) * 6, v = r(6) < .5 ? 0 : 3;
     addBuilding(M, x0, z0, x1, z1, CURB, ph, v, col(v, 7));
     const ins = 8 + r(8) * 7;
-    tower(x0 + ins, z0 + ins, x1 - ins, z1 - ins, CURB + ph, 55 + 175 * f * f + r(9) * 40, 10);
+    tower(x0 + ins, z0 + ins, x1 - ins, z1 - ins, CURB + ph, H ? 70 + 235 * f ** 1.6 + r(9) * 60 : 55 + 175 * f * f + r(9) * 40, 10);
   } else if (pat === 1) {
     const alongX = r(5) < .5, g = 2.5;
     for (const s of [0, 1]) {
-      const h = 22 + 95 * f + r(20 + s) * 35;
+      const h = H ? 32 + 140 * f + r(20 + s) * 50 : 22 + 95 * f + r(20 + s) * 35;
       if (alongX) tower(x0 + (s ? W / 2 + g : 0), z0, s ? x1 : x0 + W / 2 - g, z1, CURB, h, 20 + s * 5);
       else tower(x0, z0 + (s ? D / 2 + g : 0), x1, s ? z1 : z0 + D / 2 - g, CURB, h, 20 + s * 5);
     }
   } else if (pat === 2) {
     const g = 2;
     for (const [sx, sz] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-      const h = 16 + (60 * f + 20) * r(30 + sx + sz * 2) + 8;
+      const h = H ? 22 + (95 * f + 30) * r(30 + sx + sz * 2) + 10 : 16 + (60 * f + 20) * r(30 + sx + sz * 2) + 8;
       tower(sx ? x0 + W / 2 + g : x0, sz ? z0 + D / 2 + g : z0, sx ? x1 : x0 + W / 2 - g, sz ? z1 : z0 + D / 2 - g, CURB, h, 30 + sx * 3 + sz * 7);
     }
   } else {
     // a tower on one half, a low pavilion and trees on the plaza in front of it
-    const side = Math.floor(r(5) * 4), h = 45 + 150 * f * f + r(6) * 30;
+    const side = Math.floor(r(5) * 4), h = H ? 60 + 210 * f ** 1.6 + r(6) * 45 : 45 + 150 * f * f + r(6) * 30;
     const [tx0, tz0, tx1, tz1] = side === 0 ? [x0, z0, x1, z0 + D * .55] : side === 1 ? [x0 + W * .45, z0, x1, z1] : side === 2 ? [x0, z0 + D * .45, x1, z1] : [x0, z0, x1 - W * .45, z1];
     tower(tx0 + 2, tz0 + 2, tx1 - 2, tz1 - 2, CURB, h, 40);
     const [px0, pz0, px1, pz1] = side === 0 ? [x0, z0 + D * .55, x1, z1] : side === 1 ? [x0, z0, x0 + W * .45, z1] : side === 2 ? [x0, z0, x1, z0 + D * .45] : [x1 - W * .45, z0, x1, z1];

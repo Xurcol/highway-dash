@@ -350,6 +350,29 @@ export class City {
     this.mapEl = null;
   }
   get ready() { return !!this.M; }
+  // "hero" builds the hero mode's taller city; anything else is City Drive's. Switching throws the
+  // built city away, so the next show() builds the other one.
+  setVariant(v) {
+    v = v === "hero" ? "hero" : "drive";
+    if ((this.variant || "drive") === v) return;
+    this.variant = v;
+    if (this.M) this.dispose();
+  }
+  dispose() {
+    if (this.traffic) { this.traffic.clear(); this.releaseAll(); }
+    if (this.group) {
+      this.scene.remove(this.group);
+      const seen = new Set();
+      this.group.traverse((o) => {
+        if (o.geometry && !seen.has(o.geometry)) { seen.add(o.geometry); o.geometry.dispose(); }
+        const ms = Array.isArray(o.material) ? o.material : o.material ? [o.material] : [];
+        for (const m of ms) if (!seen.has(m)) { seen.add(m); for (const k of ["map", "emissiveMap"]) m[k]?.dispose?.(); m.dispose(); }
+      });
+    }
+    this.mapEl?.remove();
+    this.group = null; this.M = null; this.traffic = null; this.mapEl = null; this.mapCtx = null;
+    this.pool.clear(); this.meshes.clear(); this.heads = []; this.parked = []; this.signFaces = [];
+  }
   show(on) {
     if (on && !this.M) this.build();
     if (this.group) this.group.visible = on;
@@ -358,7 +381,7 @@ export class City {
   }
 
   build() {
-    const M = this.M = buildCity();
+    const M = this.M = buildCity({ hero: this.variant === "hero" });
     const G = this.group = new THREE.Group();
     this.scene.add(G);
     const lit = (o) => patchLit(new THREE.MeshStandardMaterial(o));

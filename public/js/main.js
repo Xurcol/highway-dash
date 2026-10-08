@@ -21,6 +21,7 @@ import { youtubeAPI } from "./media.js";
 import { City } from "./city.js";
 import { Pads, mountPadPane } from "./pad.js";
 import { loadModels, makeCar, ensureModel, hasModel, MODELS, missingModels, downloadModels } from "./models.js";
+import { HeroMode } from "./hero.js";
 
 // ---------------- renderer / scenes ----------------
 const canvas = document.getElementById("c");
@@ -86,6 +87,8 @@ const smoke = (() => {
 })();
 const audio = new AudioManager();
 const net = await createNet();
+// Hero mode (ARCLINE): its own body, camera, controls and HUD, sharing this renderer, sky, city and network
+const hero = new HeroMode({ renderer, scene, camera, sky, city, audio, net, P, save, get ui() { return ui; } });
 
 // adaptive resolution: renders a little softer when the frame rate dips and sharpens again when there is headroom
 let resScale = 1, emaDt = .016, resTick = 0;
@@ -629,13 +632,15 @@ let soloT = 0;
 // roam in 3D - downtown, the ring expressway and its ramps), police (outrun the cops), timeattack
 // (2 minutes, crashes cost score).
 // Party: crash (first crash ends the round), target (first to a score), timed (highest score when time's up).
-const SOLO_MODES = { classic: "Classic", freedrive: "Free Drive", city: "City Drive", police: "Police Chase", timeattack: "Time Attack" };
-const PARTY_MODES = { free: "Free Drive", city: "City Drive", crash: "Last One Standing", target: "First To Score", timed: "Timed Battle" };
+const SOLO_MODES = { hero: "ARCLINE - Hero Free Roam", classic: "Classic", freedrive: "Free Drive", city: "City Drive", police: "Police Chase", timeattack: "Time Attack" };
+const PARTY_MODES = { hero: "ARCLINE - Hero Free Roam", free: "Free Drive", city: "City Drive", crash: "Last One Standing", target: "First To Score", timed: "Timed Battle" };
 const TIME_ATTACK = 120;
 const soloMode = () => (SOLO_MODES[P.settings.soloMode] ? P.settings.soloMode : "classic");
 const partyMode = () => (mode === "online" && net.room ? net.room.mode || "crash" : null);
 // crashes respawn you (with a score penalty) instead of ending the run in these modes
 const respawnMode = () => (mode === "online" ? partyMode() !== "crash" : soloMode() === "timeattack" || soloMode() === "freedrive" || soloMode() === "city");
+// Hero mode: on foot (and on lines) in the hero city instead of in a car
+const heroMode = () => (mode === "online" ? partyMode() === "hero" : soloMode() === "hero");
 // Free Drive, solo or in a server: no rounds, no finish, crashes cost nothing
 const freeMode = () => (mode === "online" ? partyMode() === "free" || partyMode() === "city" : mode === "solo" && (soloMode() === "freedrive" || soloMode() === "city"));
 // City Drive: the 3D city instead of the endless highway. Latched into G.city when a session starts, so
@@ -751,6 +756,7 @@ function enterReady(asMode) {
   if (G.city) storeFuel();
   cashIn(true);   // whatever the last run banked is paid before this one starts
   mode = asMode;
+  if (heroMode()) return enterHero();
   buildPlayerCar();
   if (mode === "online" && net.room) {
     traffic.setSeed(net.room.seed, net.room.traffic || "Heavy", false);
@@ -780,6 +786,28 @@ function enterReady(asMode) {
   bots.reset();
   ui.show("ready");
   ensureAudio().then(() => { G.engine.setProfile(carSound(G.def.id)); applyTune(); });
+}
+// Hero mode: no car. The highway, its traffic and the cops are put away, the hero city is shown, and
+// the hero is dropped onto a rooftop (next to the others, in a server). There is no start line: the
+// session is live at once.
+function enterHero() {
+  if (G.car) G.car.group.visible = false;
+  traffic.hideAll(); traffic.evs.length = 0; audio.evSirens?.([]);
+  world.setVisible(false);
+  G.city = false; G.hero = true;
+  if (mode === "online" && net.room) {
+    if (typeof net.room.hour === "number") { sky.hour = net.room.hour; sky.flow = false; } else sky.flow = true;
+    if (net.room.weather && WEATHERS[net.room.weather]) sky.setWeather(net.room.weather);
+  } else { soloT = 0; sky.flow = true; }
+  const idx = mode === "online" && net.room ? Math.max(0, net.room.players.findIndex((p) => p.id === (net.me?.id ?? net.me?.code))) : 0;
+  hero.enter({ index: idx, online: mode === "online" });
+  const lvl = (mode === "online" && net.room ? net.room.traffic : P.settings.traffic) || "Normal";
+  city.resetTraffic({ x: hero.focus.x, y: 0, z: hero.focus.z }, CITY_TRAFFIC[lvl] ?? 40);
+  shadowReach(70);
+  police.reset(false); bots.reset();
+  state = "drive"; paused = false; menuOpen = false;
+  ui.show("hud");
+  ensureAudio();
 }
 // City Drive starts downtown, on a spawn of its own, with the highway's traffic, sirens and cops put away
 function enterCity() {
@@ -1016,6 +1044,7 @@ function cashIn(quiet) {
   return c;
 }
 function goHome() {
+  if (G.hero) { hero.exit(); G.hero = false; if (G.car) G.car.group.visible = true; }
   if (G.city) { storeFuel(); save(); }
   // frame() returns early while we are home, so the tunnel send has to be closed here or it keeps
   // whatever it had at the moment of the crash - which is why dying in a tunnel left the whole
@@ -1041,6 +1070,18 @@ function goHome() {
 // ---------------- keys ----------------
 function onKey(code) {
   if (ui.anyModalOpen()) { if (code === "Escape") ui.closeModals(); return; }
+  // hero mode reads its own controls; only the session keys come through here
+  if (G.hero && state !== "home") {
+    switch (code) {
+      case "KeyP": case "Escape": togglePause(); break;
+      case "Enter": if (mode === "online" && net.room) { hero.input.unlock(); openChat(); } break;
+      case "Tab": if (mode === "online" && net.room) ui.togglePlayers(); break;
+      case "KeyT": { const names = Object.keys(TIME_PRESETS); const i = (names.findIndex((n) => Math.abs(TIME_PRESETS[n] - sky.hour) < .3) + 1) % names.length; P.settings.hour = sky.hour = TIME_PRESETS[names[i]]; save(); ui.toast(names[i]); break; }
+      case "KeyL": ui.toggleModal("leader"); break;
+      case "KeyJ": ui.toggleModal("media"); break;
+    }
+    return;
+  }
   if (code === "KeyN") return toggleDriveMode();
   if (code === "KeyL" && state !== "home") return ui.toggleModal("leader");
   if (code === "KeyJ" && state !== "home") return ui.toggleModal("media");
@@ -1082,6 +1123,7 @@ function toggleDriveMode() {
 let menuOpen = false;
 function togglePause() {
   if (state === "over") return;
+  if (G.hero) { const willPause = mode === "online" ? !menuOpen : !paused; if (willPause) hero.input.unlock(); hero.input.wantLock = !willPause; }
   if (mode === "online") { menuOpen = !menuOpen; ui.setPaused(menuOpen, true); return; }
   paused = !paused;
   ui.setPaused(paused);
@@ -2357,6 +2399,7 @@ function frame(now) {
     return;
   }
 
+  if (G.hero) return heroFrame(dt);
   const simDt = paused ? 0 : dt;
   const cityOn = inCity();
   // the city's signals keep cycling on the start line too
@@ -2498,6 +2541,47 @@ function frame(now) {
     }
   }
 
+  renderer.setClearColor(0x000000, 1);
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, innerWidth, innerHeight);
+  renderer.shadowMap.enabled = P.settings.shadows;
+  if (bloomPass) bloomPass.strength = P.settings.bloom ? BLOOM.strength * bloomNightFalloff(sky.night) : 0;
+  if (bloomOn()) composer.render(); else renderer.render(scene, camera);
+}
+
+// ---------------- hero mode frame ----------------
+// The hero runs its own simulation and camera; this keeps the shared world going round it - the sky,
+// the city and its traffic, the lights, the sound beds - publishes the hero to the server and renders.
+function heroFrame(dt) {
+  const simDt = paused ? 0 : dt;
+  if (mode === "solo") soloT += simDt;
+  const T = getT();
+  glows.begin();
+  lights.length = 0;
+  hero.update(simDt, dt, T);
+  const focus = hero.focus;
+  sky.update(dt, camera, focus, hero.speed, audio);
+  for (const h of city.update(simDt, T, focus, camera, sky, glows, lights, hero.trafficPlayers())) {
+    const c = h.c, dist = Math.hypot(c.x - focus.x, c.z - focus.z);
+    if (dist < 120) audio.honk?.(0, h.heavy, Math.min(1, 16 / Math.max(6, dist)));
+  }
+  hero.afterCity?.(simDt, T, glows, lights);
+  if ((G.mapT = (G.mapT || 0) - dt) <= 0) { G.mapT = 1 / 20; city.drawMinimap(focus.x, focus.z, hero.cam.yaw, hero.mapDots?.() || [], false); }
+  const env = city.envAt(focus.x, focus.y - 1, focus.z);
+  sky.tunnel = 0;
+  if (audio.ready) {
+    audio.setTunnel(env.tunnel * .5); audio.setEnv(env.env, env.boost);
+    audio.musicEnv?.({ tunnel: env.tunnel * .5, city: env.env, view: "exterior", paused, on: P.settings.musicFx !== false });
+    ui.music.setDuck(paused && P.settings.musicFx !== false ? .5 : 1);
+    audio.setReverb(env.reverb);
+  }
+  uploadLights(lights, camera);
+  glows.end(renderer.domElement.height);
+  audio.update(paused ? 0 : hero.windSpeed(), sky.w.rain, false, 0);
+  if (mode === "online" && net.room) {
+    G.sendT -= dt;
+    if (G.sendT <= 0) { G.sendT = 1 / (net.sendRate || NET.sendRate); const s = hero.netState?.(T, net.now(), partyRound); if (s) net.send({ t: "state", s }); }
+  }
   renderer.setClearColor(0x000000, 1);
   renderer.setScissorTest(false);
   renderer.setViewport(0, 0, innerWidth, innerHeight);
@@ -2752,7 +2836,7 @@ await loader.finish();
 
 window.__ui = ui;
 window.__game = {
-  G, sky, traffic, net, world, renderer, scene, camera, glows, frame, remotes, NET, CATCHUP,
+  G, sky, traffic, net, world, renderer, scene, camera, glows, frame, remotes, NET, CATCHUP, hero, city,
   get composer() { return composer; }, get bloomPass() { return bloomPass; },
   audio, get pending() { return G.pending || 0; },
   get state() { return state; }, get mode() { return mode; },

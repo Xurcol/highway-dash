@@ -469,12 +469,13 @@ export class AudioManager {
   set(node, v, tc = 0.1) { node.setTargetAtTime(v, this.ctx.currentTime, tc); }
 
   // continuous beds
-  update(speedKmh, rainAmt, scraping) {
+  // road: how much tyre roar goes with the speed (0 for the hero, who has no tyres)
+  update(speedKmh, rainAmt, scraping, road = 1) {
     if (!this.ready) return;
     const s = Math.min(1, speedKmh / 320);
     this.set(this.wind.g.gain, s * s * 0.12);
     this.set(this.wind.f.frequency, 300 + s * 900);
-    this.set(this.road.g.gain, Math.min(1, speedKmh / 120) * 0.16);
+    this.set(this.road.g.gain, Math.min(1, speedKmh / 120) * 0.16 * road);
     this.set(this.rain.g.gain, rainAmt * 0.16, 0.8);
     this.set(this.rainLow.g.gain, rainAmt * 0.25, 0.8);
     this.set(this.scrape.g.gain, scraping ? 0.25 : 0, 0.03);

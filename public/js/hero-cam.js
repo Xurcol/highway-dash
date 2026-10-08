@@ -1,0 +1,125 @@
+// Hero mode camera: a third-person orbit you steer with the mouse, that behaves like a camera operator
+// following an athlete. It trails a little and pulls back as the speed builds (with a wider lens),
+// swings round behind the direction of travel when you leave the mouse alone, tips down to look where
+// a dive is heading, frames the fight in combat, kicks on landings and hits, sways a touch at speed,
+// and never goes through a wall.
+import * as THREE from "three";
+
+const V = THREE.Vector3;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const wrapA = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
+// smooth 1D noise for the sway
+const noise = (t, s) => Math.sin(t * 1.7 + s) * .55 + Math.sin(t * 2.9 + s * 2.1) * .3 + Math.sin(t * 5.3 + s * 3.7) * .15;
+
+export class HeroCam {
+  constructor(camera, world) {
+    this.cam = camera; this.W = world;
+    this.yaw = 0; this.pitch = -.12;
+    this.dist = 4.6; this.fov = 66; this.trauma = 0; this.kick = new V();
+    this.pivot = new V(); this.pos = new V(); this.look = new V(0, 0, -1);
+    this.idle = 0; this.t = 0; this.roll = 0;
+    this.sens = .0022; this.invertY = false; this.autoFollow = true;
+    this.combat = null;      // { x, y, z } a point to keep in frame
+    this.snapNext = true;
+  }
+  shake(a) { this.trauma = Math.min(1, this.trauma + a); }
+  punch(x, y, z) { this.kick.set(x, y, z); }
+  // where the camera looks, flattened onto the ground: what "forward" means for the move keys
+  get heading() { return this.yaw; }
+
+  update(dt, H, inp, o = {}) {
+    this.t += dt;
+    const p = H.p, v = H.v, sp = v.length(), hs = Math.hypot(v.x, v.z);
+    // ---- the player's mouse ----
+    const mdx = inp?.mdx || 0, mdy = inp?.mdy || 0;
+    if (Math.abs(mdx) + Math.abs(mdy) > .5) this.idle = 0; else this.idle += dt;
+    this.yaw -= mdx * this.sens;
+    this.pitch -= mdy * this.sens * (this.invertY ? -1 : 1);
+    // ---- following on its own when left alone: swing round behind the direction of travel ----
+    const moving = (H.state === "swing" || H.state === "air" || H.state === "zip") && hs > 9 || H.state === "ground" && hs > 12 || H.state === "wall" && sp > 3;
+    if (this.autoFollow && this.idle > .9 && moving && !this.combat) {
+      // on a wall: look along the run from a little way out; elsewhere: behind the direction of travel
+      let wx = v.x, wz = v.z;
+      if (H.state === "wall" && !H.ceiling) { const al = v.x * -H.n.z + v.z * H.n.x; wx = -H.n.z * al - H.n.x * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; wz = H.n.x * al - H.n.z * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; if (Math.hypot(wx, wz) < .5) { wx = -H.n.x; wz = -H.n.z; } }
+      const want = Math.atan2(-wx, -wz), d = wrapA(want - this.yaw);
+      if (Math.abs(d) < 2.6) this.yaw += d * Math.min(1, dt * (H.state === "swing" ? 1.1 : .7));
+      // and level out towards a slightly downward look, lower in a dive
+      const wantP = H.dive ? -.55 : v.y < -15 ? -.35 : -.14;
+      this.pitch += (wantP - this.pitch) * Math.min(1, dt * .8);
+    }
+    this.pitch = clamp(this.pitch, -1.38, 1.15);
+    this.yaw = wrapA(this.yaw);
+
+    // ---- how far back and how wide, from speed and what the body is doing ----
+    let dist = 4.4 + clamp((sp - 8) / 40, 0, 1) * 2.6, fov = 64 + clamp((sp - 10) / 45, 0, 1) * 20, up = .55, side = .42;
+    if (H.state === "wall") { dist = 5.6; up = .6; side = 0; }
+    if (H.state === "perch") { dist = 4.6; up = .9; }
+    if (H.state === "ledge") { dist = 4.2; up = .7; }
+    if (H.dive) { fov += 8; dist += .6; }
+    if (H.glide) { dist += 1.2; fov += 4; }
+    if (H.state === "ground" && H.slideT > 0) { up = .2; dist = 3.8; }
+    if (this.combat) { dist = Math.max(dist, 5.8 + Math.min(4, this.combat.d * .25)); up = 1.0; side = .15; fov = Math.max(fov, 66); }
+    if (o.aim) { dist = 2.6; side = .7; up = .45; fov = 52; }
+    const k = 1 - Math.exp(-dt * 3.2);
+    this.dist += (dist - this.dist) * k;
+    this.fov += (fov - this.fov) * (1 - Math.exp(-dt * 4));
+
+    // ---- the pivot trails the body a little, leading it slightly in the direction of travel ----
+    const lead = clamp(sp / 50, 0, 1) * .12;
+    let tx = p.x + v.x * lead, ty = p.y + up + Math.min(0, v.y) * .015, tz = p.z + v.z * lead;
+    // on a wall the camera stands off it, so it looks at the hero rather than along the bricks
+    const wallK = this.wallK = (this.wallK || 0) + ((H.state === "wall" && !H.ceiling ? 1 : 0) - (this.wallK || 0)) * Math.min(1, dt * 4);
+    if (wallK > .01) { tx += H.n.x * 1.1 * wallK; tz += H.n.z * 1.1 * wallK; }
+    // in combat, the pivot slides towards the middle of the fight
+    if (this.combat) { const c = this.combat; tx += (c.x - p.x) * .25; tz += (c.z - p.z) * .25; }
+    if (this.snapNext) { this.pivot.set(tx, ty, tz); }
+    else {
+      const kp = 1 - Math.exp(-dt * (16 + sp * .15));
+      this.pivot.x += (tx - this.pivot.x) * kp; this.pivot.y += (ty - this.pivot.y) * Math.min(1, kp * 1.2); this.pivot.z += (tz - this.pivot.z) * kp;
+    }
+
+    // ---- orbit ----
+    const cp = Math.cos(this.pitch), sp2 = Math.sin(this.pitch);
+    let fx = -Math.sin(this.yaw) * cp, fy = sp2, fz = -Math.cos(this.yaw) * cp;
+    // on a wall the boom must stay on the open side of it: tip it out until it points well away
+    if (wallK > .01) {
+      const n = H.n, out = -(fx * n.x + fy * n.y + fz * n.z), need = .45 * wallK;
+      if (out < need) { const a = need - out; fx -= n.x * a * 1.4; fy -= n.y * a * 1.4; fz -= n.z * a * 1.4; const L = Math.hypot(fx, fy, fz); fx /= L; fy /= L; fz /= L; }
+    }
+    this.look.set(fx, fy, fz);
+    const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw);   // right of the view
+    const ox = this.pivot.x + rx * side, oz = this.pivot.z + rz * side, oy = this.pivot.y;
+    let want = this.dist;
+    // keep out of walls: pull in along the boom to just short of anything in the way
+    const h = this.W.raycast(ox, oy, oz, -fx, -fy, -fz, want + .4, 2, _h);
+    if (h) want = Math.max(.7, h.t - .35);
+    // ...and out of the ground
+    let cx = ox - fx * want, cy = oy - fy * want, cz = oz - fz * want;
+    const floor = this.W.topAt(cx, cz, cy + 1.5);
+    if (cy < floor + .35) cy = floor + .35;
+    if (this.snapNext) { this.pos.set(cx, cy, cz); this.snapNext = false; this.curDist = want; }
+    else {
+      // pull in fast (never through a wall), ease back out
+      this.curDist = this.curDist === undefined ? want : want < this.curDist ? want : this.curDist + (want - this.curDist) * Math.min(1, dt * 3);
+      cx = ox - fx * this.curDist; cy = Math.max(floor + .35, oy - fy * this.curDist); cz = oz - fz * this.curDist;
+      this.pos.set(cx, cy, cz);
+    }
+
+    // ---- shake, kicks, sway at speed ----
+    this.trauma = Math.max(0, this.trauma - dt * 1.6);
+    const tr = this.trauma * this.trauma, spd = clamp((sp - 25) / 40, 0, 1) * .5;
+    const sx = (noise(this.t * 12, 1) * tr * .35) + noise(this.t * 1.3, 4) * spd * .12;
+    const sy = (noise(this.t * 12, 7) * tr * .3) + noise(this.t * 1.1, 9) * spd * .1;
+    this.kick.multiplyScalar(Math.exp(-dt * 7));
+    const C = this.cam;
+    C.position.set(this.pos.x + rx * sx + this.kick.x, this.pos.y + sy + this.kick.y, this.pos.z + rz * sx + this.kick.z);
+    C.up.set(0, 1, 0);
+    C.lookAt(C.position.x + fx, C.position.y + fy, C.position.z + fz);
+    // a little roll into hard turns at speed, and with the trauma
+    const turn = H.turnRate || 0;
+    this.roll += (clamp(-turn * .04 * clamp(hs / 30, 0, 1), -.08, .08) - this.roll) * Math.min(1, dt * 3);
+    C.rotateZ(this.roll + noise(this.t * 14, 3) * tr * .05);
+    if (Math.abs(C.fov - this.fov) > .05) { C.fov = this.fov; C.updateProjectionMatrix(); }
+  }
+}
+const _h = {};
