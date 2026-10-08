@@ -38,7 +38,8 @@ export const LINKS = {
   launch: ["Point Launch", 110, .5], zip: ["Web Zip", 25, .1], dive: ["Dive", 60, .25], glide: ["Web Wings", 40, .25],
   skim: ["Street Skim", 90, .5], wrap: ["Corner Swing", 70, .25], vault: ["Vault", 30, .1], slide: ["Slide", 25, .1], leap: ["Parkour Leap", 50, .25],
   airdash: ["Air Dash", 20, .1], double: ["Double Web", 50, .25], under: ["Under Pass", 160, .5], close: ["Close Call", 70, .25],
-  freefall: ["Freefall", 0, .25], roll: ["Roll", 60, .1], pullup: ["Pull Up", 80, .25], ceiling: ["Ceiling Run", 60, .25], ledge: ["Ledge Grab", 20, .1],
+  freefall: ["Freefall", 0, .25], aircombo: ["Air Combo", 60, .25], wallpin: ["Wall Pin", 150, .5], perfectdodge: ["Perfect Dodge", 120, .5],
+  webstrike: ["Web Strike", 80, .25], finisher: ["Finisher", 250, .5], takedown: ["Takedown", 100, .25], throw: ["Web Throw", 90, .25], slam: ["Ground Slam", 120, .25], roll: ["Roll", 60, .1], pullup: ["Pull Up", 80, .25], ceiling: ["Ceiling Run", 60, .25], ledge: ["Ledge Grab", 20, .1],
 };
 
 const _q = new Q(), _q2 = new Q(), _x = new V(1, 0, 0), _y = new V(0, 1, 0), _z = new V(0, 0, 1);

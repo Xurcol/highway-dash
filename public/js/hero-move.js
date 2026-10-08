@@ -131,6 +131,10 @@ export class HeroBody {
   }
   feet() { return this.p.y - TUNE.hip; }
   floorBelow(reach = TUNE.stepUp) { return this.W.groundUnder(this.p.x, this.feet(), this.p.z, .22, reach); }
+  // The floor to land on: the highest top that the feet are at or have passed this frame. Falling
+  // fast, the feet can go through a roof's top between two checks; measuring from where they were
+  // at the start of the frame still finds it.
+  landFloor() { const f = Math.max(this.feet(), this.prevP.y - TUNE.hip); return this.W.groundUnder(this.p.x, f, this.p.z, .22, .06); }
   heightAbove() { return this.feet() - this.W.groundUnder(this.p.x, this.feet(), this.p.z, 0, .1); }
   keepInBounds() {
     const B = this.W.bound;
@@ -155,7 +159,11 @@ export class HeroBody {
     this.sprintT = sprinting ? this.sprintT + dt : Math.max(0, this.sprintT - dt * 3);
     this.crouchT = inp.crouch ? this.crouchT + dt : 0;
     this.dashUsed = false; this.glide = false; this.dive = false;
-    if (this.slideT > 0) {
+    if (this.combatLock > 0) {
+      // a punch, a lunge, a dodge: the fight moves the body; it slows on the ground by itself
+      const k = Math.exp(-dt * 4);
+      this.v.x *= k; this.v.z *= k;
+    } else if (this.slideT > 0) {
       // sliding: little friction, a little steering, a jump out of it carries extra speed
       this.slideT -= dt;
       const k = Math.max(0, 1 - 5.5 * dt / Math.max(1, hs));
@@ -257,6 +265,13 @@ export class HeroBody {
     this.airT += dt; this.coyote = Math.max(0, this.coyote - dt);
     if (this.p.y > this.fallStart) this.fallStart = this.p.y;
     if (this.jumpBuf > 0 && this.coyote > 0) { this.jumpBuf = 0; this.coyote = 0; this.v.y = T.jumpV; this.ev("jump", { charge: 0 }); }
+    if (this.combatLock > 0) {
+      // in the middle of an air attack: no steering, no dive or glide - the fight holds the body
+      this.v.y -= TUNE.g * dt;
+      const C = this.integrate(dt);
+      if (this.v.y <= .5) { const fy = this.landFloor(); if (this.feet() <= fy + .03) { this.land(fy, inp); return; } }
+      return;
+    }
     if (this.tryWebOrZip(inp)) return;
     const hAbove = this.heightAbove();
     // dive: head first, heavier and slicker
@@ -331,7 +346,7 @@ export class HeroBody {
     const ce = this.ceilContact(C);
     if (ce && (inp.sprint || this.zip)) { this.toCeiling(ce); return true; }
     if (this.v.y <= .5) {
-      const fy = this.floorBelow(.05);
+      const fy = this.landFloor();
       if (this.feet() <= fy + .03) { this.land(fy, inp); return true; }
     }
     return false;
@@ -573,7 +588,7 @@ export class HeroBody {
     // touching things: a wall is a wall run, the street at speed is a skim, slow is a landing
     const wc = this.wallContact(C);
     if (wc && this.wallCool <= 0 && Math.abs(wc.vn) > 2) { this.releaseWebs("wall"); this.toWall(wc, "run"); return; }
-    const fy = this.floorBelow(.05);
+    const fy = this.landFloor();
     if (this.feet() <= fy + .05 && this.v.y <= .5) {
       const hs = Math.hypot(this.v.x, this.v.z);
       if (hs > 11) { this.p.y = fy + TUNE.hip; this.v.y = Math.max(this.v.y, 0); if (!this.skim) this.ev("skim"); this.skim = .2; }

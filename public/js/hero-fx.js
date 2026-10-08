@@ -308,3 +308,50 @@ export class Rings {
     }
   }
 }
+
+// ------------------------------------------------------------------ tracers (gunfire)
+export class Tracers {
+  constructor(scene, n = 40) {
+    this.n = n; this.list = [];
+    const g = new THREE.BufferGeometry();
+    this.pos = new Float32Array(n * 6); this.col = new Float32Array(n * 8);
+    g.setAttribute("position", new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("color", new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage));
+    this.g = g;
+    const m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+      vertexShader: "attribute vec4 color; varying vec4 vC; void main(){ vC = color; gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.); }",
+      fragmentShader: "varying vec4 vC; void main(){ gl_FragColor = vec4(vC.rgb * vC.a, 1.); }" });
+    this.lines = new THREE.LineSegments(g, m);
+    this.lines.frustumCulled = false; this.lines.renderOrder = 9;
+    scene.add(this.lines);
+  }
+  // a bullet: from where, which way, how fast
+  add(x, y, z, vx, vy, vz, col = [3, 2.2, 1.2]) { if (this.list.length >= this.n) this.list.shift(); this.list.push({ x, y, z, vx, vy, vz, t: 0, col }); }
+  // a laser sight: a still line for one frame
+  sight(ax, ay, az, bx, by, bz, a) { this.list.push({ x: ax, y: ay, z: az, bx, by, bz, t: 0, col: [3, .1, .1], beam: a }); }
+  update(dt) {
+    let k = 0;
+    for (let i = this.list.length - 1; i >= 0; i--) {
+      const s = this.list[i];
+      if (s.beam !== undefined) {
+        if (k < this.n) this.write(k++, s.x, s.y, s.z, s.bx, s.by, s.bz, s.col, s.beam, s.beam * .4);
+        this.list.splice(i, 1);
+        continue;
+      }
+      s.t += dt;
+      if (s.t > .45) { this.list.splice(i, 1); continue; }
+      s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+      const L = .045;
+      if (k < this.n) this.write(k++, s.x, s.y, s.z, s.x - s.vx * L, s.y - s.vy * L, s.z - s.vz * L, s.col, 1, 0);
+    }
+    for (let i = k; i < this.n; i++) for (let j = 0; j < 6; j++) this.pos[i * 6 + j] = 0;
+    this.g.attributes.position.needsUpdate = this.g.attributes.color.needsUpdate = true;
+  }
+  write(i, ax, ay, az, bx, by, bz, c, a0, a1) {
+    const o = i * 6;
+    this.pos[o] = ax; this.pos[o + 1] = ay; this.pos[o + 2] = az; this.pos[o + 3] = bx; this.pos[o + 4] = by; this.pos[o + 5] = bz;
+    const q = i * 8;
+    this.col[q] = c[0]; this.col[q + 1] = c[1]; this.col[q + 2] = c[2]; this.col[q + 3] = a0;
+    this.col[q + 4] = c[0]; this.col[q + 5] = c[1]; this.col[q + 6] = c[2]; this.col[q + 7] = a1;
+  }
+}

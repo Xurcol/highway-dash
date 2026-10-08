@@ -18,6 +18,8 @@ export class HeroHud {
       <div class="hh-mark anchor" id="hhAnchor" hidden></div>
       <div class="hh-mark target" id="hhTarget" hidden><b></b><span><i></i></span></div>
       <div class="hh-noweb" id="hhNoWeb" hidden>NO ANCHOR</div>
+      <div class="hh-sense" id="hhSense" hidden><i></i><i></i><i></i></div>
+      <div class="hh-combat" id="hhCombat" hidden><b id="hhHits">0</b><small>HITS</small></div>
       <div class="hh-district" id="hhDistrict"></div>
       <div class="hh-combo" id="hhCombo" hidden>
         <div class="hh-total"><b id="hhPts">0</b><em id="hhMult">x1</em></div>
@@ -105,6 +107,12 @@ export class HeroHud {
     for (let i = 0; i < 3; i++) fe[i].style.setProperty("--f", Math.max(0, Math.min(1, s.focus - i)).toFixed(3));
     if (s.gadgets) this.set("hhGadgets", s.gadgets, "innerHTML");
     if (this.centerT > 0 && (this.centerT -= dt) <= 0) this.$("hhCenter").hidden = true;
+    // the sense: chevrons pointing at whoever is about to hit (screen-relative angle, radians)
+    const se = this.$("hhSense");
+    if (s.sense) { se.hidden = false; se.style.transform = `rotate(${s.sense.ang.toFixed(3)}rad)`; se.classList.toggle("heavy", !!s.sense.heavy); se.style.opacity = Math.min(1, s.sense.t * 3 + .3).toFixed(2); }
+    else if (!se.hidden) se.hidden = true;
+    const cb = this.$("hhCombat");
+    if (s.hits > 1) { cb.hidden = false; this.set("hhHits", String(s.hits)); } else if (!cb.hidden) cb.hidden = true;
     if (this.districtT > 0 && (this.districtT -= dt) <= 0) this.$("hhDistrict").classList.remove("on");
     // ---- mission / race panels ----
     this.set("hhMission", s.mission || "", "innerHTML");

@@ -10,7 +10,9 @@ import { HeroRig, SUITS, poseBody, EMOTES, HIP_H } from "./hero-rig.js";
 import { HeroCam } from "./hero-cam.js";
 import { HeroInput } from "./hero-input.js";
 import { Tricks } from "./hero-tricks.js";
-import { WebLines, Particles, SpeedLines, Trails, Rings } from "./hero-fx.js";
+import { WebLines, Particles, SpeedLines, Trails, Rings, Tracers } from "./hero-fx.js";
+import { EnemySim, EnemyView, KINDS } from "./hero-enemies.js";
+import { HeroCombat, GADGETS } from "./hero-combat.js";
 import { HeroHud } from "./hero-hud.js";
 
 const V = THREE.Vector3, Q = THREE.Quaternion;
@@ -47,6 +49,10 @@ export class HeroMode {
     this.webCol = new THREE.Color(SUITS[this.suitId].glow).lerp(new THREE.Color(1, 1, 1), .55);
     this.anim = { phase: 0, t: 0 };
     this.anchorPreview = null; this.previewT = 0;
+    this.enemyView = new EnemyView(scene);
+    this.tracers = new Tracers(scene);
+    this.combat = new HeroCombat(this);
+    this.lines = [];      // short-lived combat lines: { side, to, t, life, follow }
   }
   // the hero's city: the tall variant of the City Drive map, and the solids built from it
   world() {
@@ -67,6 +73,8 @@ export class HeroMode {
     this.build();
     const W = this.world();
     this.H.W = W; this.cam.W = W;
+    if (!this.sim || this.sim.W !== W) this.sim = new EnemySim(W);
+    this.combat.hp = 1; this.combat.downT = 0;
     this.on = true;
     this.setVisible(true);
     this.input.activate(true);
@@ -88,6 +96,8 @@ export class HeroMode {
     this.input.activate(false);
     this.hud.show(false);
     this.setVisible(false);
+    this.enemyView?.hideAll();
+    this.sim?.clear();
     this.saveProfile();
   }
   saveProfile() {
@@ -122,14 +132,35 @@ export class HeroMode {
     this.hud.emotes(inp.emoteMenu, EMOTES);
     // ---- the body ----
     if (dt > 0) {
-      if (H.state === "wall" && inp.trickDown) { inp.jump = true; inp.trickDown = false; this.wallFlip = true; }
-      const sub = dt > 1 / 45 ? 2 : 1;
-      const sdt = dt / sub;
+      const cb = this.combat;
+      // knocked down: no control until the hero gets back up (somewhere safe)
+      let I = inp;
+      if (cb.downT > 0) { cb.downT -= dt; I = idle(inp); if (cb.downT <= 0) this.respawn(); }
+      if (H.state === "wall" && I.trickDown) { I.jump = true; I.trickDown = false; this.wallFlip = true; }
+      // hit-stop on a landed blow, slow motion after a perfect dodge
+      let bdt = dt;
+      if (cb.stopT > 0) { cb.stopT -= dt; bdt = dt * .08; }
+      if (cb.slowT > 0) { cb.slowT -= dt; bdt *= .4; }
+      cb.pre(bdt, I);
+      const sub = bdt > 1 / 45 ? 2 : 1;
+      const sdt = bdt / sub;
       this.frameEvents = [];
       for (let k = 0; k < sub; k++) {
-        H.step(sdt, k === 0 ? inp : { ...inp, jump: false, swingDown: false, zip: false, crouchDown: false, dodge: false, trickDown: false });
+        H.step(sdt, k === 0 ? I : { ...I, jump: false, swingDown: false, zip: false, crouchDown: false, dodge: false, trickDown: false });
         for (const e of H.events) this.frameEvents.push({ ...e });
       }
+      cb.post(bdt);
+      // the enemies: simulated here when this machine is in charge of them
+      if (this.authority()) { this.sim.step(dt, this.players()); this.simEvents(this.sim.events); }
+      // the fight frames the camera
+      const near = cb.inCombat ? cb.near(20) : [];
+      if (near.length) {
+        let x = 0, z = 0, d = 0;
+        for (const e of near) { x += e.x; z += e.z; }
+        x /= near.length; z /= near.length;
+        for (const e of near) d = Math.max(d, Math.hypot(e.x - x, e.z - z));
+        cam.combat = { x: (x + H.p.x) / 2, z: (z + H.p.z) / 2, d };
+      } else cam.combat = null;
       // tricks start in the air (and on lines, on zips), never mid-vault; on a wall the trick key flips off it
       const airborne = (H.state === "air" || H.state === "swing" || H.state === "zip") && !H.move;
       if (this.wallFlip && H.state === "air") this.tricks.start("wallFlip", H);
@@ -144,6 +175,10 @@ export class HeroMode {
     cam.update(real, H, inp);
     // ---- the character ----
     this.animate(dt > 0 ? dt : 0, inp);
+    // ---- enemies and props, as this machine sees them ----
+    this.enemyView.draw(real, this.enemyList(), camera.position);
+    this.enemyView.drawProps(this.propList());
+    this.tracers.update(dt);
     // ---- effects ----
     this.drawWebs(real);
     this.trailsUpdate();
@@ -251,10 +286,13 @@ export class HeroMode {
     } else if (H.state === "zip" && H.zip) a.anchorLocal = this.toBody(_t.set(H.zip.x, H.zip.y, H.zip.z), a.swingSide);
     a.shootLocal = null;
     if (this.shootFlash > 0) { this.shootFlash -= dt; a.shootLocal = this.toBody(this.shootAt, this.shootSide); a.shootSide = this.shootSide; }
-    a.attack = this.emote ? { kind: "emote", id: this.emote.id, t: this.emote.t, k: .5 } : null;
+    a.attack = this.combat.downT > 0 ? { kind: "down", k: .5 } : this.combat.attackPose() || (this.emote ? { kind: "emote", id: this.emote.id, t: this.emote.t, k: .5 } : null);
+    if (inp.emote && !this.combat.inCombat) this.emote = { id: inp.emote - 1, t: 0 };
     if (this.emote) { this.emote.t += dt; if (H.speed > 1.5 || H.state !== "ground" || this.emote.t > 8) this.emote = null; }
     const r = poseBody(rig, a);
-    rig.apply(dt, this.firstFrames > 0 ? 1000 : r);
+    rig.apply(this.combat.stopT > 0 ? dt * .1 : dt, this.firstFrames > 0 ? 1000 : r);
+    const Uh = rig.mat.userData.u;
+    Uh.uHit.value = Math.max(0, Uh.uHit.value - dt * 4);
     if (this.firstFrames > 0) rig.snap();
     // the wrist emitters flare when a line goes out
     const U = rig.mat.userData.u;
@@ -287,6 +325,19 @@ export class HeroMode {
       const tip = hand.clone().lerp(s.to, k);
       this.webs.line([hand, tip], this.webCol, 1, .8, 0, this.clock);
     }
+    // combat lines: a pull, a launch, a web strike, a throw on the end of a line, web shots in flight
+    for (let i = this.lines.length - 1; i >= 0; i--) {
+      const l = this.lines[i];
+      l.t += dt;
+      if (l.t > l.life) { this.lines.splice(i, 1); continue; }
+      const hand = rig.handPos(l.side, _h1).clone(), to = l.follow ? l.follow() : l.to;
+      if (!to) { this.lines.splice(i, 1); continue; }
+      const k = Math.min(1, l.t / .06);
+      this.webs.line([hand, hand.clone().lerp(to, k)], this.webCol, 1 - Math.max(0, (l.t - l.life + .1) / .1), k < 1 ? .6 : 0, 0, this.clock);
+    }
+    for (const s of this.combat.shots) this.webs.line([_t.set(s.x - s.vx * .05, s.y - s.vy * .05, s.z - s.vz * .05).clone(), new V(s.x, s.y, s.z)], this.webCol, 1, 0, 0, this.clock);
+    for (const t of this.combat.traps) if (Math.random() < .3) this.parts.energy(t.x + t.nx * .2, t.y + t.ny * .2, t.z + t.nz * .2, 1, this.glowRGB());
+    for (const b of this.combat.bombs) this.parts.energy(b.x, b.y, b.z, 1, [1, 1, 1]);
     if (H.state === "zip" && H.zip) {
       const hand = rig.handPos(H.lastSide, _h1).clone(), z = H.zip, k = Math.min(1, z.t / z.travel);
       this.webs.line([hand, hand.clone().lerp(_t.set(z.x, z.y, z.z), k)], this.webCol, 1, k < 1 ? .8 : .1, 0, this.clock);
@@ -364,7 +415,16 @@ export class HeroMode {
     const alt = H.p.y - HIP_H;
     hud.update(dt, {
       speed: H.speed, alt, stateLabel: H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "",
-      tricks: this.tricks, trickEvents: this.trickEvents, hp: 1, focus: 0, noWeb: H.noWebT,
+      tricks: this.tricks, trickEvents: this.trickEvents, hp: this.combat.hp, focus: this.combat.focus, noWeb: H.noWebT,
+      gadgets: this.gadgetBar(), hits: this.combat.combo, sense: this.senseHud(),
+    });
+    // the target: a ring, its name and its health
+    const cb = this.combat, tg = cb.target != null ? cb.byId(cb.target) : null;
+    const tp = tg && cb.alive(tg) && (cb.inCombat || cb.lock) && proj(tg.x, tg.y + 1.15 * (KINDS[tg.kind]?.scale || 1), tg.z);
+    hud.mark("hhTarget", tp?.[0] || 0, tp?.[1] || 0, !!tp, (m) => {
+      const name = (KINDS[tg.kind]?.name || "") + (cb.lock === tg.id ? " (LOCKED)" : "");
+      if (m.dataset.n !== name) { m.dataset.n = name; m.querySelector("b").textContent = name; }
+      m.querySelector("i").style.width = Math.max(0, tg.hp / (tg.max || 1)) * 100 + "%";
     });
     if ((this.distT = (this.distT || 0) - dt) <= 0) {
       this.distT = .5;
@@ -404,6 +464,17 @@ export class HeroMode {
       case "splash": A.noiseShot({ type: "lowpass", f0: 2000, f1: 300, q: .6, a: .005, d: .7, peak: .4 }); break;
       case "deny": A.deny(); break;
       case "trick": A.whoosh((Math.random() - .5) * .6, false); break;
+      case "whoosh": A.noiseShot({ type: "bandpass", f0: 700, f1: 1800 * k, q: .9, a: .02, d: .14, peak: .09 * k }); break;
+      case "punch": A.noiseShot({ type: "lowpass", f0: 1600, f1: 120, q: .8, a: .001, d: .12, peak: .32 * k, buf: A.brownBuf }); A.noiseShot({ type: "bandpass", f0: 2400, f1: 900, q: 1.5, a: .001, d: .05, peak: .14 * k }); break;
+      case "ko": A.tone({ type: "triangle", f0: 520, f1: 780, d: .16, peak: .06 }); break;
+      case "thud": A.noiseShot({ type: "lowpass", f0: 600, f1: 70, q: .7, a: .002, d: .3, peak: .3 * k, buf: A.brownBuf }); break;
+      case "gun": A.noiseShot({ type: "highpass", f0: 1800, f1: 600, q: .7, a: .001, d: .09, peak: .3 * k }); A.noiseShot({ type: "lowpass", f0: 900, f1: 90, q: .7, a: .001, d: .22, peak: .25 * k, buf: A.brownBuf }); break;
+      case "boom": A.noiseShot({ type: "lowpass", f0: 1200, f1: 40, q: .6, a: .003, d: 1.3, peak: .8 * k, buf: A.brownBuf }); A.tone({ f0: 70, f1: 25, a: .002, d: .9, peak: .5 * k }); break;
+      case "webhit": A.noiseShot({ type: "bandpass", f0: 1100, f1: 400, q: .9, a: .002, d: .12, peak: .16 * k }); break;
+      case "bomb": A.noiseShot({ type: "bandpass", f0: 800, f1: 2400, q: .7, a: .005, d: .4, peak: .3 }); break;
+      case "hurt": A.noiseShot({ type: "lowpass", f0: 900, f1: 200, q: 1, a: .002, d: .18, peak: .3 * k, buf: A.brownBuf }); A.tone({ type: "sawtooth", f0: 160, f1: 110, d: .12, peak: .04 }); break;
+      case "sense": A.tone({ type: "sine", f0: 1760 * (k > 1.2 ? .75 : 1), f1: 2200, d: .12, peak: .07 }); A.tone({ type: "sine", f0: 2640, d: .08, peak: .03, delay: .05 }); break;
+      case "perfect": A.tone({ type: "triangle", f0: 880, f1: 1760, d: .3, peak: .08 }); A.tone({ type: "sine", f0: 2640, d: .25, peak: .04, delay: .06 }); break;
     }
   }
   trickSound(e) {
@@ -415,6 +486,145 @@ export class HeroMode {
   }
   // continuous: the wind past the hero
   windSpeed() { return this.H ? this.H.speed * 3.6 * 1.6 : 0; }
+
+  // ------------------------------------------------------------------ the fight
+  // Is this machine running the enemies? Solo always; online, the host (first in the room's list).
+  authority() {
+    const net = this.ctx.net, room = net.room;
+    if (!room || !this.online) return true;
+    return room.players?.[0]?.id === this.meId();
+  }
+  meId() { const me = this.ctx.net.me; return me?.id ?? me?.code ?? "me"; }
+  enemyList() { return this.authority() ? this.sim.list : this.remoteEnemies || []; }
+  propList() { return this.authority() ? this.sim.props : this.remoteProps || []; }
+  // everyone the enemies can see and hit: this hero, and (online) the other heroes
+  players() {
+    const H = this.H, out = [{ id: this.meId(), x: H.p.x, y: H.p.y, z: H.p.z, vx: H.v.x, vz: H.v.z, down: this.combat.downT > 0, local: true }];
+    for (const r of this.remoteHeroes?.() || []) out.push(r);
+    return out;
+  }
+  hitEnemy(id, h) {
+    if (this.authority()) this.sim.hit(id, h);
+    else this.sendWorld?.({ k: "hit", id, h: { dmg: h.dmg || 0, kind: h.kind, kx: +(h.kx || 0).toFixed(2), kz: +(h.kz || 0).toFixed(2), web: h.web || 0, launch: h.launch || 0, slam: h.slam ? 1 : 0, heavy: h.heavy ? 1 : 0, pull: h.pull ? 1 : 0, disarm: h.disarm ? 1 : 0, x: h.x, z: h.z, knock: h.knock, finisher: h.finisher ? 1 : 0 } });
+  }
+  holdAt(h, pos) {
+    if (h.prop) { const p = this.propList().find((q) => q.id === h.prop); if (p) { p.x = pos.x; p.y = pos.y; p.z = pos.z; p.held = this.meId(); p.rest = false; p.vx = p.vy = p.vz = 0; } }
+    else if (this.authority()) this.sim.holdEnemy(h.enemy, pos.x, pos.y, pos.z);
+    else this.sendWorld?.({ k: "hold", id: h.enemy, x: +pos.x.toFixed(2), y: +pos.y.toFixed(2), z: +pos.z.toFixed(2) });
+    const to = pos.clone();
+    if (!this.lines.some((l) => l.hold)) this.lines.push({ side: 1, t: .1, life: .62, hold: true, follow: () => this.combat.held ? to.copy(pos) : null });
+    else this.lines.find((l) => l.hold).follow = () => this.combat.held ? to.copy(pos) : null;
+  }
+  throwHeld(h, pos, vx, vy, vz) {
+    if (h.prop) {
+      const p = this.propList().find((q) => q.id === h.prop);
+      if (p) { p.held = null; p.rest = false; p.vx = vx; p.vy = vy; p.vz = vz; p.spin = 9; p.by = this.meId(); p.hitIds = null; }
+      if (!this.authority()) this.sendWorld?.({ k: "throwp", id: h.prop, x: pos.x, y: pos.y, z: pos.z, vx, vy, vz });
+    } else if (this.authority()) this.sim.throwEnemy(h.enemy, pos.x, pos.y, pos.z, vx, vy, vz, this.meId());
+    else this.sendWorld?.({ k: "throwe", id: h.enemy, x: pos.x, y: pos.y, z: pos.z, vx, vy, vz });
+    this.lines = this.lines.filter((l) => !l.hold);
+  }
+  handPos(side) { return this.rig.handPos(side, new V()); }
+  // a gang near a point (for crimes, missions and testing)
+  spawnGang(x, z, kinds, o = {}) {
+    const out = [];
+    kinds.forEach((k, i) => {
+      const a = (i / kinds.length) * Math.PI * 2, r = 2.5 + Math.random() * 3.5;
+      out.push(this.sim.spawn(k, x + Math.cos(a) * r, z + Math.sin(a) * r, { group: o.group || 0, y: o.y, guard: o.guard, hpK: o.hpK }));
+    });
+    for (const p of o.props || []) this.sim.addProp(p, x + (Math.random() - .5) * 10, z + (Math.random() - .5) * 10, o.y !== undefined ? this.W.topAt(x, z, o.y + 2) : undefined);
+    return out;
+  }
+  // back on your feet after being knocked out: a rooftop near where it happened
+  respawn() {
+    const H = this.H, W = this.W;
+    let best = null, bd = 1e9;
+    for (const p of W.perches) { if (p.kind !== "corner" || p.y < 25 || p.y > 140) continue; const d = Math.hypot(p.x - H.p.x, p.z - H.p.z); if (d > 60 && d < bd) { bd = d; best = p; } }
+    if (best) { const x = best.x - best.nx * 2.5, z = best.z - best.nz * 2.5; H.reset(x, W.topAt(x, z, best.y + 2) + HIP_H, z); H.state = "ground"; }
+    this.combat.hp = 1; this.combat.focus = 0;
+    this.cam.snapNext = true;
+    this.hud.center("BACK ON YOUR FEET", "", 1.6, "small");
+  }
+  // what the enemy simulation reported: hits on this hero, warnings, effects
+  simEvents(list) {
+    const me = this.meId(), cb = this.combat, fx = this.parts;
+    for (const e of list) {
+      switch (e.type) {
+        case "windup": if (e.target === me) { const en = this.sim.byId.get(e.e); if (en) cb.sense(en, e.t, e.kind); } else this.relay?.(e); break;
+        case "strike": if (e.target === me) { const r = cb.takeHit(e.dmg, e.kx, e.kz, e.heavy, e.kind); if (r === "hit" || r === "down") fx.sparks(this.H.p.x, this.H.p.y + .3, this.H.p.z, 10, [1, .4, .2]); } else this.relay?.(e); break;
+        case "shot": if (e.target === me) cb.takeHit(e.dmg, e.kx / 100, e.kz / 100, false, "shot"); else this.relay?.(e); break;
+        default: this.enemyFx(e); this.relay?.(e);
+      }
+    }
+    list.length = 0;
+  }
+  // the look and sound of what happens to enemies (on every machine)
+  enemyFx(e) {
+    const fx = this.parts, en = e.e !== undefined ? this.enemyList().find((q) => q.id === e.e) : null;
+    switch (e.type) {
+      case "hurt": fx.sparks(e.x, e.y + .3, e.z, e.heavy ? 14 : 7, [1, .85, .5], e.heavy ? 1.3 : .8); if (en) en.flash = 1; this.sfx("punch", e.heavy ? 1.4 : 1); break;
+      case "ko": fx.sparks(e.x, e.y + .3, e.z, 18, [1, 1, 1]); if (e.from === this.meId()) { this.tricks.link(e.boss ? "finisher" : "takedown"); this.combat.focus = Math.min(3, this.combat.focus + .15); this.combat.kills++; this.onKo?.(e); } this.sfx("ko"); break;
+      case "webbed": if (en) fx.puff(en.x, en.y, en.z, 14); this.sfx("webhit"); break;
+      case "pinned": fx.puff(e.x, e.y, e.z, 20); this.tricks.link("wallpin"); this.sfx("webhit", 1.4); this.cam.shake(.15); break;
+      case "wallslam": case "bodyhit": fx.dust(e.x, e.y - .6, e.z, 12, 1); fx.debris(e.x, e.y, e.z, 8); this.cam.shake(.12); this.sfx("thud"); break;
+      case "land": if (e.v > 8) { fx.dust(e.x, e.y - .9, e.z, 10, .9); this.sfx("thud", .6); } break;
+      case "fire": this.tracers.add(e.x, e.y, e.z, e.vx, e.vy, e.vz); this.sfx("gun", Math.max(.2, 1 - Math.hypot(e.x - this.H.p.x, e.z - this.H.p.z) / 80)); break;
+      case "ricochet": fx.sparks(e.x, e.y, e.z, 5, [1, .8, .4], .5); break;
+      case "explode": fx.sparks(e.x, e.y, e.z, 40, [1, .55, .2], 2); fx.dust(e.x, e.y, e.z, 30, 2.2); this.rings.spawn(e.x, e.y, e.z, 9, 0xffa040, .6); this.cam.shake(.4); this.sfx("boom"); break;
+      case "smash": fx.debris(e.x, e.y, e.z, 14, [.55, .45, .3]); this.sfx("thud", .8); break;
+      case "shockwave": this.rings.spawn(e.x, e.y + .05, e.z, e.r * 1.4, 0xff3048, .7); fx.dust(e.x, e.y, e.z, 30, 2); this.cam.shake(.5); this.sfx("boom", .7); break;
+      case "disarm": if (e.from === this.meId()) { this.tricks.link("throw"); this.hud.center("DISARMED", "", .9, "small"); } this.sfx("snap"); break;
+      case "bossphase": this.hud.center("VANTA IS ENRAGED", "Phase two", 2.4); break;
+      case "taunt": break;
+    }
+  }
+  // combat moments on this hero's side
+  onCombat(type, d = {}) {
+    const H = this.H, fx = this.parts;
+    switch (type) {
+      case "swing": this.sfx("whoosh", d.kind === "roundhouse" || d.kind === "launch" ? 1.3 : .8); break;
+      case "whiff": break;
+      case "hit": this.cam.shake(d.heavy ? .22 : .08); this.cam.punch(H.face.x * .12, 0, H.face.z * .12); if (H.state === "air") this.tricks.link("aircombo"); if (d.a?.kind === "finisher") this.tricks.link("finisher"); break;
+      case "dodge": this.sfx("dash"); break;
+      case "perfect": this.hud.center("PERFECT DODGE", "Counter now", .9, "small"); this.tricks.link("perfectdodge"); this.sfx("perfect"); break;
+      case "dodged": break;
+      case "hurt": this.rig.mat.userData.u.uHit.value = 1; this.cam.shake(d.heavy ? .45 : .2); this.sfx("hurt", d.heavy ? 1.3 : 1); break;
+      case "down": this.hud.center("DOWN", "Getting back up...", 3, "bail"); this.tricks.bail("KNOCKED DOWN"); this.sfx("hardland", 1); break;
+      case "sense": this.sfx("sense", d.kind === "heavy" || d.kind === "slam" ? 1.4 : 1); break;
+      case "line": this.lines.push({ side: d.side || 1, to: d.to, t: 0, life: d.yank ? .3 : .25 }); this.thwip(.8); break;
+      case "gadget": this.thwip(1.1); this.shootAt = d.to; this.shootSide = d.side; this.shootFlash = .2; break;
+      case "webhit": fx.puff(d.x, d.y, d.z, d.kind === "impact" ? 16 : 6); this.sfx("webhit", d.kind === "impact" ? 1.3 : .7); break;
+      case "bomb": fx.puff(d.x, d.y, d.z, 40); this.rings.spawn(d.x, d.y + .1, d.z, 7, 0xffffff, .5); this.sfx("bomb"); break;
+      case "trapset": fx.energy(d.x, d.y, d.z, 10, this.glowRGB()); this.sfx("snap"); break;
+      case "trap": fx.puff(d.x, d.y + .5, d.z, 18); this.sfx("webhit", 1.2); break;
+      case "grab": this.thwip(1); break;
+      case "throw": this.sfx("whoosh", 1.5); this.tricks.link("throw"); break;
+      case "webstrike": this.tricks.link("webstrike"); this.cam.shake(.25); break;
+      case "slamland": fx.dust(H.p.x, H.p.y - HIP_H, H.p.z, 40, 2); this.rings.spawn(H.p.x, H.p.y - HIP_H + .05, H.p.z, 8, 0xffffff, .55); this.cam.shake(.5); this.tricks.link("slam"); this.sfx("hardland", 1.2); break;
+      case "heal": fx.energy(H.p.x, H.p.y, H.p.z, 24, [.4, 1, .6]); this.hud.center("HEALED", "", .8, "small"); this.sfx("perfect"); break;
+      case "deny": this.sfx("deny"); break;
+    }
+  }
+  gadgetBar() {
+    const cb = this.combat;
+    const k = GADGETS.slice(1).map((G, i) => {
+      const n = i + 1, c = cb.cool[n], ready = G.id === "shot" ? cb.ammo >= 1 : c <= 0;
+      const fill = G.id === "shot" ? cb.ammo / 10 : G.cool ? 1 - c / G.cool : 1;
+      return `<span class="${ready ? "ready" : ""}">${G.key} ${G.name.replace("Web ", "")}<i style="width:${Math.round(fill * 100)}%"></i></span>`;
+    }).join("");
+    return k;
+  }
+  senseHud() {
+    const s = this.combat.senses[0];
+    if (!s) return null;
+    const e = this.enemyList().find((q) => q.id === s.e);
+    if (!e) return null;
+    const dx = e.x - this.H.p.x, dz = e.z - this.H.p.z, f = this.cam.look;
+    const rel = Math.atan2(dx, dz) - Math.atan2(f.x, f.z);
+    return { ang: -rel, t: Math.max(0, s.t), heavy: s.kind === "heavy" || s.kind === "slam" || s.kind === "shot" };
+  }
 }
+// an input with the player's hands off the controls
+function idle(inp) { return { ...inp, mx: 0, mz: 0, ix: 0, iy: 0, jump: false, jumpHeld: false, sprint: false, swing: false, swingDown: false, zip: false, crouch: false, crouchDown: false, trick: false, trickDown: false, attack: false, attackHeld: false, attackDown: false, attackUp: false, dodge: false, strike: false, gadget: 0, throwObj: false, finisher: false, finisherHeld: false }; }
 const _pr = new V(), _up = new V(), _fw = new V(), _t = new V(), _t2 = new V(), _t3 = new V(), _h1 = new V(), _h2 = new V();
 const _qa = new Q(), _qb = new Q(), _qe = new Q(), _qi = new Q(), _x = new V(1, 0, 0);

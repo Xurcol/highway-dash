@@ -198,6 +198,7 @@ export function sampleLink(l, s, out) {
 // opts.hero: the hero mode's New Meridian - the same streets, a far taller and denser skyline. City Drive
 // passes nothing and gets exactly the city it always had.
 export function buildCity(opts = {}) {
+  const X = opts.extras || null;   // the hero city's own blocks and features (hero-extras-map.js)
   const M = {
     hero: !!opts.hero,
     nodes: [], roads: [], links: [], surfaces: [], walls: [], slabs: [], buildings: [], roofs: [], beacons: [],
@@ -397,10 +398,13 @@ export function buildCity(opts = {}) {
     M.slabs.push(s); M.slg.add(s.x0, s.z0, s.x1, s.z1, s);
     return s;
   };
+  X?.init(M);
+  const XH = { slab, addBuilding, roofKit, addWall, addPost, addPillar, addSurface, hash, roadAt, PAL };
   // downtown blocks: kerb to kerb, buildings on the lot inside the sidewalk
   const NB = DOWN / PITCH;
   for (let i = -NB; i < NB; i++) for (let j = -NB; j < NB; j++) {
     const x0 = i * PITCH + HALF, x1 = (i + 1) * PITCH - HALF, z0 = j * PITCH + HALF, z1 = (j + 1) * PITCH - HALF;
+    if (X?.block?.(M, i, j, x0, z0, x1, z1, XH)) continue;
     slab(x0, z0, x1, z1);
     downtownBlock(M, i, j, x0 + WALK, z0 + WALK, x1 - WALK, z1 - WALK);
   }
@@ -610,6 +614,8 @@ export function buildCity(opts = {}) {
     if (Math.abs(Math.abs(Math.max(Math.abs(x), Math.abs(z))) - BLVD) < HALF + WALK + 2) continue;
     M.trees.push({ x, z, s: 1 + hash(i, 3, 77) * .7 });
   }
+
+  X?.finish?.(M, XH);
 
   // ---- things on the sidewalk you can hit: lamp standards, signal poles, tree trunks, parked cars ----
   for (const L of M.lamps) addPost(M, L.x, L.z, .2, (L.base || 0) - .5, L.y);

@@ -4,6 +4,8 @@
 // same signal clock, and their own traffic.
 import * as THREE from "three";
 import { patchLit } from "./lights.js";
+import { HERO_EXTRAS, RIVER } from "./hero-extras-map.js";
+import { buildHeroExtras, updateHeroExtras } from "./hero-extras.js";
 import { makeTrafficCar, BODIES } from "./cars.js";
 import {
   buildCity, CityTraffic, CITY_BODIES, signalAt, heightAt, groundAt, pushCircle, insideSolid, districtAt, ringSD, offsetPts, hash,
@@ -381,7 +383,8 @@ export class City {
   }
 
   build() {
-    const M = this.M = buildCity({ hero: this.variant === "hero" });
+    const hero = this.variant === "hero";
+    const M = this.M = buildCity({ hero, extras: hero ? HERO_EXTRAS : null });
     const G = this.group = new THREE.Group();
     this.scene.add(G);
     const lit = (o) => patchLit(new THREE.MeshStandardMaterial(o));
@@ -402,8 +405,18 @@ export class City {
     tex.road.repeat.set(1, 1);
 
     // ---- ground: grass everywhere, gravel under the ring ----
-    const ground = new THREE.Mesh(new THREE.PlaneGeometry(7000, 7000).rotateX(-Math.PI / 2), mat.grass);
-    ground.geometry.attributes.uv.array.forEach((v, i, a) => (a[i] = v * 7000 / TILE.grass));
+    let ground;
+    if (M.hx) {
+      // the hero city is an island: its ground stops at the quay, with the subway's pits cut out of it
+      const E = RIVER.inner + .5, sh = new THREE.Shape([new THREE.Vector2(-E, -E), new THREE.Vector2(E, -E), new THREE.Vector2(E, E), new THREE.Vector2(-E, E)]);
+      for (const p of M.hx.pits) sh.holes.push(new THREE.Path([new THREE.Vector2(p.x0, -p.z1), new THREE.Vector2(p.x0, -p.z0), new THREE.Vector2(p.x1, -p.z0), new THREE.Vector2(p.x1, -p.z1)]));
+      const g = new THREE.ShapeGeometry(sh);
+      g.attributes.uv.array.forEach((v, i, a) => (a[i] = v / TILE.grass));
+      ground = new THREE.Mesh(g.rotateX(-Math.PI / 2), mat.grass);
+    } else {
+      ground = new THREE.Mesh(new THREE.PlaneGeometry(7000, 7000).rotateX(-Math.PI / 2), mat.grass);
+      ground.geometry.attributes.uv.array.forEach((v, i, a) => (a[i] = v * 7000 / TILE.grass));
+    }
     ground.position.y = -.03; ground.receiveShadow = true;
     G.add(ground);
     const gravel = new GB(TILE.gravel), C = M.ring, L14 = offsetPts(C, -14.6, true), R14 = offsetPts(C, 14.6, true);
@@ -475,7 +488,8 @@ export class City {
       const cl = Math.pow(Math.max(0, Math.cos(a * 3 + 1)), 3), h = 25 + hash(i, 9, 99) * 70 + cl * 180, v = h > 110 ? 1 + (i % 2) : i % 3 === 0 ? 3 : 0;
       sky.push({ x0: Math.cos(a) * d - w / 2, z0: Math.sin(a) * d - dd / 2, x1: Math.cos(a) * d + w / 2, z1: Math.sin(a) * d + dd / 2, y0: 0, y1: h, v, col: 0x8a9098 });
     }
-    for (const b of sky) byLook[b.v].push(b);
+    // (across the river in the hero city: nothing in the water)
+    for (const b of sky) if (!M.hx || Math.max(Math.abs(b.x0 + b.x1), Math.abs(b.z0 + b.z1)) / 2 > RIVER.outer + 160) byLook[b.v].push(b);
     const facades = byLook.map((_, v) => facadeMaterial(v));
     this.bldg = byLook.map((list, v) => {
       const I = new CInst(G, BOX, facades[v], { colors: true });
@@ -659,7 +673,8 @@ export class City {
     const W = EDGE - 3;
     for (let k = 0; k < 4; k++) for (let u = -W + 3; u < W; u += 6) {
       const [x, z] = k === 0 ? [u, -W] : k === 1 ? [W, u] : k === 2 ? [-u, W] : [-W, -u];
-      big.add(x, 0, z, k % 2 ? .4 : 6.02, 5.5, k % 2 ? 6.02 : .4, 0, 0xd6d2c8);
+      if (M.hx) big.add(x, 0, z, k % 2 ? .12 : 6.02, 1.1, k % 2 ? 6.02 : .12, 0, 0x6d737c);   // the hero city's quay railing
+      else big.add(x, 0, z, k % 2 ? .4 : 6.02, 5.5, k % 2 ? 6.02 : .4, 0, 0xd6d2c8);
     }
     small.end(); big.end(); cyls.end(); glow.end();
 
@@ -676,6 +691,7 @@ export class City {
     const sizes = {};
     for (const b of CITY_BODIES) sizes[b] = { L: BODIES[b].L, W: BODIES[b].W };
     this.traffic = new CityTraffic(M, sizes);
+    if (M.hx) this.hx = buildHeroExtras(M, G, { mat, tex });
     this.buildMinimap();
   }
   // ---------------------------------------------------------------- traffic meshes
@@ -819,6 +835,7 @@ export class City {
       }
     }
     // warning lights on the tallest towers, and the parked cars only when near
+    if (this.hx) updateHeroExtras(this.hx, dt, T, nk, glows, lights, cam);
     if (Math.floor(T * 1.1) % 2 === 0) for (const b of M.beacons) glows.add(b.x, b.y, b.z, 1, .06, .05, night ? 5 : 2.5);
     if ((this.pk = (this.pk || 0) + 1) % 15 === 0) for (const m of this.parked) m.visible = (m.position.x - cam.x) ** 2 + (m.position.z - cam.z) ** 2 < 190 * 190;
     return honks;
@@ -826,9 +843,10 @@ export class City {
 
   // ---------------------------------------------------------------- minimap
   buildMinimap() {
-    const M = this.M, S = 1100, k = S / (EDGE * 2);
+    const ext = this.mapExt = this.M.hx ? RIVER.outer + 80 : EDGE;
+    const M = this.M, S = this.M.hx ? 1400 : 1100, k = S / (ext * 2);
     const c = document.createElement("canvas"); c.width = c.height = S;
-    const g = c.getContext("2d"), X = (v) => (v + EDGE) * k;
+    const g = c.getContext("2d"), X = (v) => (v + ext) * k;
     g.fillStyle = "#101114"; g.fillRect(0, 0, S, S);
     g.fillStyle = "#1a2418";
     for (const s of M.slabs) if (s.kind === "park") g.fillRect(X(s.x0), X(s.z0), (s.x1 - s.x0) * k, (s.z1 - s.z0) * k);
@@ -840,6 +858,17 @@ export class City {
     if (M.lake) { g.fillStyle = "#1d3d52"; g.beginPath(); g.ellipse(X(M.lake.x), X(M.lake.z), M.lake.rx * k, M.lake.rz * k, 0, 0, Math.PI * 2); g.fill(); }
     for (const p of M.paths) stroke(p.pts, p.w, "#3a4a36");
     for (const r of M.ramps) stroke(r.pts, RAMP_HW * 2, "#8d9199");
+    if (M.hx) {
+      g.fillStyle = "#16303e";
+      for (const w of M.hx.water) g.fillRect(X(w.x0), X(w.z0), (w.x1 - w.x0) * k, (w.z1 - w.z0) * k);
+      g.fillStyle = "#4a4d52";
+      for (const p of M.hx.piers) g.fillRect(X(p.x0), X(p.z0), (p.x1 - p.x0) * k, (p.z1 - p.z0) * k);
+      for (const b of M.hx.bridges) stroke(b.pts, b.hw * 2, "#8d9199");
+      g.fillStyle = "#3a3324";
+      for (const d of M.hx.dirt) g.fillRect(X(d.x0), X(d.z0), (d.x1 - d.x0) * k, (d.z1 - d.z0) * k);
+      g.fillStyle = "#26303c";
+      for (const p of M.hx.pits) g.fillRect(X(p.x0), X(p.z0), (p.x1 - p.x0) * k, (p.z1 - p.z0) * k);
+    }
     stroke(M.ring, DECK_HW * 2, "#9ca0a8");
     stroke(M.ring, .8, "#e0b43a");
     this.mapCanvas = c; this.mapK = k;
@@ -858,7 +887,7 @@ export class City {
     g.beginPath(); g.arc(R, R, R - 3, 0, Math.PI * 2); g.clip();
     g.fillStyle = "#101114"; g.fillRect(0, 0, W, W);
     g.translate(R, R); g.rotate(yaw); g.scale(s, s);
-    g.drawImage(this.mapCanvas, -(x + EDGE) * k, -(z + EDGE) * k);
+    g.drawImage(this.mapCanvas, -(x + (this.mapExt || EDGE)) * k, -(z + (this.mapExt || EDGE)) * k);
     g.fillStyle = "#c9ccd2";
     for (const c of this.traffic?.cars || []) {
       const dx = (c.x - x) * k, dz = (c.z - z) * k;

@@ -6,7 +6,8 @@
 // Solids are axis-aligned boxes, vertical cylinders, boxes turned about y (the ring deck's corners,
 // pier caps), pitched house roofs, and spheres (tree crowns - webs stick to them, the hero passes
 // through). Every solid keeps its axis-aligned bounds in x0..x1, y0..y1, z0..z1.
-import { heightAt, DECK_Y, DECK_HW, DECK_T, LAKE, CURB, EDGE, hash, groundAt } from "./city-map.js";
+import { heightAt, surfaceAt, DECK_Y, DECK_HW, DECK_T, LAKE, CURB, EDGE, hash, groundAt } from "./city-map.js";
+import { RIVER, TUNNEL, deckY } from "./hero-extras-map.js";
 
 export const BOX = 0, CYL = 1, OBB = 2, PRISM = 3, SPHERE = 4;
 const CELL = 16;
@@ -108,7 +109,8 @@ export class HeroWorld {
     }
     // the low wall round the old edge of the map (the drawn one is 5.5 m; the 60 m one is only for cars)
     const W = EDGE - 3;
-    for (const [x0, z0, x1, z1] of [[-W, -W - .2, W, -W + .2], [-W, W - .2, W, W + .2], [-W - .2, -W, -W + .2, W], [W - .2, -W, W + .2, W]]) this.box(x0, -1, z0, x1, 5.5, z1, "edgewall");
+    for (const [x0, z0, x1, z1] of [[-W, -W - .2, W, -W + .2], [-W, W - .2, W, W + .2], [-W - .2, -W, -W + .2, W], [W - .2, -W, W + .2, W]]) this.box(x0, -1, z0, x1, M.hx ? 1.1 : 5.5, z1, "edgewall");
+    if (M.hx) this.buildExtras(M.hx);
     if (M.lake) this.water.push({ kind: "ellipse", x: LAKE.x, z: LAKE.z, rx: LAKE.rx, rz: LAKE.rz, y: CURB + .12 });
     // perches on every building: the four roof corners, and points along the long edges
     for (const s of this.solids) {
@@ -123,6 +125,107 @@ export class HeroWorld {
     }
     for (const w of M.waterTowers) this.perch(w.x, w.y + 3.2 + w.h + 1.7, w.z, 0, 0, "watertank");
     for (const r of M.rounds) for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; this.perch(r.x + Math.cos(a) * (r.r - .4), r.y0 + r.h, r.z + Math.sin(a) * (r.r - .4), Math.cos(a), Math.sin(a), "corner"); }
+  }
+
+  // New Meridian's own structures (hero-extras-map.js)
+  buildExtras(hx) {
+    const web = { solid: false };
+    for (const w of hx.water) this.water.push({ kind: "rect", ...w, y: RIVER.y });
+    this.bound = RIVER.outer + 140;
+    // quay walls on both banks
+    const E = RIVER.inner, O = RIVER.outer;
+    for (const [x0, z0, x1, z1] of [[-E, -E - 1, E, -E], [-E, E, E, E + 1], [-E - 1, -E, -E, E], [E, -E, E + 1, E]]) this.box(x0, -7, z0, x1, .15, z1, "quay");
+    for (const [x0, z0, x1, z1] of [[-O, -O, O, -O + 1], [-O, O - 1, O, O], [-O, -O, -O + 1, O], [O - 1, -O, O, O]]) this.box(x0, -7, z0, x1, .15, z1, "quay");
+    // ---- subway ----
+    const T = TUNNEL;
+    for (const P of hx.pits) {
+      this.box(P.x0 - .5, T.floor - .8, P.z0 - .5, P.x1 + .5, .15, P.z0, "pitwall");
+      this.box(P.x0 - .5, T.floor - .8, P.z1, P.x1 + .5, .15, P.z1 + .5, "pitwall");
+      for (const [xa, xb] of [[P.x0 - .5, P.x0], [P.x1, P.x1 + .5]]) { this.box(xa, T.floor - .8, P.z0, xb, .15, T.z0, "pitwall"); this.box(xa, T.floor - .8, T.z1, xb, .15, P.z1, "pitwall"); this.box(xa, T.ceil, T.z0, xb, .15, T.z1, "pitwall"); }
+      this.box(P.x0, T.floor - .6, T.z0, P.x1, T.floor, T.z1, "trackbed");
+    }
+    for (const p of hx.platforms) this.box(p.x0, T.floor - .6, p.z0, p.x1, p.y, p.z1, "platform");
+    this.box(T.x0, T.floor - .6, T.z0, T.x1, T.floor, T.z1, "trackbed");
+    this.box(T.x0, T.floor - .6, T.z0 - .6, T.x1, -.25, T.z0, "tunnelwall");
+    this.box(T.x0, T.floor - .6, T.z1, T.x1, -.25, T.z1 + .6, "tunnelwall");
+    this.box(T.x0, T.ceil, T.z0, T.x1, -.25, T.z1, "tunnelroof");
+    for (const c of hx.canopies) { this.box(c.x0, c.y, c.z0, c.x1, c.y + .25, c.z1, "canopy"); for (const [x, z] of [[c.x0 + .5, c.z0 + .5], [c.x1 - .5, c.z0 + .5], [c.x0 + .5, c.z1 - .5], [c.x1 - .5, c.z1 - .5]]) this.cyl(x, z, .12, 0, c.y, "post", web); }
+    // ---- construction sites ----
+    for (const f of hx.fences) { const t = .08; this.box(Math.min(f.ax, f.bx) - t, 0, Math.min(f.az, f.bz) - t, Math.max(f.ax, f.bx) + t, f.h, Math.max(f.az, f.bz) + t, "fence"); }
+    for (const f of hx.frames) {
+      for (let y = f.y0 + f.fh; y <= f.y1 + .01; y += f.fh) this.box(f.x0, y - .32, f.z0, f.x1, y, f.z1, "slab");
+      for (const c of f.cols) this.box(c.x - .32, f.y0 - .5, c.z - .32, c.x + .32, f.y1, c.z + .32, "column");
+      for (const [x, z, nx, nz] of [[f.x0, f.z0, -.7, -.7], [f.x1, f.z0, .7, -.7], [f.x0, f.z1, -.7, .7], [f.x1, f.z1, .7, .7]]) this.perch(x - nx * .4, f.y1, z - nz * .4, nx, nz, "corner");
+    }
+    for (const c of hx.cranes) {
+      const ux = Math.cos(c.ang), uz = Math.sin(c.ang);
+      this.box(c.x - 1, 0, c.z - 1, c.x + 1, c.h, c.z + 1, "crane");
+      this.obb(c.x + ux * (c.jib / 2), c.z + uz * (c.jib / 2), c.jib / 2 + 1, .9, -c.ang, c.h, c.h + 1.8, "crane");
+      this.obb(c.x - ux * (c.counter / 2), c.z - uz * (c.counter / 2), c.counter / 2 + 1, 1.1, -c.ang, c.h, c.h + 1.6, "crane");
+      const cwx = c.x - ux * (c.counter - 3), cwz = c.z - uz * (c.counter - 3);
+      this.box(cwx - 2, c.h - 3.2, cwz - 2, cwx + 2, c.h, cwz + 2, "crane");
+      this.box(c.x - .4, c.h + 1.8, c.z - .4, c.x + .4, c.h + 11, c.z + .4, "crane", web);
+      const hxp = c.x + ux * (c.jib * .7), hzp = c.z + uz * (c.jib * .7);
+      this.box(hxp - .1, c.h - c.hook, hzp - .1, hxp + .1, c.h, hzp + .1, "cable", web);
+      this.box(hxp - 3, c.h - c.hook - 1, hzp - .4, hxp + 3, c.h - c.hook, hzp + .4, "load");
+      this.perch(c.x + ux * (c.jib + .5), c.h + 1.8, c.z + uz * (c.jib + .5), ux, uz, "crane");
+      this.perch(c.x, c.h + 11.2, c.z, 0, 0, "crane");
+      this.perch(cwx, c.h + .1, cwz, -ux, -uz, "crane");
+    }
+    for (const s of hx.stacks) { const [hw, hd] = s.rot ? [s.d / 2, s.w / 2] : [s.w / 2, s.d / 2]; this.box(s.x - hw, .15, s.z - hd, s.x + hw, .15 + s.h, s.z + hd, "stack"); }
+    // ---- the port ----
+    for (const p of hx.piers) this.box(p.x0, -6, p.z0, p.x1, p.y, p.z1, "pier");
+    for (const c of hx.containers) this.box(c.x - c.sx / 2, c.y, c.z - c.sz / 2, c.x + c.sx / 2, c.y + c.sy, c.z + c.sz / 2, "container");
+    for (const g of hx.gantries) {
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.box(g.x + sx * g.span / 2 - .9, 1.2, g.z + sz * 7 - .9, g.x + sx * g.span / 2 + .9, g.h, g.z + sz * 7 + .9, "gantry");
+      for (const sz of [-1, 1]) this.box(g.x - g.span / 2 - .9, g.h - 3, g.z + sz * 7 - .9, g.x + g.span / 2 + .9, g.h, g.z + sz * 7 + .9, "gantry");
+      this.box(g.x - 1.6, g.h - 5, g.z - g.boom, g.x + 1.6, g.h - 3, g.z + g.back, "gantry");
+      this.perch(g.x, g.h - 3 + .1, g.z - g.boom + 1, 0, -1, "crane");
+    }
+    for (const s of hx.ships) {
+      this.box(s.x - s.w / 2, s.y0, s.z - s.L / 2, s.x + s.w / 2, s.y1, s.z + s.L / 2, "ship");
+      const b = s.bridge;
+      this.box(s.x - s.w / 2 + 2, s.y1, b.z1 - b.L, s.x + s.w / 2 - 2, s.y1 + b.h, b.z1, "ship");
+      this.perch(s.x, s.y1 + b.h, b.z1 - b.L / 2, 0, 0, "ship");
+    }
+    // ---- bridges ----
+    for (const b of hx.bridges) {
+      const along = (u0, u1, w0, w1, y0, y1, kind, o) => {
+        const ax = b.ox + b.dx * u0 - b.dz * w0, az = b.oz + b.dz * u0 + b.dx * w0, bx = b.ox + b.dx * u1 - b.dz * w1, bz = b.oz + b.dz * u1 + b.dx * w1;
+        return this.box(Math.min(ax, bx), y0, Math.min(az, bz), Math.max(ax, bx), y1, Math.max(az, bz), kind, o);
+      };
+      // the deck slab, in steps that stay just under the drivable ribbon
+      for (let u = b.u0; u < b.u1; u += 8) {
+        const y = Math.min(deckY(u), deckY(u + 8));
+        if (y < .5) continue;
+        along(u, u + 8, -b.hw, b.hw, y - 2.2, y - .25, "bridgedeck");
+      }
+      for (const t of b.towers) {
+        if (t.a) {
+          // the A-pylon: legs leaning in, in steps
+          for (let k = 0; k < 12; k++) { const y0 = -6 + k * (t.top + 6) / 12, y1 = y0 + (t.top + 6) / 12, w = 12 * (1 - (k + .5) / 12); for (const s of [-1, 1]) along(t.u - 2, t.u + 2, s * w - 2, s * w + 2, y0, y1, "tower"); }
+          this.perch(b.ox + b.dx * t.u, t.top + .2, b.oz + b.dz * t.u, 0, 0, "tower");
+        } else {
+          for (const s of [-1, 1]) { along(t.u - 1.7, t.u + 1.7, s * 11.5 - 1.7, s * 11.5 + 1.7, -6, t.top, "tower"); const px = b.ox + b.dx * t.u - b.dz * s * 11.5, pz = b.oz + b.dz * t.u + b.dx * s * 11.5; this.perch(px, t.top + .1, pz, 0, 0, "tower"); }
+          for (const y of [DECK_UNDER, 72, t.top - 4]) along(t.u - 1.5, t.u + 1.5, -11.5, 11.5, y, y + 3, "tower");
+        }
+      }
+      for (const c of b.cables) for (let i = 0; i < c.length; i += 2) this.sphere(c[i].x, c[i].y, c[i].z, 1.3, "cable");
+      for (const h of b.hangers) this.box(h.a.x - .15, h.b.y, h.a.z - .15, h.a.x + .15, h.a.y, h.a.z + .15, "hanger", web);
+      for (const s of b.stays) for (const k of [.25, .5, .75]) this.sphere(s.a.x + (s.b.x - s.a.x) * k, s.a.y + (s.b.y - s.a.y) * k, s.a.z + (s.b.z - s.a.z) * k, 1.2, "cable");
+    }
+    // ---- billboards, screens, fire escapes ----
+    const panel = (o, d, kind) => { const ex = o.fx ? d : o.w / 2, ez = o.fx ? o.w / 2 : d; return this.box(o.x - ex, o.y - o.h / 2, o.z - ez, o.x + ex, o.y + o.h / 2, o.z + ez, kind); };
+    for (const b of hx.boards) {
+      panel(b, .25, "billboard");
+      this.perch(b.x, b.y + b.h / 2 + .1, b.z, b.fx, b.fz, "board");
+      if (b.legs !== undefined) for (const s of [-.4, .4]) this.cyl(b.x - b.fz * b.w * s, b.z + b.fx * b.w * s, .2, b.legs, b.y - b.h / 2, "post");
+    }
+    for (const s of hx.screens) panel(s, .3, "screen");
+    for (const e of hx.escapes) {
+      const ex = e.nx ? e.d / 2 : e.w / 2, ez = e.nx ? e.w / 2 : e.d / 2;
+      for (let y = e.y0; y <= e.y1; y += 3.4) this.box(e.x - ex, y - .12, e.z - ez, e.x + ex, y, e.z + ez, "escape");
+    }
   }
 
   // ------------------------------------------------------------------ queries
@@ -151,8 +254,17 @@ export class HeroWorld {
     }
   }
   // the highest solid top at (x, z) that is below yRef (roofs, decks, the ground, curbs, ramps)
+  // the subway's pits and tunnel: below them there is no street level to stand on
+  underAt(x, z) {
+    const U = this.M.hx?.under;
+    if (U) for (const u of U) if (x > u.x0 && x < u.x1 && z > u.z0 && z < u.z1) return u;
+    return null;
+  }
   topAt(x, z, yRef) {
-    let best = heightAt(this.M, x, z, yRef);
+    const u = this.M.hx ? this.underAt(x, z) : null;
+    // over water there is no street: only bridges (and whatever stands in it); the bed is deep
+    const wy = this.water.length ? this.waterAt(x, z) : -Infinity;
+    let best = wy > -Infinity ? Math.max(wy - 3, surfaceAt(this.M, x, z, yRef)) : u && (u.open || yRef < -.3) ? surfaceAt(this.M, x, z, yRef) : heightAt(this.M, x, z, yRef);
     for (const s of this.cellList(x, z, x, z, this.hits)) {
       if (!s.solid || s.y1 > yRef + 1e-3 || s.y1 <= best) continue;
       const y = this.topOf(s, x, z);
@@ -190,7 +302,7 @@ export class HeroWorld {
     // the ground (and anything standing on it is in the grid)
     if (dy < -1e-6) {
       const t = -oy / dy;
-      if (t > 0 && t < best) { best = t; hit = GROUND; }
+      if (t > 0 && t < best && !(this.M.hx && this.underAt(ox + dx * t, oz + dz * t)?.open)) { best = t; hit = GROUND; }
     }
     const q = ++this.stamp;
     // walk the cells the ray's shadow crosses, nearest first
@@ -284,6 +396,7 @@ export class HeroWorld {
 }
 
 const GROUND = { kind: "ground" };
+const DECK_UNDER = 13;
 const _n = { x: 0, y: 0, z: 0 }, _r2 = {};
 
 // ray (unit direction) vs one solid; returns t of entry (or Infinity) and the surface normal in n
