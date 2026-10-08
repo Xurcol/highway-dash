@@ -55,7 +55,7 @@ export class HeroBody {
     this.state = "air"; this.stateT = 0; this.airT = 0; this.groundY = 0; this.coyote = 0;
     this.webs.length = 0; this.shots.length = 0; this.zip = null; this.ledge = null; this.move = null;
     this.sprintT = 0; this.slideT = 0; this.crouchT = 0; this.landT = 9; this.hardT = 0; this.rollT = 0;
-    this.dashUsed = false; this.glide = false; this.dive = false; this.diveT = 0;
+    this.dashUsed = false; this.dashN = 0; this.glide = false; this.dive = false; this.diveT = 0;
     this.wallMode = "crawl"; this.wallT = 0; this.ceiling = false; this.lastSide = 1; this.noWebT = 0;
     this.launchWindow = 0; this.perchAt = null; this.jumpBuf = 0; this.grounded = false; this.skim = 0;
     this.speed = 0; this.height = 0; this.fallStart = y; this.lastWall = null; this.wallCool = 0; this.combatLock = 0;
@@ -158,7 +158,7 @@ export class HeroBody {
     const sprinting = inp.sprint && m > .1;
     this.sprintT = sprinting ? this.sprintT + dt : Math.max(0, this.sprintT - dt * 3);
     this.crouchT = inp.crouch ? this.crouchT + dt : 0;
-    this.dashUsed = false; this.glide = false; this.dive = false;
+    this.dashUsed = false; this.dashN = 0; this.glide = false; this.dive = false;
     if (this.combatLock > 0) {
       // a punch, a lunge, a dodge: the fight moves the body; it slows on the ground by itself
       const k = Math.exp(-dt * 4);
@@ -287,8 +287,8 @@ export class HeroBody {
     if (!this.glide && inp.jumpHeld && this.v.y < -4 && this.airT > .3 && hAbove > 6 && this.jumpBuf <= 0) { this.glide = true; this.ev("glide"); }
     if (this.glide && (!inp.jumpHeld || hAbove < 1.5)) this.glide = false;
     // air dash
-    if (inp.dodge && !this.dashUsed && this.combatLock <= 0) {
-      this.dashUsed = true;
+    if (inp.dodge && (this.dashN || 0) < (this.dashes || 1) && this.combatLock <= 0) {
+      this.dashN = (this.dashN || 0) + 1; this.dashUsed = this.dashN >= (this.dashes || 1);
       const dx = m > .1 ? md.x : inp.look.x, dz = m > .1 ? md.z : inp.look.z, L = Math.hypot(dx, dz) || 1;
       this.v.x += dx / L * T.dash; this.v.z += dz / L * T.dash; this.v.y = Math.max(this.v.y, 0) + 3;
       this.ev("airdash");
@@ -505,7 +505,7 @@ export class HeroBody {
     this.webs.push(w);
     if (this.webs.length > 2) this.webs.shift();
     this.setState("swing"); this.glide = false; this.dive = false;
-    this.dashUsed = false;
+    this.dashUsed = false; this.dashN = 0;
     this.swingT = 0; this.skim = 0;
     this.ev("attach", { side: s.side, second: !!s.second, d });
   }
@@ -757,7 +757,7 @@ export class HeroBody {
     const T = TUNE, f = this.face;
     this.v.set(f.x * T.launchFwd, T.launchUp, f.z * T.launchFwd);
     this.perchAt = null; this.jumpBuf = 0; this.launchWindow = 0;
-    this.toAir(); this.dashUsed = false;
+    this.toAir(); this.dashUsed = false; this.dashN = 0;
     this.ev("launch");
   }
   perchStep(dt, inp) {
@@ -783,7 +783,7 @@ export class HeroBody {
     // momentum along the wall carries into the run; a straight-on hit turns into running up it
     if (mode === "run" && -vn > 4) this.v.y = Math.max(this.v.y, Math.min(14, -vn * .6));
     this.wallMode = mode;
-    this.webs.length = 0; this.glide = false; this.dive = false; this.dashUsed = false;
+    this.webs.length = 0; this.glide = false; this.dive = false; this.dashUsed = false; this.dashN = 0;
     this.setState("wall"); this.wallT = 0;
     this.snapWall(1.5);
     this.ev("wall", { mode, speed: this.v.length() });

@@ -201,7 +201,7 @@ export class HeroCombat {
   land(a, tg) {
     const H = this.H, f = H.face;
     const base = { jab: 9, cross: 11, hook: 13, kick: 14, roundhouse: 18, air: 11, launch: 10, slam: 20, finisher: 999 }[a.kind] || 10;
-    const dmg = base * (a.counter ? 2 : 1) * (1 + Math.min(1, this.combo / 30) * .5);
+    const dmg = base * (a.counter ? 2 : 1) * (1 + Math.min(1, this.combo / 30) * .5) * (this.dmgK || 1);
     const opts = { heavy: a.kind === "roundhouse" || a.counter || a.kind === "finisher", launch: a.kind === "launch" ? 12 : 0, slam: false, knock: a.kind === "kick" ? 6 : undefined };
     if (a.kind === "air" && this.combo % 5 === 4) opts.slam = true;            // the last hit of an air string sends them down
     const hits = [];
@@ -221,7 +221,7 @@ export class HeroCombat {
       this.applyHit(e, { dmg: e === tg || !tg ? dmg : dmg * .6, kind: a.kind, kx: dx / d, kz: dz / d, ...opts, finisher: a.kind === "finisher" });
     }
     this.combo += hits.length; this.comboT = 2.2;
-    this.focus = Math.min(3, this.focus + .07 * hits.length + (a.counter ? .3 : 0));
+    this.focus = Math.min(3, this.focus + (.07 * hits.length + (a.counter ? .3 : 0)) * (this.focusK || 1));
     // launching: jump after them
     if (a.kind === "launch") { a.follow = true; H.v.y = 12.5; H.toAir(); H.combatLock = .25; }
     this.stopT = a.kind === "finisher" ? .12 : opts.heavy ? .07 : .045;
@@ -272,12 +272,12 @@ export class HeroCombat {
         const sp = G.id === "shot" ? 95 : 75;
         const dx = aim.x - hand.x, dy = aim.y - hand.y, dz = aim.z - hand.z, L = Math.hypot(dx, dy, dz) || 1;
         this.shots.push({ x: hand.x, y: hand.y, z: hand.z, vx: dx / L * sp, vy: dy / L * sp + 1, vz: dz / L * sp, t: 0, kind: G.id, side, target: tgt?.id });
-        if (G.id === "shot") this.ammo -= 1; else this.cool[n] = G.cool;
+        if (G.id === "shot") this.ammo -= 1; else this.cool[n] = G.cool * (this.coolK || 1);
         break;
       }
       case "pull": case "launch": {
         if (!tgt || this.dist(tgt) > 30) return this.hero.onCombat("deny");
-        this.cool[n] = G.cool;
+        this.cool[n] = G.cool * (this.coolK || 1);
         this.hero.onCombat("line", { to: new V(tgt.x, tgt.y + .3, tgt.z), side, yank: true });
         const e = tgt;
         setTimeout(() => {
@@ -287,7 +287,7 @@ export class HeroCombat {
         break;
       }
       case "bomb": {
-        this.cool[n] = G.cool;
+        this.cool[n] = G.cool * (this.coolK || 1);
         const dx = aim.x - hand.x, dz = aim.z - hand.z, d = Math.hypot(dx, dz), tt = clamp(d / 22, .35, 1.1);
         this.bombs.push({ x: hand.x, y: hand.y, z: hand.z, vx: dx / tt, vy: (aim.y - hand.y) / tt + 11 * tt, vz: dz / tt, t: 0 });
         break;
@@ -295,7 +295,7 @@ export class HeroCombat {
       case "trap": {
         const h = this.hero.W.raycast(inp.camPos.x, inp.camPos.y, inp.camPos.z, inp.look.x, inp.look.y, inp.look.z, 40, 2, {});
         const at = h || { x: H.p.x + H.face.x * 3, y: H.p.y - HIP_H, z: H.p.z + H.face.z * 3, nx: 0, ny: 1, nz: 0 };
-        this.cool[n] = G.cool;
+        this.cool[n] = G.cool * (this.coolK || 1);
         if (this.traps.length >= 3) this.traps.shift();
         this.traps.push({ x: at.x, y: at.y, z: at.z, nx: at.nx, ny: at.ny, nz: at.nz, t: 0 });
         this.hero.onCombat("trapset", { x: at.x, y: at.y, z: at.z });
@@ -415,11 +415,11 @@ export class HeroCombat {
     // dodging through it
     if (this.iframes > 0) {
       const perfect = this.hero.clock - this.dodgeStart < .3;
-      if (perfect) { this.focus = Math.min(3, this.focus + .4); this.counterT = 1.2; this.slowT = .5; }
+      if (perfect) { this.focus = Math.min(3, this.focus + .4 * (this.focusK || 1)); this.counterT = 1.2; this.slowT = .5; }
       this.hero.onCombat(perfect ? "perfect" : "dodged", { kind });
       return "dodged";
     }
-    this.hp -= dmg / 100;
+    this.hp -= dmg / 100 * (this.armorK || 1);
     this.combo = 0; this.regenT = 0;
     H.v.x += kx * (heavy ? 10 : 4); H.v.z += kz * (heavy ? 10 : 4);
     if (heavy && H.state === "ground") { H.v.y = 5; H.toAir(); }

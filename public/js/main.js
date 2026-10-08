@@ -642,7 +642,7 @@ const respawnMode = () => (mode === "online" ? partyMode() !== "crash" : soloMod
 // Hero mode: on foot (and on lines) in the hero city instead of in a car
 const heroMode = () => (mode === "online" ? partyMode() === "hero" : soloMode() === "hero");
 // Free Drive, solo or in a server: no rounds, no finish, crashes cost nothing
-const freeMode = () => (mode === "online" ? partyMode() === "free" || partyMode() === "city" : mode === "solo" && (soloMode() === "freedrive" || soloMode() === "city"));
+const freeMode = () => (mode === "online" ? partyMode() === "free" || partyMode() === "city" || partyMode() === "hero" : mode === "solo" && (soloMode() === "freedrive" || soloMode() === "city" || soloMode() === "hero"));
 // City Drive: the 3D city instead of the endless highway. Latched into G.city when a session starts, so
 // nothing can switch worlds under a car mid-drive.
 const cityMode = () => (mode === "online" ? partyMode() === "city" : soloMode() === "city");
@@ -986,7 +986,7 @@ function enterPartyRound() {
   ui.hideRoundResults();
   enterReady("online");
   if (room.roundState === "running" && getT() > 1) return startDriving(); // late joiner drops in beside the pack
-  if (G.city) return;   // City Drive: enterReady already gave everyone a spawn of their own
+  if (G.city || G.hero) return;   // City Drive / hero mode: enterReady already gave everyone a spawn of their own
   const idx = Math.max(0, room.players.findIndex((p) => p.id === net.me?.id));
   G.z = 0; G.x = laneX(LANE_ORDER[idx % LANE_ORDER.length]);
   G.car.group.position.set(G.x, 0, G.z);
@@ -1149,6 +1149,7 @@ function peerNow(id) {
 }
 const livePeers = () => [...net.peers.keys()].map(peerNow).filter(Boolean);
 function playerRows() {
+  if (G.hero) return hero.playerRows();
   const me = net.me?.id ?? net.me?.code, rows = [];
   for (const p of net.room?.players || []) {
     const isMe = p.id === me, pn = isMe ? null : peerNow(p.id);
@@ -1174,6 +1175,7 @@ function safeSpotNear(tz, T, others = livePeers()) {
 // returns { ok, text } so the chat and the player list can both show the result
 function teleportTo(query) {
   if (mode !== "online" || !net.room) return { ok: false, text: "Teleporting only works inside an online server." };
+  if (G.hero) { const p = findPeer(query); return p ? hero.teleportTo(p.id) : { ok: false, text: "Player not found." }; }
   if (!freeMode()) return { ok: false, text: "Teleporting is only allowed in Free Drive servers." };
   if (state !== "drive") return { ok: false, text: "Start driving first." };
   const p = findPeer(query);
@@ -1216,7 +1218,10 @@ function chatCommand(text) {
       const res = teleportTo(arg);
       return say(res.text, res.ok ? "ok" : "err");
     }
-    case "help": case "?": return say("Commands: /players, /tp <player> (also /teleport, /goto), /help");
+    case "emote": case "e": { if (!G.hero) return say("Emotes are for hero mode.", "err"); const r = hero.emoteByName(arg); return say(r.text, r.ok ? "ok" : "err"); }
+    case "race": { if (!G.hero) return say("Races are in hero mode.", "err"); const r = hero.startActivity("race", arg); return say(r.text, r.ok ? "ok" : "err"); }
+    case "tricks": { if (!G.hero) return say("Trick contests are in hero mode.", "err"); const r = hero.startActivity("tricks"); return say(r.text, r.ok ? "ok" : "err"); }
+    case "help": case "?": return say(G.hero ? "Commands: /players, /tp <player>, /emote <wave|salute|flex|dance|cheer|point|sit|bow>, /race [route], /tricks, /help" : "Commands: /players, /tp <player> (also /teleport, /goto), /help");
     default: return say(`Unknown command "/${cmd}". Try /help`, "err");
   }
 }

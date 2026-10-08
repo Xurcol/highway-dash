@@ -803,7 +803,7 @@ export class UI {
       if (this.onlineTab === "public") n.send({ t: "publicRefresh" });
     });
     $("srvRefresh").onclick = () => { this.ctx.audio.ui(); n.send({ t: "publicRefresh" }); };
-    this.createOpts = { name: "", max: 8, mode: "free", traffic: P.settings.traffic || "Heavy", hour: undefined, weather: undefined, visibility: "public" };
+    this.createOpts = { name: "", max: 8, mode: "hero", traffic: P.settings.traffic || "Heavy", hour: undefined, weather: undefined, visibility: "public" };
     this.renderCreateForm();
   }
   renderCreateForm() {
@@ -814,7 +814,7 @@ export class UI {
     box.innerHTML = `
       <div class="cf-row"><span>Server name</span><input type="text" id="cfName" maxlength="24" placeholder="${esc(n.me?.name || "My")}'s server" value="${esc(o.name)}"></div>
       <div class="cf-row"><span>Visibility</span><div class="chips">${chip("visibility", "public", "Public")}${chip("visibility", "private", "Private (code only)")}</div></div>
-      <div class="cf-row"><span>Max players</span><div class="chips">${[2, 4, 6, 8].map((v) => chip("max", v, v)).join("")}</div></div>
+      <div class="cf-row"><span>Max players</span><div class="chips">${(o.mode === "hero" ? [2, 4, 8, 12, 16] : [2, 4, 6, 8]).map((v) => chip("max", v, v)).join("")}</div></div>
       <div class="cf-row"><span>Game mode</span><div class="chips wrap">${Object.entries(this.ctx.PARTY_MODES).map(([k, v]) => chip("mode", k, v)).join("")}</div></div>
       <div class="cf-row"><span>Traffic</span><div class="chips">${Object.keys(TRAFFIC_LEVELS).map((k) => chip("traffic", k, k)).join("")}</div></div>
       <div class="cf-row"><span>Time of day</span><div class="chips wrap">${chip("hour", "", "Each player's own")}${Object.entries(TIME_PRESETS).map(([k, h]) => chip("hour", h, k)).join("")}</div></div>

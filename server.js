@@ -10,7 +10,7 @@ const ROOT = __dirname;
 const PUBLIC = path.join(ROOT, "public");
 const THREE_DIR = path.join(ROOT, "node_modules", "three");
 const DATA_FILE = path.join(ROOT, "data", "db.json");
-const MAX_ROOM = 8;
+const MAX_ROOM = 16;
 
 // ---------- persistence ----------
 let db = { users: {} };
@@ -71,7 +71,7 @@ const server = http.createServer((req, res) => {
 });
 
 // ---------- realtime ----------
-const wss = new WebSocketServer({ server, path: "/ws", maxPayload: 8192 });
+const wss = new WebSocketServer({ server, path: "/ws", maxPayload: 24576 });
 const online = new Map(); // userId -> ws
 const rooms = new Map();  // code -> {code, seed, epoch, members:Set<userId>, public}
 
@@ -113,7 +113,7 @@ function joinRoom(ws, r) {
   notifyFriends(ws.user);
 }
 const LEVELS = ["Chill", "Normal", "Heavy", "Insane"];
-const ROOM_MODES = ["crash", "target", "timed", "free", "city"];
+const ROOM_MODES = ["crash", "target", "timed", "free", "city", "hero"];
 const cleanText = (s, n) => String(s ?? "").replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
 const clampNum = (v, lo, hi, d = 0) => { v = +v; return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
 // ---- party rounds: everyone starts together on the same seed; the first crash ends the round for all ----
@@ -271,10 +271,21 @@ wss.on("connection", (ws) => {
         const r = rooms.get(ws.room);
         if (!r || !m.s || typeof m.s !== "object" || !Number.isFinite(+m.s.x) || !Number.isFinite(+m.s.z)) return;
         const ss = m.s;
-        ss.x = clampNum(ss.x, -40, 40); ss.z = clampNum(ss.z, -1e7, 1e7); ss.v = clampNum(ss.v, -80, 220);
+        ss.x = clampNum(ss.x, -6000, 6000); ss.z = clampNum(ss.z, -1e7, 1e7); ss.v = clampNum(ss.v, -80, 220);
+        if (ss.y !== undefined) ss.y = clampNum(ss.y, -60, 900);
+        if (ss.h !== undefined && (typeof ss.h !== "object" || JSON.stringify(ss.h).length > 1500)) delete ss.h;
         if (typeof ss.sc === "number") ws.lastScore = Math.max(0, Math.floor(ss.sc));
         const msg = JSON.stringify({ t: "state", id: u.id, s: ss });
         r.members.forEach((id) => { if (id !== u.id) { const o = online.get(id); o && o.readyState === 1 && o.send(msg); } });
+        break;
+      }
+      // hero mode: the host's enemy/event snapshots and players' hits, passed on to everyone else in the room
+      case "world": {
+        const r = rooms.get(ws.room);
+        if (!r || !m.w || typeof m.w !== "object") return;
+        const raw = JSON.stringify({ t: "world", from: u.id, w: m.w });
+        if (raw.length > 24000) return;
+        r.members.forEach((id) => { if (id !== u.id) { const o = online.get(id); o && o.readyState === 1 && o.send(raw); } });
         break;
       }
       case "chat": {

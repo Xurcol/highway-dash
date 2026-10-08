@@ -15,6 +15,9 @@ import { EnemySim, EnemyView, KINDS } from "./hero-enemies.js";
 import { HeroCombat, GADGETS } from "./hero-combat.js";
 import { Crowd, Trains, Emergency, trafficSolids, WeatherClock, heroDistrict } from "./hero-life.js";
 import { Events, EVENT_TYPES } from "./hero-events.js";
+import { HeroNet } from "./hero-net.js";
+import { Activities } from "./hero-activities.js";
+import { Progress } from "./hero-progress.js";
 import { earn } from "./profile.js";
 import { HeroHud } from "./hero-hud.js";
 
@@ -55,6 +58,9 @@ export class HeroMode {
     this.enemyView = new EnemyView(scene);
     this.tracers = new Tracers(scene);
     this.combat = new HeroCombat(this);
+    this.netx = new HeroNet(this);
+    this.activities = new Activities(this);
+    this.progress = new Progress(this);
     this.lines = [];      // short-lived combat lines: { side, to, t, life, follow }
   }
   // the hero's city: the tall variant of the City Drive map, and the solids built from it
@@ -85,6 +91,8 @@ export class HeroMode {
     this.life.crowd.setVisible(true); this.life.trains.setVisible(true);
     this.events ||= new Events(this);
     this.carry = null;
+    this.online = !!opt.online;
+    this.progress.apply();
     this.combat.hp = 1; this.combat.downT = 0;
     this.on = true;
     this.setVisible(true);
@@ -110,6 +118,7 @@ export class HeroMode {
     this.enemyView?.hideAll();
     this.sim?.clear();
     this.events?.clear();
+    this.netx?.clear(); this.activities?.clear();
     if (this.life) { this.life.crowd.setVisible(false); this.life.trains.setVisible(false); this.life.emergency.clear(); this.ctx.audio.evSirens?.([]); }
     this.saveProfile();
   }
@@ -142,6 +151,7 @@ export class HeroMode {
     const look = cam.look, inp = this.input.read(cam.yaw, look, camera.position);
     if (dt <= 0) { inp.mdx = inp.mdy = 0; }
     if (inp.help) this.hud.toggleKeys();
+    if (inp.activities) this.activities.toggleMenu();
     this.hud.emotes(inp.emoteMenu, EMOTES);
     // ---- the body ----
     if (dt > 0) {
@@ -158,6 +168,7 @@ export class HeroMode {
       W.dyn.length = 0;
       if (this.ctx.city.traffic) trafficSolids(this.ctx.city.traffic, null, H.p, W.dyn);
       this.life.trains.update(T, null, W.dyn);
+      if (this.online) this.netx.lerpEnemies(dt);
       // E next to someone in trouble picks them up (instead of zipping)
       if (I.zip && !this.carry) { const g = this.events.grabbable(H.p); if (g) { this.grabCiv(g.e, g.c); I.zip = false; } }
       cb.pre(bdt, I);
@@ -176,6 +187,8 @@ export class HeroMode {
         this.events.direct(dt, pl); this.events.step(dt, pl);
       }
       this.updateCarry(dt);
+      this.activities.update(dt);
+      if (this.online) this.netx.tick(dt, T);
       // the fight frames the camera
       const near = cb.inCombat ? cb.near(20) : [];
       if (near.length) {
@@ -199,6 +212,8 @@ export class HeroMode {
     cam.update(real, H, inp);
     // ---- the character ----
     this.animate(dt > 0 ? dt : 0, inp);
+    // ---- the other heroes ----
+    if (this.online) this.netx.update(real, T);
     // ---- enemies and props, as this machine sees them ----
     this.enemyView.draw(real, this.enemyList(), camera.position);
     this.enemyView.drawProps(this.propList());
@@ -462,6 +477,7 @@ export class HeroMode {
       const k = Math.min(1, l.t / .06);
       this.webs.line([hand, hand.clone().lerp(to, k)], this.webCol, 1 - Math.max(0, (l.t - l.life + .1) / .1), k < 1 ? .6 : 0, 0, this.clock);
     }
+    if (this.online) this.netx.drawWebs(this.webs, this.webCol, this.clock);
     for (const s of this.combat.shots) this.webs.line([_t.set(s.x - s.vx * .05, s.y - s.vy * .05, s.z - s.vz * .05).clone(), new V(s.x, s.y, s.z)], this.webCol, 1, 0, 0, this.clock);
     for (const t of this.combat.traps) if (Math.random() < .3) this.parts.energy(t.x + t.nx * .2, t.y + t.ny * .2, t.z + t.nz * .2, 1, this.glowRGB());
     for (const b of this.combat.bombs) this.parts.energy(b.x, b.y, b.z, 1, [1, 1, 1]);
@@ -543,11 +559,20 @@ export class HeroMode {
     hud.update(dt, {
       speed: H.speed, alt, stateLabel: H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "",
       tricks: this.tricks, trickEvents: this.trickEvents, hp: this.combat.hp, focus: this.combat.focus, noWeb: H.noWebT,
-      gadgets: this.gadgetBar(), hits: this.combat.combo, sense: this.senseHud(), mission: hud.missionHtml || "",
+      gadgets: this.gadgetBar(), hits: this.combat.combo, sense: this.senseHud(), mission: hud.missionHtml || "", race: this.activities.raceHtml || "",
     });
     // the nearest event: the panel, and an arrow to it
-    const near = this.events?.nearest(H.p);
-    if (near) {
+    const near = this.activities.target ? { e: { ...this.activities.target, kind: "race" }, d: H.p.distanceTo(_t2.set(this.activities.target.x, this.activities.target.y, this.activities.target.z)) } : this.events?.nearest(H.p);
+    if (near && near.e.kind === "race") {
+      hud.missionHtml = "";
+      const e = near.e, wp = proj(e.x, e.y, e.z), way = hud.$("hhWay");
+      let sx, sy;
+      if (wp) { sx = wp[0]; sy = wp[1]; } else { const dx = e.x - H.p.x, dz = e.z - H.p.z, f = this.cam.look, rel = Math.atan2(dx, dz) - Math.atan2(f.x, f.z); sx = W / 2 - Math.sin(rel) * W * .42; sy = Hh / 2 - Math.cos(rel) * Hh * .38; }
+      way.hidden = false; way.classList.add("rescue");
+      way.style.transform = `translate(${sx.toFixed(0)}px,${sy.toFixed(0)}px)`;
+      const label = `${Math.round(near.d)} m`;
+      if (way.dataset.l !== label) { way.dataset.l = label; way.querySelector("b").textContent = label; }
+    } else if (near) {
       const e = near.e, D = EVENT_TYPES[e.kind];
       const extra = e.kind === "chase" && e.state === "active" ? (e.hp > 0 ? `Car damage ${6 - e.hp}/6 · ${Math.max(0, Math.round(e.timer ?? 0))} s` : `${e.left ?? "?"} left`) : e.left != null && e.state === "active" ? `${e.left} left` : "";
       hud.missionHtml = `<h4>${D.name}</h4><p>${D.goal}</p><p>${Math.round(near.d)} m${extra ? " · " + extra : ""}</p>`;
@@ -629,6 +654,47 @@ export class HeroMode {
     if (e.type === "banked") { const base = 660 * Math.min(2, 1 + e.mult / 15); [1, 1.25, 1.5, 2].forEach((m, i) => A.tone({ type: "triangle", f0: base * m, d: .14, peak: .07, delay: i * .06 })); }
     if (e.type === "bail") { A.tone({ type: "sawtooth", f0: 180, f1: 90, d: .35, peak: .08 }); }
   }
+  // ---- online glue ----
+  netState(T, now, round) { return this.H ? this.netx.state(T, now, round) : null; }
+  remoteHeroes() { return this.online ? this.netx.list() : []; }
+  relay(e) { this.netx.relay(e); }
+  sendWorld(w) { if (this.online) this.netx.send(w); }
+  playerRows() {
+    const me = this.meId(), rows = [], R = this.netx.list();
+    for (const p of this.ctx.net.room?.players || []) {
+      const isMe = p.id === me, v = R.find((q) => q.id === p.id);
+      rows.push({ id: p.id, me: isMe, name: p.name, car: isMe ? `${SUITS[this.suitId]?.name || ""} · lvl ${this.profile().level || 1}` : v ? `${SUITS[v.suit]?.name || "Hero"} · style ${(v.style || 0).toLocaleString()}` : "Hero", dist: isMe ? 0 : v ? Math.hypot(v.x - this.H.p.x, v.y - this.H.p.y, v.z - this.H.p.z) : null });
+    }
+    return rows;
+  }
+  // next to a friend: just above and behind them, in the air
+  teleportTo(id) {
+    const v = this.netx.views.get(id);
+    if (!v || !v.data) return { ok: false, text: "They aren't sending a position right now." };
+    const H = this.H, f = v.vel.lengthSq() > 1 ? v.vel.clone().setY(0).normalize() : new V(0, 0, 1);
+    H.reset(v.pos.x - f.x * 6, v.pos.y + 3, v.pos.z - f.z * 6); H.state = "air";
+    H.v.copy(v.vel).multiplyScalar(.8);
+    this.cam.snapNext = true; this.tpN = (this.tpN | 0) + 1;
+    const name = this.ctx.net.peers.get(id)?.name || "them";
+    return { ok: true, text: `Teleported to ${name}.` };
+  }
+  emoteByName(name) {
+    const i = EMOTES.findIndex((e) => e.toLowerCase().startsWith(String(name || "").toLowerCase()));
+    if (i < 0) return { ok: false, text: "Emotes: " + EMOTES.join(", ").toLowerCase() };
+    if (this.H.state !== "ground") return { ok: false, text: "Stand on something first." };
+    this.emote = { id: i, t: 0 };
+    return { ok: true, text: EMOTES[i] };
+  }
+  startActivity(kind, arg) { return this.activities.start(kind, arg); }
+  setSuit(id) {
+    if (!SUITS[id]) return;
+    this.suitId = id;
+    this.rig?.setLook(SUITS[id]);
+    this.webCol = new THREE.Color(SUITS[id].glow).lerp(new THREE.Color(1, 1, 1), .55);
+    this.profile().suit = id; this.ctx.save();
+  }
+  onLevel() { this.progress.apply(); }
+
   // continuous: the wind past the hero
   windSpeed() { return this.H ? this.H.speed * 3.6 * 1.6 : 0; }
 

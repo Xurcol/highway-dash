@@ -18,8 +18,9 @@ export const EVENT_TYPES = {
   chase: { name: "Car Chase", goal: "Stop the getaway car (web it, or land on it and hit it)", xp: 360, coins: 380, crime: true },
   crane: { name: "Crane Rescue", goal: "Grab the worker (E near them) and bring them down", xp: 260, coins: 240, rescue: true },
   fire: { name: "Building Fire", goal: "Carry the trapped people down to the street", xp: 320, coins: 320, rescue: true },
+  boss: { name: "VANTA", goal: "Defeat VANTA and the crew", xp: 1500, coins: 2500, crime: true, boss: true },
 };
-const KEYS = Object.keys(EVENT_TYPES);
+const KEYS = Object.keys(EVENT_TYPES).filter((k) => k !== "boss");
 let EID = 1;
 
 export class Events {
@@ -105,6 +106,15 @@ export class Events {
     c.wild = true; c.k = 2.1; c.chase = e.id; c.ev = null; c.color = 0x7a1f2b;
     const m = this.hero.ctx.city.meshes.get(c); m?.children[0]?.userData?.setColor?.(c.color);
     Object.assign(e, { car: c.id, carRef: c, hp: 6, x: c.x, y: c.y, z: c.z, timer: 150 });
+    return true;
+  }
+  // the boss: an open plaza or a wide roof near whoever challenged, with a crew
+  place_boss(e, near) {
+    const spots = [];
+    for (const s of this.M.slabs) if ((s.kind === "park" || s.kind === "walk") && s.x1 - s.x0 > 30 && s.z1 - s.z0 > 30) { const x = (s.x0 + s.x1) / 2, z = (s.z0 + s.z1) / 2, d = Math.hypot(x - near.x, z - near.z); if (d > 60 && d < 500 && this.W.topAt(x, z, 40) < 1) spots.push({ x, z, y: s.h }); }
+    const w = spots.length ? spots[(Math.random() * spots.length) | 0] : this.sidewalk(near.x + 120, near.z, 200);
+    if (!w) return false;
+    Object.assign(e, { x: w.x, y: w.y, z: w.z, enemies: ["boss", "thug", "thug", "gunner", "bat", "rifle", "brute"], props: ["canister", "canister", "barrel", "crate"], police: true });
     return true;
   }
   place_crane(e, near) {

@@ -63,7 +63,7 @@ export class Tricks {
     c.seen.set(text, seen + 1);
     // repeats are worth less each time; something new grows the multiplier
     const rep = seen === 0 ? 1 : seen === 1 ? .5 : seen === 2 ? .25 : .1;
-    const p = Math.round(pts * rep);
+    const p = Math.round(pts * rep * (this.styleK || 1));
     c.pts += p; c.n++;
     if (seen === 0) c.mult = Math.min(15, c.mult + mult);
     else c.mult = Math.min(15, c.mult + mult * .2);

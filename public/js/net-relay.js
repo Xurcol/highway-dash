@@ -23,8 +23,8 @@ const BROKERS = [
   { name: "Mosquitto", url: "wss://test.mosquitto.org:8081" },
 ];
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const MAX_ROOM = 8, MIN_ROOM = 2;
-const ROOM_MODES = ["crash", "target", "timed", "free", "city"];
+const MAX_ROOM = 16, MIN_ROOM = 2;
+const ROOM_MODES = ["crash", "target", "timed", "free", "city", "hero"];
 const LISTING_TTL = 3 * 60 * 1000;      // a listing nobody has refreshed for this long is dead
 const cleanText = (s, n) => String(s ?? "").replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
 const num = (v, lo, hi, d = 0) => { v = +v; return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
@@ -33,7 +33,7 @@ const num = (v, lo, hi, d = 0) => { v = +v; return Number.isFinite(v) ? Math.min
 function sanitizeState(m) {
   if (!m || typeof m !== "object" || !Number.isFinite(+m.T) || !Number.isFinite(+m.x) || !Number.isFinite(+m.z)) return null;
   const o = {
-    T: +m.T, x: num(m.x, -40, 40), z: num(m.z, -1e7, 1e7), y: num(m.y, -5, 200), ry: num(m.ry, -7, 7), pitch: num(m.pitch, -7, 7), roll: num(m.roll, -7, 7),
+    T: +m.T, x: num(m.x, -6000, 6000), z: num(m.z, -1e7, 1e7), y: num(m.y, -60, 900), ry: num(m.ry, -7, 7), pitch: num(m.pitch, -7, 7), roll: num(m.roll, -7, 7),
     w: num(m.w, 0, 1e15), rd: num(m.rd, 0, 1e9), tp: num(m.tp, 0, 1e9), vx: num(m.vx, -80, 80), v: num(m.v, -80, 220),
     rpm: num(m.rpm, 0, 20000), thr: num(m.thr, 0, 1), ld: num(m.ld, 0, 2), g: num(m.g, -1, 20) | 0, sh: m.sh ? 1 : 0, bo: num(m.bo, 0, 200),
     brk: m.brk ? 1 : 0, sl: m.sl ? 1 : 0, sr: m.sr ? 1 : 0, cr: m.cr ? 1 : 0, sc: num(m.sc, 0, 1e9) | 0,
@@ -44,7 +44,20 @@ function sanitizeState(m) {
     // the traffic fingerprint pair is only meaningful when both halves are present
     if (Number.isFinite(+c.tq) && Number.isFinite(+c.th)) { o.c.tq = num(c.tq, 0, 1e7); o.c.th = num(c.th, -2147483648, 2147483647) | 0; }
   }
+  if (m.h && typeof m.h === "object") o.h = sanitizeHero(m.h);
   return o;
+}
+// The hero mode's part of a state packet: body orientation, animation, lines, moves. Same rule as above:
+// only known fields, every number clamped, every list cut short.
+const arr = (a, n, lo, hi) => (Array.isArray(a) ? a.slice(0, n).map((v) => num(v, lo, hi)) : undefined);
+function sanitizeHero(h) {
+  return {
+    st: num(h.st, 0, 20) | 0, vy: num(h.vy, -150, 150), ph: num(h.ph, -1e7, 1e7), fl: num(h.fl, 0, 1 << 20) | 0, sw: num(h.sw, -1, 1) | 0,
+    q: arr(h.q, 4, -1, 1), zp: arr(h.zp, 3, -6000, 6000), at: arr(h.at, 4, -100, 100), tr: arr(h.tr, 2, -20, 20),
+    wb: Array.isArray(h.wb) ? h.wb.slice(0, 2).map((w) => arr(w, 13, -6000, 6000) || []) : undefined,
+    em: num(h.em, 0, 16) | 0, su: cleanText(h.su, 12), hp: num(h.hp, 0, 1), cb: num(h.cb, 0, 1e9) | 0, sy: num(h.sy, 0, 1e12), lv: num(h.lv, 0, 999) | 0,
+    rc: arr(h.rc, 3, -1, 1e6),
+  };
 }
 const STALE = 3 * 60 * 1000; // presence older than this counts as offline (tab closed without a clean disconnect)
 const live = (p) => p && !p.offline && Date.now() - (p.t || 0) < STALE;
@@ -242,6 +255,8 @@ export class RelayNet extends EventTarget {
           this.emit("chat", { name: from, text });
         }
         else if (kind === "e" && m && m.id !== this.me.code) this.emit("event", { id: m.id, name: cleanName(m.name), kind: String(m.kind), v: m.v | 0, d: m.d ? String(m.d).slice(0, 48) : undefined });
+        // the hero mode's world channel: the host's enemy and event snapshots, players' hits and grabs
+        else if (kind === "w" && m && m.from !== this.me.code && /^[A-Z2-9]{6}$/.test(m.from) && raw.length < 24000 && m.w && typeof m.w === "object") this.emit("world", { from: m.from, w: m.w });
         break;
       }
     }
@@ -262,7 +277,7 @@ export class RelayNet extends EventTarget {
   }
 
   // ---------- rooms ----------
-  roomTopics(code) { return [this.t(`room/${code}/info`), this.t(`room/${code}/s/+`), this.t(`room/${code}/c`), this.t(`room/${code}/e`)]; }
+  roomTopics(code) { return [this.t(`room/${code}/info`), this.t(`room/${code}/s/+`), this.t(`room/${code}/c`), this.t(`room/${code}/e`), this.t(`room/${code}/w`)]; }
   subRoom(code) { for (const l of this.links) if (l.client.connected) l.client.subscribe(this.roomTopics(code), { qos: 0 }); }
   unsubRoom(code) { for (const l of this.links) if (l.client.connected) l.client.unsubscribe(this.roomTopics(code)); }
   joinRoom(code, info) {
@@ -462,6 +477,7 @@ export class RelayNet extends EventTarget {
         break;
       }
       case "publicRefresh": this.refreshPublic(); break;
+      case "world": if (this.room) this.pub(`room/${this.room.code}/w`, { from: c, w: m.w }); break;
       case "event": if (this.room) this.pub(`room/${this.room.code}/e`, { id: c, name: this.me.name, kind: m.kind, v: m.v, d: m.d }); break;
       case "score": {
         const s = Math.floor(Number(m.score) || 0);
