@@ -1165,3 +1165,8 @@ h1,h2,.tab,.mode-hud{font-family:var(--display)}
 .hh-combat{position:absolute;left:var(--s4);top:38%;display:flex;align-items:baseline;gap:6px;text-shadow:0 2px 10px rgba(0,0,0,.85)}
 .hh-combat b{font:italic 700 42px/1 var(--display)}
 .hh-combat small{font:700 12px/1 var(--display);letter-spacing:.2em;color:var(--ink-2)}
+
+.hh-way{position:absolute;left:0;top:0;will-change:transform;text-align:center}
+.hh-way i{display:block;width:18px;height:18px;margin:0 auto 3px;background:#ff5a3c;clip-path:polygon(50% 0,100% 100%,50% 72%,0 100%)}
+.hh-way.rescue i{background:#7fe9ff}
+.hh-way b{display:block;font:700 12px/1 var(--display);letter-spacing:.08em;white-space:nowrap;text-shadow:0 1px 4px #000;transform:translateX(-50%);margin-left:9px}

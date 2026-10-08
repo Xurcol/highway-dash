@@ -1231,6 +1231,8 @@ export class CityTraffic {
         const g = along - (c.L + p.L) / 2;
         if (g < gap) { gap = g; lv = Math.max(0, p.vx * c.hx + p.vz * c.hz); block = true; }
       }
+      // a getaway car (hero mode) stops for nothing: lights, queues, people
+      if (c.wild) { gap = 1e9; block = false; }
       // ---- intelligent driver ----
       let v0 = l.speed * c.k;
       if (n) v0 = Math.min(v0, Math.sqrt(n.speed * n.speed * c.k * c.k + 2 * 2.4 * Math.max(0, rest - 2)));

@@ -37,6 +37,7 @@ export class HeroHud {
       <div class="hh-panel" id="hhMission" hidden></div>
       <div class="hh-race" id="hhRace" hidden></div>
       <div class="hh-prompt" id="hhPrompt" hidden></div>
+      <div class="hh-way" id="hhWay" hidden><i></i><b></b></div>
       <div class="hh-center" id="hhCenter" hidden></div>
       <div class="hh-keys" id="hhKeys" hidden></div>
       <div class="hh-emotes" id="hhEmotes" hidden></div>

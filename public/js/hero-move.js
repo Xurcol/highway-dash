@@ -208,6 +208,10 @@ export class HeroBody {
     this.p.y += (fy + T.hip - this.p.y) * Math.min(1, dt * 25);
     if (Math.abs(fy + T.hip - this.p.y) < .02) this.p.y = fy + T.hip;
     this.groundY = fy;
+    // a car roof, a train: it carries you along (and you can run on it)
+    const S = this.W.underFoot;
+    this.riding = S && S.dyn ? S : null;
+    if (this.riding) { this.p.x += (S.vx || 0) * dt; this.p.z += (S.vz || 0) * dt; }
     this.checkWater();
   }
   toAir() { this.setState("air"); this.airT = 0; this.fallStart = this.p.y; this.grounded = false; }
@@ -675,6 +679,16 @@ export class HeroBody {
   // what E zips to: a perch (roof corner, ledge, pole, lamp) near the aim, else whatever surface the aim hits
   zipTarget(inp) {
     const W = this.W, cam = inp.camPos || this.p, L = inp.look;
+    // a vehicle under the aim (they move, so they're checked first)
+    let bestV = null, bv = .14;
+    for (const s of W.dyn) {
+      if (s.kind !== "vehicle" && s.kind !== "train") continue;
+      const cx = s.cx ?? (s.x0 + s.x1) / 2, cz = s.cz ?? (s.z0 + s.z1) / 2, vx = cx - cam.x, vy = s.y1 - cam.y, vz = cz - cam.z, vd = Math.hypot(vx, vy, vz);
+      if (vd < 4 || vd > 80) continue;
+      const ang = Math.acos(Math.min(1, (vx * L.x + vy * L.y + vz * L.z) / vd));
+      if (ang < bv) { bv = ang; bestV = s; }
+    }
+    if (bestV) return { x: bestV.cx ?? (bestV.x0 + bestV.x1) / 2, y: bestV.y1, z: bestV.cz ?? (bestV.z0 + bestV.z1) / 2, nx: 0, nz: 0, kind: "top", dyn: bestV };
     const pr = W.perchNear(cam.x, cam.y, cam.z, L.x, L.y, L.z, 95, .16, this.p, this.perchAt);
     if (pr) return { x: pr.x, y: pr.y, z: pr.z, nx: pr.nx, nz: pr.nz, kind: "perch", perch: pr };
     const h = W.raycast(cam.x, cam.y, cam.z, L.x, L.y, L.z, 95, 2, _hit2);
@@ -707,6 +721,7 @@ export class HeroBody {
     }
     if (inp.swingDown) { const ok = this.shootSwing(inp); if (ok) { this.zip = null; this.toAir(); return; } }
     // pull towards the point, coming in over the top of a perch
+    if (z.dyn) { const c = z.dyn; z.x = c.cx ?? (c.x0 + c.x1) / 2; z.z = c.cz ?? (c.z0 + c.z1) / 2; z.y = c.y1; }
     const over = z.kind === "perch" || z.kind === "top" ? 1.4 : 0;
     const tx = z.x, ty = z.y + over + (z.kind === "perch" || z.kind === "top" ? TUNE.hip * .6 : 0), tz = z.z;
     let dx = tx - this.p.x, dy = ty - this.p.y, dz = tz - this.p.z;

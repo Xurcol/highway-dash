@@ -13,6 +13,9 @@ import { Tricks } from "./hero-tricks.js";
 import { WebLines, Particles, SpeedLines, Trails, Rings, Tracers } from "./hero-fx.js";
 import { EnemySim, EnemyView, KINDS } from "./hero-enemies.js";
 import { HeroCombat, GADGETS } from "./hero-combat.js";
+import { Crowd, Trains, Emergency, trafficSolids, WeatherClock, heroDistrict } from "./hero-life.js";
+import { Events, EVENT_TYPES } from "./hero-events.js";
+import { earn } from "./profile.js";
 import { HeroHud } from "./hero-hud.js";
 
 const V = THREE.Vector3, Q = THREE.Quaternion;
@@ -74,6 +77,14 @@ export class HeroMode {
     const W = this.world();
     this.H.W = W; this.cam.W = W;
     if (!this.sim || this.sim.W !== W) this.sim = new EnemySim(W);
+    if (!this.life || this.life.W !== W) {
+      const sc = this.ctx.scene;
+      if (this.life) { sc.remove(this.life.crowd.mesh); sc.remove(this.life.trains.group); this.life.emergency.clear(); }
+      this.life = { W, crowd: new Crowd(sc, W), trains: new Trains(sc), emergency: new Emergency(sc), weather: new WeatherClock() };
+    }
+    this.life.crowd.setVisible(true); this.life.trains.setVisible(true);
+    this.events ||= new Events(this);
+    this.carry = null;
     this.combat.hp = 1; this.combat.downT = 0;
     this.on = true;
     this.setVisible(true);
@@ -98,6 +109,8 @@ export class HeroMode {
     this.setVisible(false);
     this.enemyView?.hideAll();
     this.sim?.clear();
+    this.events?.clear();
+    if (this.life) { this.life.crowd.setVisible(false); this.life.trains.setVisible(false); this.life.emergency.clear(); this.ctx.audio.evSirens?.([]); }
     this.saveProfile();
   }
   saveProfile() {
@@ -122,7 +135,7 @@ export class HeroMode {
   // dt: simulation step (0 while paused); real: wall-clock step
   update(dt, real, T) {
     if (!this.on || !this.H) return;
-    const H = this.H, cam = this.cam, camera = this.ctx.camera;
+    const H = this.H, cam = this.cam, camera = this.ctx.camera, W = this.W;
     this.clock += dt;
     H.clock = this.clock;
     // ---- input ----
@@ -141,6 +154,12 @@ export class HeroMode {
       let bdt = dt;
       if (cb.stopT > 0) { cb.stopT -= dt; bdt = dt * .08; }
       if (cb.slowT > 0) { cb.slowT -= dt; bdt *= .4; }
+      // the moving things the body can touch this frame: traffic near the hero, the trains
+      W.dyn.length = 0;
+      if (this.ctx.city.traffic) trafficSolids(this.ctx.city.traffic, null, H.p, W.dyn);
+      this.life.trains.update(T, null, W.dyn);
+      // E next to someone in trouble picks them up (instead of zipping)
+      if (I.zip && !this.carry) { const g = this.events.grabbable(H.p); if (g) { this.grabCiv(g.e, g.c); I.zip = false; } }
       cb.pre(bdt, I);
       const sub = bdt > 1 / 45 ? 2 : 1;
       const sdt = bdt / sub;
@@ -150,8 +169,13 @@ export class HeroMode {
         for (const e of H.events) this.frameEvents.push({ ...e });
       }
       cb.post(bdt);
-      // the enemies: simulated here when this machine is in charge of them
-      if (this.authority()) { this.sim.step(dt, this.players()); this.simEvents(this.sim.events); }
+      // the enemies and the city's events: run here when this machine is in charge of them
+      if (this.authority()) {
+        const pl = this.players();
+        this.sim.step(dt, pl); this.simEvents(this.sim.events);
+        this.events.direct(dt, pl); this.events.step(dt, pl);
+      }
+      this.updateCarry(dt);
       // the fight frames the camera
       const near = cb.inCombat ? cb.near(20) : [];
       if (near.length) {
@@ -191,6 +215,109 @@ export class HeroMode {
     for (const e of this.trickEvents) this.trickSound(e);
     if (this.firstFrames > 0) this.firstFrames--;
   }
+  // after the city has moved its traffic: the life on the streets, lights, sirens, the events' look
+  afterCity(dt, T, glows, lights) {
+    if (!this.on || !this.life) return;
+    const L = this.life, city = this.ctx.city, cam = this.ctx.camera.position, sky = this.ctx.sky, H = this.H;
+    const alarm = this.events.list.some((e) => e.state === "active" && EVENT_TYPES[e.kind].crime);
+    if (city.traffic) {
+      const before = new Set(L.emergency.marked.keys());
+      L.emergency.tag(city.traffic, alarm);
+      for (const c of city.traffic.cars) if (c.ev && !before.has(c.id)) city.meshes.get(c)?.children[0]?.userData?.setColor?.(c.color);
+      this.ctx.audio.evSirens?.(L.emergency.lights(city.traffic, T, glows, cam, alarm || this.events.list.some((e) => e.kind === "chase" && e.state === "active")));
+    }
+    // officers at a scene cover the nearest robber
+    L.emergency.updateParked(dt, T, glows, this.W, (x, z) => { let b = null, bd = 30; for (const e of this.enemyList()) { if (e.hp <= 0 || e.st === "ko") continue; const d = Math.hypot(e.x - x, e.z - z); if (d < bd) { bd = d; b = e; } } return b; });
+    L.trains.update(T, glows, []);
+    // the crowd runs from fights and gunfire, and stops to watch the hero
+    const threats = [];
+    for (const e of this.events.list) if (e.state === "active" && EVENT_TYPES[e.kind].crime) threats.push({ x: e.x, z: e.z, r: 32 });
+    for (const e of this.enemyList()) if (e.alert && e.hp > 0 && e.st !== "ko") { threats.push({ x: e.x, z: e.z, r: 18 }); if (threats.length > 12) break; }
+    const show = H.state === "perch" || H.landT < 1.5 && H.landT > 0 || this.emote ? 22 : 0;
+    L.crowd.update(dt, cam, { x: H.p.x, y: H.p.y - HIP_H, z: H.p.z, show }, threats, glows, sky.night > .5);
+    this.events.draw(dt, T, glows, this.parts);
+    for (const t of this.tracerQueue || []) this.tracers.add(...t);
+    this.tracerQueue = [];
+    // the weather turns over the hours (unless the server fixed it)
+    const fixed = this.online && this.ctx.net.room?.weather;
+    const w = L.weather.update(dt, sky, fixed);
+    if (w) this.hud.center(w.toUpperCase(), "The weather is turning", 2, "small");
+  }
+  mapDots() {
+    const out = [];
+    for (const e of this.events?.list || []) if (e.state !== "done" && e.state !== "failed") out.push({ x: e.x, z: e.z, color: EVENT_TYPES[e.kind].crime ? "#ff5a3c" : "#7fe9ff" });
+    for (const r of this.remoteHeroes?.() || []) out.push({ x: r.x, z: r.z, color: r.color || "#ffffff" });
+    return out;
+  }
+  // ---- the city's events: what to say and pay ----
+  onEvent(type, e, c) {
+    const D = EVENT_TYPES[e.kind];
+    if (!D) return;
+    switch (type) {
+      case "new": if (this.on) this.ctx.ui?.toast(`${D.crime ? "Crime reported" : "Emergency"}: ${D.name}`, [], D.crime ? "warn" : "info"); break;
+      case "active": break;
+      case "stopped": this.hud.center("CAR STOPPED", "Take down the crew", 1.6, "small"); break;
+      case "carhit": this.sfx("thud", 1.2); this.cam.shake(.15); break;
+      case "saved": this.hud.center("RESCUED", "", 1.2, "small"); this.tricks.link("takedown", 120); break;
+      case "failed": this.hud.center(D.crime && e.kind === "chase" ? "THEY GOT AWAY" : "TOO LATE", D.name, 2, "bail"); break;
+      case "done": {
+        this.hud.center(D.crime ? "CRIME STOPPED" : "EVERYONE SAFE", `${D.name} · +${D.xp} XP · +${D.coins} coins`, 2.6);
+        this.reward?.(D.xp, D.coins, D.name);
+        this.sfx("perfect");
+        break;
+      }
+    }
+  }
+  reward(xp, coins, why) {
+    const pr = this.profile();
+    pr.xp = (pr.xp || 0) + xp;
+    while (pr.xp >= heroXpFor(pr.level || 1)) { pr.xp -= heroXpFor(pr.level || 1); pr.level = (pr.level || 1) + 1; pr.points = (pr.points || 0) + 1; this.hud.center(`LEVEL ${pr.level}`, "A skill point to spend (K)", 2.6); this.onLevel?.(pr.level); }
+    if (coins) earn(coins);
+    this.ctx.save();
+  }
+  // ---- civilians: picked up with E, carried, set down on the street ----
+  grabCiv(e, c) {
+    if (c.carried) return;
+    c.carried = this.meId(); this.carry = { e, c, still: 0 };
+    this.thwip(1);
+    this.hud.center("GOT YOU", "Bring them down to the street", 1.4, "small");
+    if (!this.authority()) this.sendWorld?.({ k: "grab", ev: e.id, civ: c.id });
+  }
+  carryPoint(c) {
+    if (!this.carry || this.carry.c.id !== c.id) return null;
+    const H = this.H;
+    return _cp.set(H.p.x + H.face.x * .45, H.p.y + .1, H.p.z + H.face.z * .45);
+  }
+  updateCarry(dt) {
+    const k = this.carry, H = this.H;
+    if (!k) { const g = this.events.grabbable(H.p); this.hud.prompt(g ? "<kbd>E</kbd> Grab" : this.H.riding?.car?.chase ? "<kbd>LMB</kbd> Hit the car" : ""); return; }
+    this.hud.prompt("Carrying - land on the street to set them down");
+    k.still = H.state === "ground" && H.speed < 2.5 ? k.still + dt : 0;
+    if (k.still > .5) {
+      const p = this.carryPoint(k.c);
+      if (this.authority()) this.events.setDown(k.e, k.c, p.x, H.p.y - HIP_H, p.z);
+      else this.sendWorld?.({ k: "setdown", ev: k.e.id, civ: k.c.id, x: p.x, y: H.p.y - HIP_H, z: p.z });
+      k.c.carried = null; this.carry = null;
+    }
+  }
+  // ---- the getaway car ----
+  carHit(s, nx, ny, nz) {
+    for (const d of this.W.dyn) {
+      const c = d.car;
+      if (!c?.chase) continue;
+      if (nx < d.x0 - .5 || nx > d.x1 + .5 || nz < d.z0 - .5 || nz > d.z1 + .5 || ny < d.y0 - .5 || ny > d.y1 + .5) continue;
+      this.parts.puff(nx, ny, nz, 10);
+      if (this.authority()) this.events.hitCar(c.id, s.kind === "impact" ? 2 : 1);
+      else this.sendWorld?.({ k: "carhit", car: c.id, n: s.kind === "impact" ? 2 : 1 });
+      return true;
+    }
+    return false;
+  }
+  punchCar(c) {
+    this.parts.sparks(this.H.p.x, this.H.p.y - .8, this.H.p.z, 10, [1, .8, .5]);
+    if (this.authority()) this.events.hitCar(c.id, 1); else this.sendWorld?.({ k: "carhit", car: c.id, n: 1 });
+  }
+
   // what main.js needs to know
   get focus() { return this.H.p; }
   get speed() { return this.H.speed; }
@@ -416,8 +543,26 @@ export class HeroMode {
     hud.update(dt, {
       speed: H.speed, alt, stateLabel: H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "",
       tricks: this.tricks, trickEvents: this.trickEvents, hp: this.combat.hp, focus: this.combat.focus, noWeb: H.noWebT,
-      gadgets: this.gadgetBar(), hits: this.combat.combo, sense: this.senseHud(),
+      gadgets: this.gadgetBar(), hits: this.combat.combo, sense: this.senseHud(), mission: hud.missionHtml || "",
     });
+    // the nearest event: the panel, and an arrow to it
+    const near = this.events?.nearest(H.p);
+    if (near) {
+      const e = near.e, D = EVENT_TYPES[e.kind];
+      const extra = e.kind === "chase" && e.state === "active" ? (e.hp > 0 ? `Car damage ${6 - e.hp}/6 · ${Math.max(0, Math.round(e.timer ?? 0))} s` : `${e.left ?? "?"} left`) : e.left != null && e.state === "active" ? `${e.left} left` : "";
+      hud.missionHtml = `<h4>${D.name}</h4><p>${D.goal}</p><p>${Math.round(near.d)} m${extra ? " · " + extra : ""}</p>`;
+      const wp = proj(e.x, e.y + 3, e.z), way = hud.$("hhWay");
+      let sx, sy;
+      if (wp) { sx = wp[0]; sy = wp[1] - 26; } else {
+        // off screen: pin it to the edge in its direction
+        const dx = e.x - H.p.x, dz = e.z - H.p.z, f = this.cam.look, rel = Math.atan2(dx, dz) - Math.atan2(f.x, f.z);
+        sx = W / 2 - Math.sin(rel) * W * .42; sy = Hh / 2 - Math.cos(rel) * Hh * .38;
+      }
+      way.hidden = false; way.classList.toggle("rescue", !D.crime);
+      way.style.transform = `translate(${sx.toFixed(0)}px,${sy.toFixed(0)}px)`;
+      const label = `${Math.round(near.d)} m`;
+      if (way.dataset.l !== label) { way.dataset.l = label; way.querySelector("b").textContent = label; }
+    } else { hud.missionHtml = ""; hud.$("hhWay").hidden = true; }
     // the target: a ring, its name and its health
     const cb = this.combat, tg = cb.target != null ? cb.byId(cb.target) : null;
     const tp = tg && cb.alive(tg) && (cb.inCombat || cb.lock) && proj(tg.x, tg.y + 1.15 * (KINDS[tg.kind]?.scale || 1), tg.z);
@@ -430,7 +575,7 @@ export class HeroMode {
       this.distT = .5;
       // street-level names, except when actually standing on the expressway deck
       const onDeck = H.state === "ground" && alt > 6 && alt < 10 && this.W.topAt(H.p.x, H.p.z, H.p.y) > 6 && Math.abs(Math.max(Math.abs(H.p.x), Math.abs(H.p.z)) - 720) < 40;
-      hud.district(this.ctx.city.district?.(H.p.x, H.p.z, onDeck ? 8 : 0));
+      hud.district(heroDistrict(this.W.M, this.W, H.p.x, onDeck ? 8 : H.p.y - HIP_H < -1 ? -5 : 0, H.p.z));
     }
   }
 
@@ -624,6 +769,9 @@ export class HeroMode {
     return { ang: -rel, t: Math.max(0, s.t), heavy: s.kind === "heavy" || s.kind === "slam" || s.kind === "shot" };
   }
 }
+const _cp = new V();
+// how much XP each hero level takes
+export const heroXpFor = (lvl) => 500 + (lvl - 1) * 250;
 // an input with the player's hands off the controls
 function idle(inp) { return { ...inp, mx: 0, mz: 0, ix: 0, iy: 0, jump: false, jumpHeld: false, sprint: false, swing: false, swingDown: false, zip: false, crouch: false, crouchDown: false, trick: false, trickDown: false, attack: false, attackHeld: false, attackDown: false, attackUp: false, dodge: false, strike: false, gadget: 0, throwObj: false, finisher: false, finisherHeld: false }; }
 const _pr = new V(), _up = new V(), _fw = new V(), _t = new V(), _t2 = new V(), _t3 = new V(), _h1 = new V(), _h2 = new V();

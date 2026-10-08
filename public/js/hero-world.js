@@ -21,6 +21,7 @@ export class HeroWorld {
     this.water = [];          // { kind: "ellipse", x, z, rx, rz, y } | { kind: "rect", x0, z0, x1, z1, y }
     this.bound = EDGE + 380;  // the hero is kept inside this square
     this.hits = [];           // scratch
+    this.dyn = [];            // moving solids (traffic, trains): rebuilt every frame, not in the grid
     this.build();
   }
 
@@ -265,22 +266,29 @@ export class HeroWorld {
     // over water there is no street: only bridges (and whatever stands in it); the bed is deep
     const wy = this.water.length ? this.waterAt(x, z) : -Infinity;
     let best = wy > -Infinity ? Math.max(wy - 3, surfaceAt(this.M, x, z, yRef)) : u && (u.open || yRef < -.3) ? surfaceAt(this.M, x, z, yRef) : heightAt(this.M, x, z, yRef);
+    this.topSolid = null;
     for (const s of this.cellList(x, z, x, z, this.hits)) {
       if (!s.solid || s.y1 > yRef + 1e-3 || s.y1 <= best) continue;
       const y = this.topOf(s, x, z);
-      if (y <= yRef + 1e-3 && y > best) best = y;
+      if (y <= yRef + 1e-3 && y > best) { best = y; this.topSolid = s; }
+    }
+    for (const s of this.dyn) {
+      if (s.y1 > yRef + 1e-3 || s.y1 <= best || x < s.x0 || x > s.x1 || z < s.z0 || z > s.z1) continue;
+      const y = this.topOf(s, x, z);
+      if (y <= yRef + 1e-3 && y > best) { best = y; this.topSolid = s; }
     }
     return best;
   }
   // the ground under a body of radius r at (x, y, z): the highest top within stepping reach below y,
   // checked at the centre and at a ring of points so the hero can stand on a ledge right to its lip
   groundUnder(x, y, z, r = .3, step = .55) {
-    let best = this.topAt(x, z, y + step);
+    let best = this.topAt(x, z, y + step), solid = this.topSolid;
     if (r > 0) for (let k = 0; k < 4; k++) {
       const a = k * Math.PI / 2 + .785, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
       const h = this.topAt(px, pz, y + step);
-      if (h > best) best = h;
+      if (h > best) { best = h; solid = this.topSolid; }
     }
+    this.underFoot = solid;
     return best;
   }
   waterAt(x, z) {
@@ -326,6 +334,11 @@ export class HeroWorld {
       if (best <= tNext || tNext > maxT) break;
       if (tx < tz) { tx += tdx; i += si; } else { tz += tdz; j += sj; }
     }
+    for (const s of this.dyn) {
+      if (opts === 1 && !s.web) continue;
+      const t = rayHit(s, ox, oy, oz, dx, dy, dz, best, _n);
+      if (t < best) { best = t; hit = s; out.nx = _n.x; out.ny = _n.y; out.nz = _n.z; }
+    }
     if (!hit) return null;
     out.t = best; out.x = ox + dx * best; out.y = oy + dy * best; out.z = oz + dz * best;
     if (hit === GROUND) { out.nx = 0; out.ny = 1; out.nz = 0; out.s = null; out.kind = "ground"; }
@@ -348,6 +361,11 @@ export class HeroWorld {
       let deepest = null, dd = 0, nx = 0, ny = 0, nz = 0;
       for (const s of this.cellList(p.x - r, p.z - r, p.x + r, p.z + r, this.hits)) {
         if (!s.solid || p.y + r < s.y0 || p.y - r > s.y1) continue;
+        const d = sphereHit(this, s, p.x, p.y, p.z, r, _n);
+        if (d > dd) { dd = d; deepest = s; nx = _n.x; ny = _n.y; nz = _n.z; }
+      }
+      for (const s of this.dyn) {
+        if (p.y + r < s.y0 || p.y - r > s.y1 || p.x + r < s.x0 || p.x - r > s.x1 || p.z + r < s.z0 || p.z - r > s.z1) continue;
         const d = sphereHit(this, s, p.x, p.y, p.z, r, _n);
         if (d > dd) { dd = d; deepest = s; nx = _n.x; ny = _n.y; nz = _n.z; }
       }

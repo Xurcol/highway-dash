@@ -130,6 +130,8 @@ export class HeroCombat {
       if (t || this.inCombat) return this.start({ kind: "air", dur: .3, hitAt: .12, target: t?.id, lunge: !!t, n: this.combo });
       return;
     }
+    // standing on a getaway car: hit the car
+    if (this.H.riding?.car?.chase) { this.start({ kind: COMBO[this.combo % COMBO.length], dur: .34, hitAt: .14, side: 1 }); this.hero.punchCar?.(this.H.riding.car); return; }
     if (this.counterT > 0 && t) { this.counterT = 0; return this.start({ kind: "roundhouse", dur: .42, hitAt: .17, target: t.id, lunge: true, counter: true }); }
     // downed enemies get a ground pound
     if (t && (t.st === "down" || t.st === "webbed")) return this.start({ kind: "slam", dur: .45, hitAt: .22, target: t.id, lunge: true, ground: true });
@@ -315,7 +317,8 @@ export class HeroCombat {
       s.t += dt; s.vy -= 3 * dt;
       const nx = s.x + s.vx * dt, ny = s.y + s.vy * dt, nz = s.z + s.vz * dt;
       let gone = s.t > 1.2;
-      for (const e of this.list) {
+      if (this.hero.carHit?.(s, nx, ny, nz)) gone = true;
+      if (!gone) for (const e of this.list) {
         if (!this.alive(e)) continue;
         const ax = e.x - s.x, ay = e.y + .2 - s.y, az = e.z - s.z, sx = nx - s.x, sy = ny - s.y, sz = nz - s.z, L2 = sx * sx + sy * sy + sz * sz;
         const k = clamp((ax * sx + ay * sy + az * sz) / (L2 || 1), 0, 1), cx = s.x + sx * k - e.x, cy = s.y + sy * k - e.y - .2, cz = s.z + sz * k - e.z;
