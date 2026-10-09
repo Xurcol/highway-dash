@@ -133,8 +133,18 @@ export class HeroMode {
   spawnPoint(i = 0) {
     const W = this.W, cands = W.perches.filter((p) => p.kind === "corner" && p.y > 45 && p.y < 110 && Math.hypot(p.x, p.z) < 260);
     cands.sort((a, b) => Math.hypot(a.x, a.z - 120) - Math.hypot(b.x, b.z - 120));
-    const p = cands[i % Math.max(1, cands.length)] || { x: 0, y: 1, z: 40, nx: 0, nz: -1 };
-    // stand a step in from the corner, facing out over the street
+    // stand a step in from the corner, facing out over the street, where the camera behind has a clear
+    // view of the hero and the hero a clear view out (no water tank or roof plant in the way)
+    const ok = (p) => {
+      const x = p.x - p.nx * 3, z = p.z - p.nz * 3, y = W.topAt(x, z, p.y + 2) + HIP_H;
+      const cx = x - p.nx * 6, cz = z - p.nz * 6, cy = y + 1.6;
+      return W.clear(cx, cy, cz, x, y + .5, z, 0, .2) && W.clear(x, y + 1.2, z, x + p.nx * 30, y + 1.2, z + p.nz * 30, 0, .5) && Math.abs(W.topAt(cx, cz, y + 1) - (y - HIP_H)) < 1.5
+        // water tank legs aren't solid, but they still block the view
+        && !W.M.waterTowers.some((t) => Math.abs(t.y + HIP_H - y) < 6 && (Math.hypot(t.x - x, t.z - z) < 7 || Math.hypot(t.x - cx, t.z - cz) < 7 || Math.hypot(t.x - (x + cx) / 2, t.z - (z + cz) / 2) < 6));
+    };
+    const good = cands.filter(ok);
+    const list = good.length ? good : cands;
+    const p = list[i % Math.max(1, list.length)] || { x: 0, y: 1, z: 40, nx: 0, nz: -1 };
     const x = p.x - p.nx * 3, z = p.z - p.nz * 3, y = W.topAt(x, z, p.y + 2);
     return { x, y: y + HIP_H, z, yaw: Math.atan2(p.nx, p.nz) };
   }

@@ -2838,6 +2838,9 @@ ui.view = P.equipped;
 ui.renderHome();
 net.connect(P.name, P.equipped);
 await loader.finish();
+// The game opens straight into ARCLINE, the hero mode. ?drive opens the car garage instead; the
+// driving modes are always in the menu as well.
+if (!new URLSearchParams(location.search).has("drive")) { P.settings.soloMode = "hero"; save(); ui.onlineSelected = false; enterReady("solo"); }
 
 window.__ui = ui;
 window.__game = {
