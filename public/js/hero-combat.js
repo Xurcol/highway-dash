@@ -36,18 +36,38 @@ export class HeroCombat {
     this.regenT = 0; this.downT = 0; this.healT = 0;
     this.slow = 1; this.slowT = 0; this.stopT = 0;
     this.kills = 0;
+    this.chain = 0; this.attackHeldT = 0; this.launchQueued = false;
+    this.dodgeCool = 0; this.hurtGrace = 0; this.perfectDodge = false;
+    this.pendingHits = [];
   }
   get H() { return this.hero.H; }
+  reset() {
+    this.dropHeld();
+    this.hp = 1; this.focus = 0; this.combo = 0; this.comboT = 0; this.chain = 0;
+    this.action = this.target = this.lock = this.buf = this.held = null;
+    this.cool.fill(0); this.ammo = 10;
+    this.dodgeT = this.dodgeCool = this.counterT = this.iframes = this.hurtGrace = 0;
+    this.regenT = this.downT = this.healT = this.stopT = this.slowT = this.attackHeldT = 0;
+    this.dodgeStart = -9; this.perfectDodge = this.launchQueued = false;
+    this.shots.length = this.bombs.length = this.traps.length = this.senses.length = this.pendingHits.length = 0;
+    this.H.combatLock = 0;
+  }
   // the enemies as they are drawn here (sim on this machine, else the host's snapshots)
   get list() { return this.hero.enemyList(); }
   alive(e) { return e && e.st !== "ko" && e.st !== "pinned" && e.hp > 0; }
   near(r = 18) { const H = this.H; return this.list.filter((e) => this.alive(e) && Math.hypot(e.x - H.p.x, e.z - H.p.z) < r && Math.abs(e.y - H.p.y) < 8); }
   get inCombat() { return this.near(22).some((e) => e.alert !== false && e.st !== "idle"); }
+  visible(e) { const p = this.H.p; return this.hero.W.clear(p.x, p.y + .25, p.z, e.x, e.y + .25, e.z, 2, .35); }
+  threatening(s) {
+    const e = this.byId(s.e);
+    return this.alive(e) && !["hit", "down", "getup", "webbed"].includes(e.st)
+      && (e.st !== "air" || s.kind === "slam") && this.dist(e) < (s.kind === "shot" ? 42 : s.kind === "slam" ? 8 : 6);
+  }
 
   // ------------------------------------------------------------------ targeting
   pickTarget(inp, range = 25) {
     const H = this.H;
-    if (this.lock && this.alive(this.byId(this.lock)) && this.dist(this.byId(this.lock)) < 32) return this.byId(this.lock);
+    if (this.lock && this.alive(this.byId(this.lock)) && this.dist(this.byId(this.lock)) < 36 && this.visible(this.byId(this.lock))) return this.byId(this.lock);
     this.lock = null;
     const m = Math.hypot(inp.mx, inp.mz);
     let px = m > .2 ? inp.mx : inp.look.x, pz = m > .2 ? inp.mz : inp.look.z;
@@ -58,7 +78,8 @@ export class HeroCombat {
       const dx = e.x - H.p.x, dz = e.z - H.p.z, d = Math.hypot(dx, dz);
       if (d > range || Math.abs(e.y - H.p.y) > 9) continue;
       const ang = Math.acos(clamp((dx * px + dz * pz) / (d || 1), -1, 1));
-      const s = ang * 3.2 + d * .14 - (e.st === "windup" ? .8 : 0) - (this.target === e.id ? .5 : 0);
+      if (d > 4 && ang > 1.8 || !this.visible(e)) continue;
+      const s = ang * 3.8 + d * .15 - (e.st === "windup" ? .8 : 0) - (this.target === e.id ? .65 : 0);
       if (s < bs) { bs = s; best = e; }
     }
     return best;
@@ -66,7 +87,7 @@ export class HeroCombat {
   byId(id) { return this.list.find((e) => e.id === id) || null; }
   dist(e) { return e ? Math.hypot(e.x - this.H.p.x, e.z - this.H.p.z) : 1e9; }
   cycleTarget(dir) {
-    const H = this.H, list = this.near(28);
+    const H = this.H, list = this.near(28).filter((e) => this.visible(e));
     if (!list.length) return;
     const ang = (e) => Math.atan2(e.x - H.p.x, e.z - H.p.z);
     list.sort((a, b) => ang(a) - ang(b));
@@ -78,10 +99,11 @@ export class HeroCombat {
   // ------------------------------------------------------------------ per frame (before the body moves)
   pre(dt, inp) {
     const H = this.H;
-    this.comboT -= dt; if (this.comboT <= 0 && this.combo) { this.bestCombo = Math.max(this.bestCombo, this.combo); this.combo = 0; }
+    this.comboT -= dt; if (this.comboT <= 0) { this.bestCombo = Math.max(this.bestCombo, this.combo); this.combo = 0; this.chain = 0; }
     for (let i = 1; i < 7; i++) this.cool[i] = Math.max(0, this.cool[i] - dt);
     this.ammo = Math.min(10, this.ammo + dt * 1.1);
     this.dodgeT = Math.max(0, this.dodgeT - dt); this.iframes = Math.max(0, this.iframes - dt); this.counterT = Math.max(0, this.counterT - dt);
+    this.dodgeCool = Math.max(0, this.dodgeCool - dt); this.hurtGrace = Math.max(0, this.hurtGrace - dt);
     if (this.downT > 0) return;
     // heal: hold the finisher key with a bar of focus
     if (inp.finisherHeld && !this.action && this.focus >= 1 && this.hp < 1) { this.healT += dt; if (this.healT > .5) { this.healT = 0; this.focus -= 1; this.hp = Math.min(1, this.hp + .45); this.hero.onCombat("heal"); } }
@@ -93,20 +115,22 @@ export class HeroCombat {
     if (inp.lockTarget) { const t = this.pickTarget(inp, 30); this.lock = this.lock ? null : t?.id || null; }
     const tgt = this.pickTarget(inp);
     this.target = tgt?.id ?? null;
-    if (inp.attackDown) this.attackHeldT = 0;
-    if (inp.attackHeld) this.attackHeldT = (this.attackHeldT || 0) + dt;
+    if (inp.attackDown) { this.attackHeldT = 0; this.launchQueued = false; }
+    if (inp.attackHeld) this.attackHeldT += dt;
     // A press in the middle of a move isn't lost: it's held for a moment and happens when the move
     // ends (that's what lets combos flow). A dodge cancels anything but another dodge.
     const press = inp.dodge ? "dodge" : inp.strike ? "strike" : inp.finisher ? "finisher" : inp.throwObj ? "throw" : inp.gadget ? "g" + inp.gadget
-      : inp.attackUp && this.attackHeldT >= 0 && this.attackHeldT < .28 ? "attack" : null;
-    if (press) this.buf = { cmd: press, t: .35, inp: { mx: inp.mx, mz: inp.mz, look: inp.look.clone(), camPos: inp.camPos.clone(), crouch: inp.crouch, ix: inp.ix, iy: inp.iy } };
+      : inp.attackDown ? "attack" : null;
+    if (press && (press !== "dodge" || this.dodgeCool <= 0)) this.buf = { cmd: press, t: .42, inp: { mx: inp.mx, mz: inp.mz, look: inp.look.clone(), camPos: inp.camPos.clone(), crouch: inp.crouch, ix: inp.ix, iy: inp.iy } };
     if (this.buf && (this.buf.t -= dt) <= 0) this.buf = null;
-    const cancel = this.buf?.cmd === "dodge" && this.action && this.action.kind !== "dodge" && this.action.kind !== "webstrike";
+    const a = this.action;
+    const cancel = a && (this.buf?.cmd === "dodge" && a.kind !== "dodge" && a.kind !== "finisher"
+      || this.buf && a.done && a.t >= a.dur * .7 && ["jab", "cross", "hook", "kick", "roundhouse", "air", "launch"].includes(a.kind));
     if (this.action && !cancel) return;
     if (cancel) { this.action = null; H.combatLock = 0; }
     const air = H.state === "air" || H.state === "swing" || H.state === "zip";
     // hold to launch (on the ground, someone in reach)
-    if (inp.attackHeld && this.attackHeldT > .28 && !air && tgt && this.dist(tgt) < 5) { this.attackHeldT = -99; this.buf = null; return this.start({ kind: "launch", dur: .45, hitAt: .2, target: tgt.id, lunge: true }); }
+    if (inp.attackHeld && this.attackHeldT > .4 && !this.launchQueued && !air && tgt && this.dist(tgt) < 6) { this.launchQueued = true; this.buf = null; return this.start({ kind: "launch", dur: .42, hitAt: .17, target: tgt.id, lunge: true }); }
     const b = this.buf;
     if (!b) return;
     this.buf = null;
@@ -114,7 +138,7 @@ export class HeroCombat {
     switch (b.cmd) {
       case "dodge": if (H.state === "ground" || this.inCombat && H.state === "air") this.dodge(I); break;
       case "strike": if (tgt && this.dist(tgt) < 34) this.start({ kind: "webstrike", dur: 2, target: tgt.id, fly: true }); else this.hero.onCombat("deny"); break;
-      case "finisher": if (tgt && this.dist(tgt) < 9 && this.focus >= 1) { this.focus -= 1; this.start({ kind: "finisher", dur: .95, target: tgt.id, hitAt: .7, lunge: true }); } else this.hero.onCombat("deny"); break;
+      case "finisher": if (tgt && this.dist(tgt) < 9 && this.focus >= 1) { this.focus -= 1; this.start({ kind: "finisher", dur: .9, target: tgt.id, hitAt: .63, lunge: true }); } else this.hero.onCombat("deny"); break;
       case "throw": this.grab(I, tgt); break;
       case "attack": this.attack(I, tgt, air); break;
       default: this.gadget(+b.cmd.slice(1), I, tgt);
@@ -122,7 +146,7 @@ export class HeroCombat {
   }
   attack(inp, tgt, air) {
     const H = this.H;
-    const reach = air ? 9 : 7.5;
+    const reach = air ? 10 : 9;
     const t = tgt && this.dist(tgt) < reach && Math.abs(tgt.y - H.p.y) < (air ? 6 : 2.5) ? tgt : null;
     if (air) {
       // diving in with the crouch held: a slam into the ground below
@@ -135,18 +159,28 @@ export class HeroCombat {
     if (this.counterT > 0 && t) { this.counterT = 0; return this.start({ kind: "roundhouse", dur: .42, hitAt: .17, target: t.id, lunge: true, counter: true }); }
     // downed enemies get a ground pound
     if (t && (t.st === "down" || t.st === "webbed")) return this.start({ kind: "slam", dur: .45, hitAt: .22, target: t.id, lunge: true, ground: true });
-    const kind = COMBO[this.combo % COMBO.length];
-    this.start({ kind, dur: kind === "roundhouse" ? .44 : kind === "kick" ? .38 : .32, hitAt: kind === "roundhouse" ? .18 : .13, target: t?.id, lunge: !!t });
+    const kind = COMBO[this.chain % COMBO.length];
+    this.start({ kind, dur: kind === "roundhouse" ? .42 : kind === "kick" ? .34 : .29, hitAt: kind === "roundhouse" ? .17 : .11, target: t?.id, lunge: !!t });
   }
   start(a) {
     const H = this.H;
     a.t = 0; a.done = false; a.side = this.side = -(this.side || 1);
     this.action = a;
     H.combatLock = a.dur;
+    if (a.target && (H.state === "swing" || H.state === "zip")) { H.releaseWebs("combat"); H.zip = null; H.toAir(); }
     const tg = a.target ? this.byId(a.target) : null;
-    if (tg) { const dx = tg.x - H.p.x, dz = tg.z - H.p.z, d = Math.hypot(dx, dz) || 1; H.face.set(dx / d, 0, dz / d); a.dist0 = d; }
-    if (a.kind === "launch" || a.kind === "air" || a.kind === "slam" || a.kind === "finisher") this.hero.onCombat("swing", a);
-    else this.hero.onCombat("swing", a);
+    if (tg) {
+      const dx = tg.x - H.p.x, dz = tg.z - H.p.z, d = Math.hypot(dx, dz) || 1;
+      H.face.set(dx / d, 0, dz / d); a.dist0 = d;
+      if (a.lunge && a.hitAt < a.dur) {
+        // Keep nearby punches quick, but let the body cross a real gap before checking the hit.
+        const standOff = (KINDS[tg.kind]?.r || .4) + 1.05;
+        const travel = clamp((d - standOff) / 26 - a.hitAt + .025, 0, .24);
+        a.hitAt += travel; a.dur += travel;
+        H.combatLock = a.dur;
+      }
+    }
+    this.hero.onCombat("swing", a);
   }
   dodge(inp) {
     const H = this.H;
@@ -158,18 +192,34 @@ export class HeroCombat {
     }
     const L = Math.hypot(dx, dz) || 1;
     H.v.x = dx / L * 14; H.v.z = dz / L * 14; if (H.state === "air") H.v.y = Math.max(H.v.y, 3);
-    this.dodgeT = .4; this.iframes = .38; this.dodgeStart = this.hero.clock;
+    this.dodgeT = .38; this.iframes = .31; this.dodgeCool = .47; this.dodgeStart = this.hero.clock; this.perfectDodge = false;
     const side = Math.sign(dx * H.face.z - dz * H.face.x) || 1;
     this.action = { kind: "dodge", t: 0, dur: .38, dir: side };
     H.combatLock = .3;
     this.hero.onCombat("dodge");
+    // Reward the timing even when moving clear makes the warned attack miss completely.
+    if (this.senses.some((s) => s.t >= -.04 && s.t <= .22 && this.threatening(s))) this.perfect("sense");
+  }
+  perfect(kind) {
+    if (this.perfectDodge) return;
+    this.perfectDodge = true;
+    this.focus = Math.min(3, this.focus + .35 * (this.focusK || 1));
+    this.counterT = 1.6; this.slowT = .32; this.comboT = Math.max(this.comboT, 2.8);
+    this.hero.onCombat("perfect", { kind });
   }
 
   // ------------------------------------------------------------------ after the body has moved
   post(dt) {
     const H = this.H, a = this.action;
     this.updateShots(dt); this.updateBombs(dt); this.updateTraps(dt); this.updateHeld(dt);
-    this.senses = this.senses.filter((s) => (s.t -= dt) > -.3);
+    this.senses = this.senses.filter((s) => (s.t -= dt) > -.18 && this.threatening(s)).sort((a, b) => a.t - b.t);
+    for (let i = this.pendingHits.length - 1; i >= 0; i--) {
+      const h = this.pendingHits[i];
+      if ((h.t -= dt) > 0) continue;
+      this.pendingHits.splice(i, 1);
+      const e = this.byId(h.id);
+      if (this.downT <= 0 && this.alive(e) && this.visible(e)) this.applyHit(e, h.hit);
+    }
     if (!a) return;
     a.t += dt;
     const tg = a.target ? this.byId(a.target) : null;
@@ -211,7 +261,7 @@ export class HeroCombat {
       const dx = e.x - H.p.x, dz = e.z - H.p.z, d = Math.hypot(dx, dz), dy = Math.abs(e.y - H.p.y);
       const front = (dx * f.x + dz * f.z) / (d || 1);
       const isT = tg && e.id === tg.id;
-      if (dy > 2.2 || d > reach + (isT ? .6 : 0)) continue;
+      if (dy > 2.5 || d > reach + (isT ? .7 : 0) || !this.visible(e)) continue;
       if (!isT && (front < (a.kind === "roundhouse" ? -.2 : .5) || a.kind === "finisher")) continue;
       hits.push(e);
     }
@@ -220,7 +270,8 @@ export class HeroCombat {
       const dx = e.x - H.p.x, dz = e.z - H.p.z, d = Math.hypot(dx, dz) || 1;
       this.applyHit(e, { dmg: e === tg || !tg ? dmg : dmg * .6, kind: a.kind, kx: dx / d, kz: dz / d, ...opts, finisher: a.kind === "finisher" });
     }
-    this.combo += hits.length; this.comboT = 2.2;
+    this.combo += hits.length; this.comboT = 3; this.chain++;
+    this.bestCombo = Math.max(this.bestCombo, this.combo);
     this.focus = Math.min(3, this.focus + (.07 * hits.length + (a.counter ? .3 : 0)) * (this.focusK || 1));
     // launching: jump after them
     if (a.kind === "launch") { a.follow = true; H.v.y = 12.5; H.toAir(); H.combatLock = .25; }
@@ -237,14 +288,14 @@ export class HeroCombat {
     for (const e of this.list) {
       if (!this.alive(e)) continue;
       const dx = e.x - x, dz = e.z - z, d = Math.hypot(dx, dz);
-      if (d < r && Math.abs(e.y - y) < 3) this.applyHit(e, { dmg: dmg * (1 - d / r * .5), kind: "slam", kx: dx / (d || 1), kz: dz / (d || 1), heavy: true, ...o, slam: false });
+      if (d < r && Math.abs(e.y - y) < 3 && this.hero.W.clear(x, y + .3, z, e.x, e.y + .3, e.z, 2, .25)) this.applyHit(e, { dmg: dmg * (1 - d / r * .5), kind: "slam", kx: dx / (d || 1), kz: dz / (d || 1), heavy: true, ...o, slam: false });
     }
   }
   webStrike(dt, a, tg) {
     const H = this.H;
-    if (!tg || !this.alive(tg)) { this.action = null; H.combatLock = 0; return; }
+    if (!tg || !this.alive(tg) || !this.visible(tg)) { this.action = null; H.combatLock = 0; return; }
     if (a.t < .05) { this.hero.onCombat("line", { to: new V(tg.x, tg.y + .3, tg.z), side: 1 }); return; }
-    const dx = tg.x - H.p.x, dy = tg.y + .2 - H.p.y, dz = tg.z - H.p.z, d = Math.hypot(dx, dy, dz);
+    const dx = tg.x - H.p.x, dy = tg.y + .2 - H.p.y, dz = tg.z - H.p.z, d = Math.hypot(dx, dy, dz) || .001;
     H.v.set(dx / d * 34, dy / d * 34 + 2, dz / d * 34);
     if (H.state !== "air") H.toAir();
     H.face.set(dx, 0, dz).normalize();
@@ -279,11 +330,9 @@ export class HeroCombat {
         if (!tgt || this.dist(tgt) > 30) return this.hero.onCombat("deny");
         this.cool[n] = G.cool * (this.coolK || 1);
         this.hero.onCombat("line", { to: new V(tgt.x, tgt.y + .3, tgt.z), side, yank: true });
-        const e = tgt;
-        setTimeout(() => {
-          if (G.id === "pull") this.applyHit(e, e.weapon ? { disarm: true, kind: "pull", dmg: 2 } : { pull: true, x: H.p.x, z: H.p.z, kind: "pull", dmg: 4 });
-          else this.applyHit(e, { launch: 12, dmg: 6, kind: "launch", kx: 0, kz: 0 });
-        }, 120);
+        const hit = G.id === "pull" ? tgt.weapon ? { disarm: true, kind: "pull", dmg: 2 } : { pull: true, x: H.p.x, z: H.p.z, kind: "pull", dmg: 4 }
+          : { launch: 12, dmg: 6, kind: "launch", kx: 0, kz: 0 };
+        this.pendingHits.push({ id: tgt.id, t: .12, hit });
         break;
       }
       case "bomb": {
@@ -322,7 +371,7 @@ export class HeroCombat {
         if (!this.alive(e)) continue;
         const ax = e.x - s.x, ay = e.y + .2 - s.y, az = e.z - s.z, sx = nx - s.x, sy = ny - s.y, sz = nz - s.z, L2 = sx * sx + sy * sy + sz * sz;
         const k = clamp((ax * sx + ay * sy + az * sz) / (L2 || 1), 0, 1), cx = s.x + sx * k - e.x, cy = s.y + sy * k - e.y - .2, cz = s.z + sz * k - e.z;
-        if (cx * cx + cy * cy + cz * cz < .75 * .75) {
+        if (cx * cx + cy * cy + cz * cz < .75 * .75 && this.hero.W.clear(s.x, s.y, s.z, e.x, e.y + .2, e.z, 2, .05)) {
           const sp = Math.hypot(s.vx, s.vz) || 1;
           if (s.kind === "shot") this.applyHit(e, { web: .34, dmg: 2, kind: "webshot", kx: s.vx / sp, kz: s.vz / sp, knock: 1 });
           else this.applyHit(e, { web: .65, dmg: 14, kind: "impact", kx: s.vx / sp, kz: s.vz / sp, heavy: true, knock: 13 });
@@ -406,22 +455,34 @@ export class HeroCombat {
       this.hero.onCombat("throw");
     }
   }
+  dropHeld() {
+    if (this.held?.prop) {
+      const p = this.hero.propList().find((e) => e.id === this.held.prop);
+      if (p) { p.held = null; p.rest = false; p.vx = p.vz = 0; p.vy = -1; }
+    }
+    this.held = null;
+    if (this.hero.lines) this.hero.lines = this.hero.lines.filter((l) => !l.hold);
+  }
 
   // ------------------------------------------------------------------ being hit
   // dmg in hit points (the hero has 100); k: direction it came from
   takeHit(dmg, kx, kz, heavy, kind, fromId) {
     const H = this.H;
     if (this.downT > 0) return "down";
+    if (this.hurtGrace > 0 || this.action?.kind === "finisher") return "dodged";
     // dodging through it
     if (this.iframes > 0) {
-      const perfect = this.hero.clock - this.dodgeStart < .3;
-      if (perfect) { this.focus = Math.min(3, this.focus + .4 * (this.focusK || 1)); this.counterT = 1.2; this.slowT = .5; }
-      this.hero.onCombat(perfect ? "perfect" : "dodged", { kind });
+      const perfect = this.hero.clock - this.dodgeStart < .18;
+      if (perfect) this.perfect(kind);
+      else this.hero.onCombat("dodged", { kind });
       return "dodged";
     }
     this.hp -= dmg / 100 * (this.armorK || 1);
-    this.combo = 0; this.regenT = 0;
-    H.v.x += kx * (heavy ? 10 : 4); H.v.z += kz * (heavy ? 10 : 4);
+    this.bestCombo = Math.max(this.bestCombo, this.combo);
+    this.combo = 0; this.chain = 0; this.regenT = 0; this.hurtGrace = heavy ? .7 : .48; this.buf = null;
+    this.dropHeld();
+    const kl = Math.hypot(kx, kz) || 1;
+    H.v.x += kx / kl * (heavy ? 10 : 4); H.v.z += kz / kl * (heavy ? 10 : 4);
     if (heavy && H.state === "ground") { H.v.y = 5; H.toAir(); }
     if (H.state === "swing" && heavy) H.releaseWebs("hit");
     this.action = { kind: "hit", t: 0, dur: heavy ? .5 : .3, hitAt: 99 };
@@ -431,7 +492,7 @@ export class HeroCombat {
     return "hit";
   }
   // an incoming attack has started: the sense lets the player know
-  sense(e, t, kind) { this.senses.unshift({ e: e.id, t, kind }); this.hero.onCombat("sense", { e, kind }); }
+  sense(e, t, kind) { this.senses = this.senses.filter((s) => s.e !== e.id); this.senses.push({ e: e.id, t, kind }); this.senses.sort((a, b) => a.t - b.t); this.hero.onCombat("sense", { e, kind }); }
   // the pose the rig should show for the current action
   attackPose() {
     const a = this.action;
@@ -439,10 +500,11 @@ export class HeroCombat {
     if (a.kind === "webstrike") return { kind: "kick", k: .5, side: 1 };
     if (a.kind === "slam" && a.slamDown) return { kind: "slam", k: .4 };
     const k = clamp(a.t / a.dur, 0, 1);
-    if (a.kind === "air") return { kind: "air", k, side: a.side, n: a.n || 0 };
-    if (a.kind === "launch") return { kind: "uppercut", k, side: a.side };
+    const impact = a.hitAt < a.dur ? clamp(a.hitAt / a.dur, .15, .85) : undefined;
+    if (a.kind === "air") return { kind: "air", k, side: a.side, n: a.n || 0, impact };
+    if (a.kind === "launch") return { kind: "uppercut", k, side: a.side, impact };
     if (a.kind === "finisher") return { kind: ["hook", "kick", "uppercut", "roundhouse"][Math.min(3, Math.floor(k * 4))], k: (k * 4) % 1, side: a.side };
-    return { kind: a.kind, k, side: a.side, dir: a.dir };
+    return { kind: a.kind, k, side: a.side, dir: a.dir, impact };
   }
 }
 const _h = {};

@@ -24,7 +24,7 @@ import { HeroHud } from "./hero-hud.js";
 const V = THREE.Vector3, Q = THREE.Quaternion;
 const UP = new V(0, 1, 0);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-const STATE_LABEL = { swing: "SWINGING", zip: "WEB ZIP", wall: "WALL", ledge: "LEDGE", perch: "PERCHED", water: "SWIMMING" };
+const STATE_LABEL = { ground: "ON FOOT", air: "AIRBORNE", swing: "SWINGING", zip: "WEB ZIP", wall: "WALL", ledge: "LEDGE", perch: "PERCHED", water: "SWIMMING" };
 
 export class HeroMode {
   constructor(ctx) {
@@ -93,20 +93,23 @@ export class HeroMode {
     this.carry = null;
     this.online = !!opt.online;
     this.progress.apply();
-    this.combat.hp = 1; this.combat.downT = 0;
+    this.combat.reset();
     this.on = true;
     this.setVisible(true);
     this.input.activate(true);
     this.hud.show(true);
     const sp = opt.spawn || this.spawnPoint(opt.index || 0);
     this.H.reset(sp.x, sp.y, sp.z);
+    this.prevV = null; this.prevHeading = undefined; this.emote = null;
+    this.anchorPreview = null; this.zipPreview = null; this.previewT = 0;
+    this.lastWebs = []; this.lines.length = 0; this.shootFlash = 0; this.dashT = 0;
     this.H.face.set(Math.sin(sp.yaw || 0), 0, Math.cos(sp.yaw || 0));
     this.H.state = sp.perch ? "perch" : "ground";
     this.cam.yaw = Math.atan2(-this.H.face.x, -this.H.face.z); this.cam.pitch = -.1; this.cam.snapNext = true;
     this.rig.place(this.H.p, UP, this.H.face, null, 0, 0);
     this.tricks.score = this.profile().score || 0;
     this.tricks.best = this.profile().best || 0;
-    this.hud.center("NEW MERIDIAN", "Hold right mouse to swing · H for controls", 3.4);
+    this.hud.center("NEW MERIDIAN", "Hold right mouse to swing · Space launches · K opens activities", 3.4);
     this.firstFrames = 3;
   }
   exit() {
@@ -156,9 +159,10 @@ export class HeroMode {
     if (!this.on || !this.H) return;
     const H = this.H, cam = this.cam, camera = this.ctx.camera, W = this.W;
     this.clock += dt;
+    this.frameDt = dt;
     H.clock = this.clock;
     // ---- input ----
-    const look = cam.look, inp = this.input.read(cam.yaw, look, camera.position);
+    const look = cam.look, inp = this.input.read(cam.yaw, look, camera.position, real);
     if (dt <= 0) { inp.mdx = inp.mdy = 0; }
     if (inp.help) this.hud.toggleKeys();
     if (inp.activities) this.activities.toggleMenu();
@@ -182,7 +186,8 @@ export class HeroMode {
       // E next to someone in trouble picks them up (instead of zipping)
       if (I.zip && !this.carry) { const g = this.events.grabbable(H.p); if (g) { this.grabCiv(g.e, g.c); I.zip = false; } }
       cb.pre(bdt, I);
-      const sub = bdt > 1 / 45 ? 2 : 1;
+      // Small traversal steps keep rope catches, collision response and jumps consistent at low frame rates.
+      const sub = Math.min(8, Math.max(1, Math.ceil(bdt * 120)));
       const sdt = bdt / sub;
       this.frameEvents = [];
       for (let k = 0; k < sub; k++) {
@@ -193,7 +198,8 @@ export class HeroMode {
       // the enemies and the city's events: run here when this machine is in charge of them
       if (this.authority()) {
         const pl = this.players();
-        this.sim.step(dt, pl); this.simEvents(this.sim.events);
+        // Solo bullet time slows the whole fight; online rooms retain the host's shared world clock.
+        this.sim.step(this.online ? dt : bdt, pl); this.simEvents(this.sim.events);
         this.events.direct(dt, pl); this.events.step(dt, pl);
       }
       this.updateCarry(dt);
@@ -230,7 +236,7 @@ export class HeroMode {
     this.tracers.update(dt);
     // ---- effects ----
     this.drawWebs(real);
-    this.trailsUpdate();
+    this.trailsUpdate(dt);
     this.parts.update(dt, this.ctx.renderer.domElement.height);
     this.speedLines.update(real, camera.position, H.v);
     this.rings.update(dt);
@@ -426,7 +432,9 @@ export class HeroMode {
     a.state = H.state; a.speed = H.speed; a.hs = hs; a.vy = H.v.y; a.slide = H.slideT; a.roll = H.rollT; a.hard = H.hardT; a.landT = H.landT;
     a.crouch = inp.crouch && H.state === "ground" && hs < 5; a.dive = H.dive; a.glide = H.glide; a.dash = H.dashUsed && H.state === "air" && this.dashT > 0 ? 1 : 0;
     a.move = H.move; a.wallMode = H.wallMode; a.trick = this.tricks.shape();
-    a.turn = 0;
+    a.turn = clamp(H.turnRate || 0, -1, 1);
+    a.combat = this.combat.inCombat;
+    a.releaseT = H.releaseT; a.releaseQuality = H.releaseQuality;
     if (H.state === "wall") { const r = _t.set(-H.n.z, 0, H.n.x); a.wallMove = { x: H.v.dot(r), y: H.v.y }; }
     // the arm holding a line points at its anchor; the swing's phase decides the legs
     a.anchorLocal = null; a.anchor2Local = null; a.swingSide = H.webs[0]?.side || H.lastSide;
@@ -497,12 +505,12 @@ export class HeroMode {
     }
     this.webs.end(dt);
   }
-  trailsUpdate() {
-    const H = this.H, rig = this.rig, on = this.tricks.active ? 1 : H.speed > 38 ? .45 : 0;
+  trailsUpdate(dt) {
+    const H = this.H, rig = this.rig, on = this.tricks.active ? 1 : H.state === "swing" && H.speed > 25 ? .3 : H.speed > 38 ? .45 : 0;
     const col = this.webCol;
     rig.mesh.updateMatrixWorld(true);
     ["handL", "handR", "footL", "footR"].forEach((b, i) => this.trails.push(i, rig.bonePos(b, _h2), on, col));
-    this.trails.update(this.ctx.camera.position);
+    this.trails.update(this.ctx.camera.position, dt);
   }
 
   // ------------------------------------------------------------------ events -> effects and sound
@@ -538,7 +546,7 @@ export class HeroMode {
         case "bound": this.hud.center("EDGE OF THE CITY", "Turn back", 1.5, "small"); break;
       }
     }
-    this.dashT = Math.max(0, (this.dashT || 0) - .016);
+    this.dashT = Math.max(0, (this.dashT || 0) - (this.frameDt || 0));
   }
   dropWebs() {
     const rig = this.rig;
@@ -554,7 +562,7 @@ export class HeroMode {
     const H = this.H, hud = this.hud, cam = this.ctx.camera;
     if (H.webs.length) this.noteWebs();
     // where would a swing line go? (a ghost marker, refreshed a few times a second)
-    if ((this.previewT -= dt) <= 0 && H.state !== "swing") {
+    if ((this.previewT -= dt) <= 0) {
       this.previewT = .12;
       this.anchorPreview = H.state === "air" || H.state === "ground" || H.state === "wall" || H.state === "perch" ? H.findAnchor({ ...inp, look: this.cam.look }) : null;
       this.zipPreview = H.zipTarget({ ...inp, look: this.cam.look, camPos: cam.position });
@@ -568,6 +576,8 @@ export class HeroMode {
     const alt = H.p.y - HIP_H;
     hud.update(dt, {
       speed: H.speed, alt, stateLabel: H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "",
+      level: this.profile().level || 1, suit: SUITS[this.suitId].name,
+      traversal: this.traversalHint(inp), releaseReady: this.releaseReady(), anchorReady: !!this.anchorPreview,
       tricks: this.tricks, trickEvents: this.trickEvents, hp: this.combat.hp, focus: this.combat.focus, noWeb: H.noWebT,
       gadgets: this.gadgetBar(), hits: this.combat.combo, sense: this.senseHud(), mission: hud.missionHtml || "", race: this.activities.raceHtml || "",
     });
@@ -612,6 +622,29 @@ export class HeroMode {
       const onDeck = H.state === "ground" && alt > 6 && alt < 10 && this.W.topAt(H.p.x, H.p.z, H.p.y) > 6 && Math.abs(Math.max(Math.abs(H.p.x), Math.abs(H.p.z)) - 720) < 40;
       hud.district(heroDistrict(this.W.M, this.W, H.p.x, onDeck ? 8 : H.p.y - HIP_H < -1 ? -5 : 0, H.p.z));
     }
+  }
+
+  releaseReady() {
+    const H = this.H, P = H.webs[0]?.pivot();
+    if (H.state !== "swing" || !P || H.speed <= 22 || H.v.y <= 0) return false;
+    const dx = H.p.x - P.x, dy = H.p.y - P.y, dz = H.p.z - P.z;
+    const angle = Math.acos(clamp(-dy / Math.max(.01, Math.hypot(dx, dy, dz)), -1, 1));
+    return dx * H.v.x + dz * H.v.z > 0 && angle > .75 && angle < 1.25;
+  }
+  traversalHint(inp) {
+    const H = this.H, cb = this.combat, pad = inp.pad;
+    const jump = pad ? "A" : "Space", swing = pad ? "RT" : "Right mouse", zip = pad ? "LB" : "E";
+    if (cb.downT > 0) return "Recovering";
+    if (cb.senses.length) return `${pad ? "LT" : "Q"} · Dodge the incoming attack`;
+    if (cb.inCombat) return cb.focus >= 1 ? `${pad ? "X" : "Left mouse"} · Combo   ${pad ? "Y" : "R"} · Web strike` : `${pad ? "X" : "Left mouse"} · Attack   ${pad ? "LT" : "Q"} · Dodge`;
+    if (H.state === "swing") return this.releaseReady() ? `${jump} · Perfect launch now` : `${jump} · Launch   WASD / stick · Steer`;
+    if (H.state === "zip") return `${jump} · Time a point launch on arrival`;
+    if (H.state === "wall") return `${pad ? "L3" : "Shift"} · Run up   ${jump} · Wall jump`;
+    if (H.state === "water") return `${jump} · Jump out   ${swing} · Swing away`;
+    if (H.dive) return `${swing} · Catch a line and carry your speed`;
+    if (H.glide) return `${pad ? "B" : "Ctrl"} · Dive   ${swing} · Swing`;
+    if (H.state === "air") return `${swing} · Swing   ${zip} · Zip   ${pad ? "B" : "Ctrl"} · Dive`;
+    return `${swing} · Swing   ${jump} · Jump   ${pad ? "L3" : "Shift"} · Parkour`;
   }
 
   // ------------------------------------------------------------------ sound
@@ -761,8 +794,13 @@ export class HeroMode {
     const H = this.H, W = this.W;
     let best = null, bd = 1e9;
     for (const p of W.perches) { if (p.kind !== "corner" || p.y < 25 || p.y > 140) continue; const d = Math.hypot(p.x - H.p.x, p.z - H.p.z); if (d > 60 && d < bd) { bd = d; best = p; } }
-    if (best) { const x = best.x - best.nx * 2.5, z = best.z - best.nz * 2.5; H.reset(x, W.topAt(x, z, best.y + 2) + HIP_H, z); H.state = "ground"; }
-    this.combat.hp = 1; this.combat.focus = 0;
+    if (best) { const x = best.x - best.nx * 2.5, z = best.z - best.nz * 2.5; H.reset(x, W.topAt(x, z, best.y + 2) + HIP_H, z); }
+    else { const sp = this.spawnPoint(); H.reset(sp.x, sp.y, sp.z); }
+    H.state = "ground";
+    this.combat.reset();
+    this.prevV = null; this.prevHeading = undefined; this.emote = null;
+    this.lastWebs = []; this.lines.length = 0; this.shootFlash = 0; this.dashT = 0;
+    this.anchorPreview = null; this.zipPreview = null; this.previewT = 0; this.firstFrames = 3;
     this.cam.snapNext = true;
     this.hud.center("BACK ON YOUR FEET", "", 1.6, "small");
   }

@@ -12,9 +12,9 @@ export const TUNE = {
   g: 22, r: .42, hip: .98,
   walk: 4, run: 9.5, sprint: 15.5, sprintMax: 21, sprintRamp: 1.8,
   accel: 58, brake: 42, airAccel: 11, airMax: 14, airSteer: 1.5,
-  jumpV: 9.8, superJumpV: 25, coyote: .13, stepUp: .55,
+  jumpV: 10.5, superJumpV: 26, coyote: .16, jumpBuffer: .18, stepUp: .55,
   drag: .0011, diveDrag: .00042, diveG: 17, maxFall: 85,
-  swingMax: 46, swingPump: 9, swingSteer: 16, webRange: 110, webSpeed: 700, swingG: 24,
+  swingMax: 52, swingPump: 12, swingSteer: 18, webRange: 110, webSpeed: 700, swingG: 24,
   releaseBoost: 4, swingJumpV: 8,
   wallRun: 16, wallCrawl: 4.2, wallAccel: 45,
   zipSpeed: 60, launchFwd: 26, launchUp: 15.5,
@@ -59,7 +59,8 @@ export class HeroBody {
     this.wallMode = "crawl"; this.wallT = 0; this.ceiling = false; this.lastSide = 1; this.noWebT = 0;
     this.launchWindow = 0; this.perchAt = null; this.jumpBuf = 0; this.grounded = false; this.skim = 0;
     this.speed = 0; this.height = 0; this.fallStart = y; this.lastWall = null; this.wallCool = 0; this.combatLock = 0;
-    this.webCool = 0;
+    this.webCool = 0; this.chainCool = 0; this.releaseT = Infinity; this.releaseQuality = 0;
+    this.turnRate = 0; this.impactVy = 0; this.cor = null; this.corT = 0;
   }
   ev(type, o = {}) { o.type = type; this.events.push(o); return o; }
   setState(s) { if (s !== this.state) { this.prevState = this.state; this.state = s; this.stateT = 0; } }
@@ -69,18 +70,23 @@ export class HeroBody {
   //        swing (held), swingDown, swingUp, zip, crouch, crouchDown, dodge }
   step(dt, inp) {
     this.events.length = 0;
+    if (!(dt > 0)) return;
+    const heading = Math.atan2(this.v.x, this.v.z), wasMoving = Math.hypot(this.v.x, this.v.z) > 3;
     this.prevP.copy(this.p);
+    this.impactVy = 0;
     this.stateT += dt;
     this.webCool = Math.max(0, this.webCool - dt);
+    this.chainCool = Math.max(0, this.chainCool - dt);
+    this.releaseT += dt;
     this.wallCool = Math.max(0, this.wallCool - dt);
     this.noWebT = Math.max(0, this.noWebT - dt);
     this.combatLock = Math.max(0, this.combatLock - dt);
-    this.jumpBuf = inp.jump ? .14 : Math.max(0, this.jumpBuf - dt);
+    this.jumpBuf = inp.jump ? TUNE.jumpBuffer : Math.max(0, this.jumpBuf - dt);
     this.landT += dt; this.hardT = Math.max(0, this.hardT - dt); this.rollT = Math.max(0, this.rollT - dt);
     this.launchWindow = Math.max(0, this.launchWindow - dt);
     this.updateShots(dt, inp);
-    if (this.move) return this.stepMove(dt, inp);
-    switch (this.state) {
+    if (this.move) this.stepMove(dt, inp);
+    else switch (this.state) {
       case "ground": this.ground(dt, inp); break;
       case "air": this.air(dt, inp); break;
       case "swing": this.swing(dt, inp); break;
@@ -92,6 +98,8 @@ export class HeroBody {
     }
     this.keepInBounds();
     this.speed = this.v.length();
+    const turning = wasMoving && Math.hypot(this.v.x, this.v.z) > 3 ? clamp(wrapA(Math.atan2(this.v.x, this.v.z) - heading) / dt, -5, 5) : 0;
+    this.turnRate += (turning - this.turnRate) * (1 - Math.exp(-dt * 8));
   }
 
   // ------------------------------------------------------------------ helpers
@@ -126,6 +134,8 @@ export class HeroBody {
   contact(c, C) {
     const vn = this.v.x * c.nx + this.v.y * c.ny + this.v.z * c.nz;
     c.vn = vn;
+    // Keep the impact speed before collision response removes it, so landing feedback matches the fall.
+    if (c.ny > .5 && vn < 0) this.impactVy = Math.min(this.impactVy, this.v.y);
     if (vn < 0) { this.v.x -= c.nx * vn; this.v.y -= c.ny * vn; this.v.z -= c.nz * vn; }
     if (C.length < 8) C.push({ nx: c.nx, ny: c.ny, nz: c.nz, s: c.s, vn });
   }
@@ -163,6 +173,15 @@ export class HeroBody {
       // a punch, a lunge, a dodge: the fight moves the body; it slows on the ground by itself
       const k = Math.exp(-dt * 4);
       this.v.x *= k; this.v.z *= k;
+    } else if (this.rollT > 0) {
+      // A running landing rolls through its momentum instead of braking to jogging speed immediately.
+      const k = Math.exp(-dt * 1.2);
+      this.v.x *= k; this.v.z *= k;
+      if (m > .1 && hs > 1) {
+        const a = Math.atan2(this.v.x, this.v.z), d = clamp(wrapA(Math.atan2(md.x, md.z) - a), -2 * dt, 2 * dt);
+        this.v.x = Math.sin(a + d) * hs * k; this.v.z = Math.cos(a + d) * hs * k;
+      }
+      this.turnFace(this.v.x, this.v.z, 10, dt);
     } else if (this.slideT > 0) {
       // sliding: little friction, a little steering, a jump out of it carries extra speed
       this.slideT -= dt;
@@ -280,11 +299,12 @@ export class HeroBody {
     const hAbove = this.heightAbove();
     // dive: head first, heavier and slicker
     const wasDive = this.dive;
+    if (inp.crouch) this.glide = false;
     this.dive = inp.crouch && this.airT > .12 && hAbove > 5 && !this.glide;
     if (this.dive && !wasDive) { this.diveT = 0; this.ev("dive"); }
     if (this.dive) this.diveT += dt;
     // web wings: hold jump while falling
-    if (!this.glide && inp.jumpHeld && this.v.y < -4 && this.airT > .3 && hAbove > 6 && this.jumpBuf <= 0) { this.glide = true; this.ev("glide"); }
+    if (!this.glide && !inp.crouch && inp.jumpHeld && this.v.y < -4 && this.airT > .3 && hAbove > 6 && this.jumpBuf <= 0) { this.glide = true; this.ev("glide"); }
     if (this.glide && (!inp.jumpHeld || hAbove < 1.5)) this.glide = false;
     // air dash
     if (inp.dodge && (this.dashN || 0) < (this.dashes || 1) && this.combatLock <= 0) {
@@ -312,8 +332,9 @@ export class HeroBody {
       let g = T.g + (this.dive ? T.diveG : 0);
       // pulling out of a dive: speed turns forward instead of down
       if (wasDive && !this.dive && this.v.y < -20 && m > .1) {
-        const s = this.v.length(), hsn = Math.max(1, Math.hypot(this.v.x, this.v.z));
-        this.v.set(this.v.x / hsn * s * .78, this.v.y * .35, this.v.z / hsn * s * .78);
+        const s = this.v.length(), hsn = Math.hypot(this.v.x, this.v.z);
+        const dx = hsn > .5 ? this.v.x / hsn : md.x, dz = hsn > .5 ? this.v.z / hsn : md.z;
+        this.v.set(dx * s * .78, this.v.y * .35, dz * s * .78);
         this.ev("pullup");
       }
       this.v.y -= g * dt;
@@ -356,7 +377,7 @@ export class HeroBody {
     return false;
   }
   land(fy, inp) {
-    const T = TUNE, vy = this.v.y, hs = Math.hypot(this.v.x, this.v.z), fall = this.fallStart - this.p.y;
+    const T = TUNE, vy = Math.min(this.v.y, this.impactVy), hs = Math.hypot(this.v.x, this.v.z), fall = this.fallStart - this.p.y;
     this.p.y = fy + T.hip; this.groundY = fy;
     const md = this.moveDir(inp, _e), fwd = md.x * this.v.x + md.z * this.v.z > 0;
     let kind = "soft";
@@ -377,7 +398,9 @@ export class HeroBody {
       this.ev("nozip");
     }
     // Holding the swing button keeps swinging: past the top of each arc the next line goes out by itself.
-    const chain = inp.swing && !this.shots.length && ((this.state === "air" && this.airT > .16 && this.v.y < 1.5) || (this.state === "ground" && this.stateT > .25));
+    const chain = inp.swing && this.chainCool <= 0 && !this.shots.length &&
+      ((this.state === "air" && this.airT > .12 && (this.v.y < 6 || this.speed > 12)) ||
+       ((this.state === "ground" || this.state === "perch") && this.stateT > .18));
     if ((inp.swingDown || chain) && this.webCool <= 0 && this.combatLock <= 0) {
       const ok = this.shootSwing(inp, !inp.swingDown);
       if (!ok) { this.webCool = chain ? .35 : .15; return false; }
@@ -486,7 +509,7 @@ export class HeroBody {
       if (s.t < s.travel) continue;
       this.shots.splice(i, 1);
       if (s.kind === "swing") {
-        if (!inp.swing && !s.second) continue;       // let go before it arrived
+        if (!inp.swing) continue;       // Both hands must cancel when the player lets go before arrival.
         if (s.second && !this.webs.length && !this.shots.length) continue;
         this.attach(s);
       }
@@ -500,16 +523,31 @@ export class HeroBody {
       this.toAir();
     }
     if (this.state === "zip") { this.zip = null; this.toAir(); }
-    const w = new Web(s.side, s.to.clone(), s.n.clone(), s.s, d * .97);
+    const w = new Web(s.side, s.to.clone(), s.n.clone(), s.s, d);
     w.ground = s.ground ?? 0;
     this.webs.push(w);
     if (this.webs.length > 2) this.webs.shift();
     this.setState("swing"); this.glide = false; this.dive = false;
+    if (!s.second) {
+      // Turn part of a falling catch into forward swing momentum without adding kinetic energy.
+      _b.subVectors(this.p, s.to).normalize();
+      const radial = this.v.dot(_b);
+      if (radial > 0) {
+        const speed = this.v.length();
+        this.v.addScaledVector(_b, -radial);
+        _c.copy(this.face).addScaledVector(_b, -this.face.dot(_b));
+        if (this.v.lengthSq() < 1 && _c.lengthSq() > .01) this.v.copy(_c.normalize());
+        const tangent = this.v.length(), carry = Math.min(TUNE.swingMax * 1.15, Math.sqrt(tangent * tangent + radial * radial * .65));
+        if (tangent > .01) this.v.multiplyScalar(Math.min(speed, carry) / tangent);
+      }
+    }
     this.dashUsed = false; this.dashN = 0;
     this.swingT = 0; this.skim = 0;
     this.ev("attach", { side: s.side, second: !!s.second, d });
   }
   releaseWebs(reason = "let go") {
+    // A slower shot from the other wrist must not reconnect after a launch, combat move or zip.
+    this.shots.length = 0;
     if (!this.webs.length) return;
     this.webs.length = 0;
     this.ev("release", { reason });
@@ -519,8 +557,8 @@ export class HeroBody {
   swing(dt, inp) {
     const T = TUNE, md = this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
     this.swingT += dt;
+    if (this.jumpBuf > 0) { this.jumpBuf = 0; return this.letGo(inp, true); }
     if (!inp.swing && !this.shots.length) return this.letGo(inp, false);
-    if (inp.jump) return this.letGo(inp, true);
     if (inp.zip) { const t = this.zipTarget(inp); if (t) { this.releaseWebs("zip"); this.startZip(t); return; } }
     if (!this.webs.length) { this.toAir(); return; }
     // the rope after this frame's wrapping
@@ -664,14 +702,18 @@ export class HeroBody {
     this.releaseWebs(jump ? "jump" : slack ? "slack" : "let go");
     this.toAir();
     const hs = Math.max(.1, Math.hypot(this.v.x, this.v.z));
+    if (slack) quality = 0;
     if (quality) {
       const k = quality === 2 ? .12 : .06;
       this.v.x *= 1 + k; this.v.z *= 1 + k; this.v.y += quality === 2 ? 4 : 2.5;
     }
     if (jump) {
       this.v.y = Math.max(this.v.y, 0) + T.swingJumpV;
-      this.v.x += this.v.x / hs * 3.5; this.v.z += this.v.z / hs * 3.5;
+      this.v.x += (hs > 1 ? this.v.x / hs : this.face.x) * T.releaseBoost;
+      this.v.z += (hs > 1 ? this.v.z / hs : this.face.z) * T.releaseBoost;
     }
+    this.chainCool = jump ? .3 : slack ? .22 : .14;
+    this.releaseT = 0; this.releaseQuality = quality;
     this.ev("letgo", { quality, jump, speed: this.v.length() });
   }
 
@@ -716,7 +758,7 @@ export class HeroBody {
     // cancels: jump, a swing, a trick (handled by the caller) all keep the momentum
     if (inp.jump && z.t > z.travel + .06) {
       const near = Math.hypot(z.x - this.p.x, z.y - this.p.y, z.z - this.p.z);
-      if (near > 3) { this.zip = null; this.toAir(); this.v.multiplyScalar(.85); this.v.y += 6; this.ev("zipjump"); return; }
+      if (near > 3) { this.zip = null; this.jumpBuf = 0; this.launchWindow = 0; this.toAir(); this.v.multiplyScalar(.85); this.v.y += 6; this.ev("zipjump"); return; }
       this.launchWindow = .3;   // pressed just before arriving: launch on arrival
     }
     if (inp.swingDown) { const ok = this.shootSwing(inp); if (ok) { this.zip = null; this.toAir(); return; } }

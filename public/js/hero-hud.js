@@ -13,6 +13,7 @@ export class HeroHud {
     const el = this.el = document.createElement("div");
     el.id = "heroHud"; el.hidden = true;
     el.innerHTML = `
+      <div class="hh-identity"><small>NEW MERIDIAN / PATROL ACTIVE</small><strong>ARCLINE</strong><span id="hhSuit"></span><b id="hhLevel">LEVEL 1</b></div>
       <div class="hh-reticle" id="hhRet"><i></i></div>
       <div class="hh-mark zip" id="hhZip" hidden><i></i></div>
       <div class="hh-mark anchor" id="hhAnchor" hidden></div>
@@ -29,11 +30,14 @@ export class HeroHud {
       <div class="hh-banked" id="hhBanked" hidden></div>
       <div class="hh-score" id="hhScore"><small>STYLE</small><b id="hhStyle">0</b><small id="hhBest">BEST 0</small></div>
       <div class="hh-vitals">
+        <div class="hh-vitals-label"><span>SUIT INTEGRITY</span><b id="hhHealthValue">100%</b></div>
         <div class="hh-hp"><i id="hhHp"></i></div>
+        <div class="hh-vitals-label"><span id="hhFocusLabel">BUILD FOCUS WITH COMBOS</span></div>
         <div class="hh-focus" id="hhFocus"><i></i><i></i><i></i></div>
         <div class="hh-gadgets" id="hhGadgets"></div>
       </div>
       <div class="hh-speed"><b id="hhSpd">0</b><small>KM/H</small><span id="hhAlt">0 m</span><em id="hhState"></em></div>
+      <div class="hh-traversal" id="hhTraversal"></div>
       <div class="hh-panel" id="hhMission" hidden></div>
       <div class="hh-race" id="hhRace" hidden></div>
       <div class="hh-prompt" id="hhPrompt" hidden></div>
@@ -77,6 +81,11 @@ export class HeroHud {
     this.set("hhSpd", String(Math.round(s.speed * 3.6)));
     this.set("hhAlt", `${Math.max(0, Math.round(s.alt))} m`);
     this.set("hhState", s.stateLabel || "");
+    this.set("hhSuit", s.suit || "");
+    this.set("hhLevel", `LEVEL ${s.level || 1}`);
+    this.set("hhTraversal", s.traversal || "");
+    this.$("hhTraversal").classList.toggle("ready", !!s.releaseReady);
+    this.$("hhRet").classList.toggle("ready", !!s.anchorReady || !!s.releaseReady);
     this.$("hhNoWeb").hidden = !(s.noWeb > 0);
     // ---- combo ----
     const tr = s.tricks, c = tr.combo;
@@ -102,7 +111,10 @@ export class HeroHud {
     this.set("hhStyle", fmt(tr.score));
     this.set("hhBest", `BEST COMBO ${fmt(tr.best)}`);
     // ---- vitals ----
-    this.$("hhHp").style.width = Math.max(0, s.hp) * 100 + "%";
+    this.$("hhHp").style.width = Math.max(0, Math.min(1, s.hp)) * 100 + "%";
+    this.set("hhHealthValue", `${Math.round(Math.max(0, Math.min(1, s.hp)) * 100)}%`);
+    this.set("hhFocusLabel", s.focus >= 1 ? "FOCUS READY" : "BUILD FOCUS WITH COMBOS");
+    this.$("hhFocus").classList.toggle("ready", s.focus >= 1);
     this.$("hhHp").parentNode.classList.toggle("low", s.hp < .3);
     const fe = this.$("hhFocus").children;
     for (let i = 0; i < 3; i++) fe[i].style.setProperty("--f", Math.max(0, Math.min(1, s.focus - i)).toFixed(3));

@@ -90,7 +90,8 @@ export function buildHeroExtras(M, G, kit) {
     sh.fragmentShader = sh.fragmentShader.replace("#include <common>", "#include <common>\nuniform float wT; varying vec3 vWP;")
       .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
         { vec2 p = vWP.xz * .18; float t = wT;
-          vec2 d = vec2(sin(p.x * 1.7 + t * 1.3) + sin(p.y * 2.3 - t * .9 + p.x * .7), cos(p.y * 1.9 + t * 1.1) + sin(p.x * 2.9 + p.y * 1.3 - t * 1.6)                 + vec2(sin(p.x * 7.1 + t * 3.) , cos(p.y * 6.3 - t * 2.7)) * .012;
+          vec2 d = vec2(sin(p.x * 1.7 + t * 1.3) + sin(p.y * 2.3 - t * .9 + p.x * .7), cos(p.y * 1.9 + t * 1.1) + sin(p.x * 2.9 + p.y * 1.3 - t * 1.6))
+                 + vec2(sin(p.x * 7.1 + t * 3.), cos(p.y * 6.3 - t * 2.7)) * .012;
           normal = normalize(normal + (viewMatrix * vec4(d.x, 0., d.y, 0.)).xyz); }`);
   })(waterMat.onBeforeCompile);
   waterMat.customProgramCacheKey = () => "lampsriver1";

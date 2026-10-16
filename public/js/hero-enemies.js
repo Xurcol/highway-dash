@@ -34,6 +34,7 @@ export class EnemySim {
     this.props = [];        // throwables: { id, kind, x, y, z, vx, vy, vz, held, rest }
     this.events = [];       // what happened this step (for effects / the network)
     this.tokens = new Map(); // player id -> Set of enemy ids allowed to swing
+    this.attackGap = new Map();
     this.res = { contacts: [] };
   }
   ev(type, o) { o.type = type; this.events.push(o); return o; }
@@ -44,33 +45,49 @@ export class EnemySim {
       id: o.id || NID++, kind, x, y: y + HIP_H, z, vx: 0, vy: 0, vz: 0, yaw: o.yaw ?? Math.random() * 6.28,
       hp: K.hp * (o.hpK || 1), max: K.hp * (o.hpK || 1), st: "idle", t: 0, cool: 1 + Math.random(), web: 0, target: null,
       weapon: K.weapon, group: o.group || 0, aggro: new Map(), atk: null, phase: Math.random() * 6, home: { x, z }, guard: o.guard ?? 9,
-      hitT: 0, air: false, alert: false, ko: 0, circleDir: Math.random() < .5 ? -1 : 1, kidx: 0, boss: kind === "boss" ? { phase: 1, slamT: 6 } : null,
+      hitT: 0, air: false, alert: false, ko: 0, waitT: 0, stagger: 0, circleDir: Math.random() < .5 ? -1 : 1, kidx: 0, boss: kind === "boss" ? { phase: 1, slamT: 6 } : null,
     };
     this.list.push(e); this.byId.set(e.id, e);
     return e;
   }
   remove(e) { const i = this.list.indexOf(e); if (i >= 0) this.list.splice(i, 1); this.byId.delete(e.id); }
-  clear() { this.list.length = 0; this.byId.clear(); this.shots.length = 0; this.props.length = 0; this.tokens.clear(); }
+  clear() { this.list.length = 0; this.byId.clear(); this.shots.length = 0; this.props.length = 0; this.tokens.clear(); this.attackGap.clear(); this.events.length = 0; }
   alive(e) { return e.st !== "ko" && e.st !== "pinned" && !(e.st === "webbed" && !e.air && e.t > 2); }
   get active() { return this.list.filter((e) => this.alive(e)); }
   set(e, st, t = 0) { e.st = st; e.t = t; }
+  stats(e) { const K = KINDS[e.kind] || KINDS.thug; return K.ranged && !e.weapon ? KINDS.thug : K; }
+  canAttack(e, p) {
+    if ((this.attackGap.get(p.id) || 0) > 0) return false;
+    return this.list.filter((o) => o !== e && o.target === p.id && ["windup", "aim", "attack"].includes(o.st)).length < 2;
+  }
+  warn(e, p, kind, duration) {
+    this.attackGap.set(p.id, kind === "slam" ? .65 : .3);
+    e.waitT = 0;
+    this.ev("windup", { e: e.id, target: p.id, kind, t: duration });
+  }
 
   // players: [{ id, x, y, z, vx, vz, state, dodge (i-frames left), hp, local }]
   // events pile up (from hits between steps too) until whoever runs the sim takes them
   step(dt, players) {
     this.lastPlayers = players;
-    // attack tokens: the two nearest melee enemies already swinging keep theirs; free ones go to the
-    // nearest waiting enemy
+    const livePlayers = new Set(players.filter((p) => !p.down).map((p) => p.id));
+    for (const [id, gap] of this.attackGap) { if (!livePlayers.has(id)) this.attackGap.delete(id); else this.attackGap.set(id, Math.max(0, gap - dt)); }
+    for (const id of this.tokens.keys()) if (!livePlayers.has(id)) this.tokens.delete(id);
+    // Recovering enemies give up their turn, and waiting enemies gradually move up the queue.
     for (const p of players) {
       let set = this.tokens.get(p.id);
       if (!set) this.tokens.set(p.id, (set = new Set()));
-      for (const id of set) { const e = this.byId.get(id); if (!e || !this.alive(e) || e.target !== p.id || ["hit", "air", "down", "webbed", "getup"].includes(e.st)) set.delete(id); }
-      const max = players.length > 1 ? 2 : 2 + (this.list.length > 8 ? 1 : 0);
+      for (const id of set) {
+        const e = this.byId.get(id);
+        if (!e || !this.alive(e) || e.target !== p.id || !["chase", "circle", "windup", "attack"].includes(e.st)
+          || e.cool > .35 && e.st !== "windup" && e.st !== "attack" || Math.abs(e.y - p.y) > 3.5) set.delete(id);
+      }
+      const max = 2;
       if (set.size < max) {
         let best = null, bd = 1e9;
         for (const e of this.list) {
-          if (e.target !== p.id || set.has(e.id) || KINDS[e.kind].ranged || !this.alive(e) || e.st !== "circle") continue;
-          const d = (e.x - p.x) ** 2 + (e.z - p.z) ** 2;
+          if (e.target !== p.id || set.has(e.id) || this.stats(e).ranged || !this.alive(e) || !["circle", "chase"].includes(e.st) || e.cool > .35 || Math.abs(e.y - p.y) > 3.5) continue;
+          const d = Math.hypot(e.x - p.x, e.z - p.z) - Math.min(6, e.waitT);
           if (d < bd) { bd = d; best = e; }
         }
         if (best) set.add(best.id);
@@ -93,8 +110,10 @@ export class EnemySim {
     return best ? { p: best, d: Math.hypot(best.x - e.x, best.z - e.z), dy: best.y - e.y } : null;
   }
   think(e, dt, players) {
-    const K = KINDS[e.kind];
+    const K = this.stats(e);
     e.t += dt; e.cool -= dt; e.hitT = Math.max(0, e.hitT - dt);
+    e.stagger = Math.max(0, e.stagger - dt * .5);
+    if (e.st === "circle" || e.st === "chase") e.waitT += dt;
     const st = e.st;
     if (st === "ko" || st === "pinned") return;
     if (st === "webbed") { if (e.t > 9 && !e.air) { this.set(e, "getup"); e.web = 0; } return; }
@@ -102,7 +121,9 @@ export class EnemySim {
     if (st === "air") return;                       // ballistic: move() lands it
     if (st === "down") { if (e.t > (e.downT || 1.8)) this.set(e, "getup"); return; }
     if (st === "getup") { if (e.t > .6) this.set(e, "circle"); return; }
-    const T = this.near(e, players);
+    const committed = ["windup", "attack", "aim"].includes(st) && players.find((p) => p.id === e.target && !p.down);
+    const T = committed ? { p: committed, d: Math.hypot(committed.x - e.x, committed.z - e.z), dy: committed.y - e.y } : this.near(e, players);
+    if (["windup", "aim"].includes(st) && !committed) { this.set(e, "recover"); e.cool = Math.max(.6, e.cool); e.vx = e.vz = 0; return; }
     // waking up: something close, a hit, or a friend in trouble
     if (!e.alert) {
       if (T && (T.d < e.guard + 10 && Math.abs(T.dy) < 12 || e.hitT > 0)) { e.alert = true; this.ev("alert", { e: e.id }); }
@@ -117,18 +138,22 @@ export class EnemySim {
       return;
     }
     e.target = T.p.id;
-    const p = T.p, dx = p.x - e.x, dz = p.z - e.z, d = T.d, face = Math.atan2(dx, dz);
+    const p = T.p, dx = p.x - e.x, dz = p.z - e.z, d = Math.max(.001, T.d), face = Math.atan2(dx, dz);
     const turn = (rate) => { e.yaw += clamp(wrapA(face - e.yaw), -rate * dt, rate * dt); };
     // the hero is up a wall or on a rooftop out of reach: gunmen shoot, the rest shout and wait
     const unreachable = Math.abs(T.dy) > 3.5;
     // ---- ranged ----
     if (K.ranged) {
-      turn(6);
+      if (st !== "aim" || e.t < K.windup * .65) turn(6);
       if (st === "aim") {
-        // the sight tracks; it fires at the end of the wind-up at where the target will be
+        // Commit the sight before firing so a late dodge can beat the shot.
+        if (e.t < K.windup * .65) {
+          const lead = Math.min(.18, d / 140);
+          e.aim = { x: p.x + (p.vx || 0) * lead, y: p.y + .2, z: p.z + (p.vz || 0) * lead };
+        }
         if (e.t > K.windup) {
-          const lead = Math.min(.5, d / 120);
-          this.fire(e, p.x + p.vx * lead, p.y + .2, p.z + p.vz * lead, K.dmg);
+          const aim = e.aim || p;
+          this.fire(e, aim.x, aim.y, aim.z, K.dmg);
           this.set(e, "recover"); e.cool = K.cool[0] + Math.random() * (K.cool[1] - K.cool[0]);
         }
         return;
@@ -140,18 +165,23 @@ export class EnemySim {
       else if (d < want - 5) { mx = -dx / d; mz = -dz / d; }
       else { mx = -dz / d * e.circleDir * .6; mz = dx / d * e.circleDir * .6; if (Math.random() < dt * .3) e.circleDir *= -1; }
       e.vx += (mx * K.speed - e.vx) * Math.min(1, dt * 5); e.vz += (mz * K.speed - e.vz) * Math.min(1, dt * 5);
-      if (e.cool <= 0 && d < K.reach && this.W.clear(e.x, e.y + .5, e.z, p.x, p.y, p.z, 2, .8)) { this.set(e, "aim"); e.aim = { x: p.x, y: p.y, z: p.z }; this.ev("windup", { e: e.id, target: p.id, kind: "shot", t: K.windup }); e.vx = e.vz = 0; }
+      if (e.cool <= 0 && d < K.reach && this.canAttack(e, p) && this.W.clear(e.x, e.y + .5, e.z, p.x, p.y, p.z, 2, .4)) { this.set(e, "aim"); e.aim = { x: p.x, y: p.y + .2, z: p.z }; this.warn(e, p, "shot", K.windup); e.vx = e.vz = 0; }
       else if (st !== "chase") this.set(e, "chase", e.t);
       return;
     }
     // ---- melee ----
     if (st === "windup") {
-      turn(e.kind === "brute" ? 2.5 : 5);
-      e.vx *= .8; e.vz *= .8;
-      if (e.t >= K.windup) { this.set(e, "attack"); this.strike(e, players); }
+      const duration = e.atk?.kind === "slam" ? K.windup + .3 : K.windup;
+      if (e.t < duration * .55) turn(e.kind === "brute" ? 2.5 : 5);
+      e.vx *= Math.exp(-dt * 14); e.vz *= Math.exp(-dt * 14);
+      if (e.t >= duration) {
+        this.set(e, "attack");
+        if (e.boss && e.atk?.kind === "slam") { e.atk.airborne = true; e.vy = 10; e.air = true; }
+        else this.strike(e, players);
+      }
       return;
     }
-    if (st === "attack") { if (e.t > .25) { this.set(e, "recover"); } return; }
+    if (st === "attack") { if (!e.atk?.airborne && e.t > .25) this.set(e, "recover"); return; }
     if (st === "recover") { if (e.t > .5) this.set(e, "circle"); e.vx *= .85; e.vz *= .85; return; }
     turn(7);
     const tok = this.tokens.get(p.id)?.has(e.id);
@@ -162,10 +192,10 @@ export class EnemySim {
       // my turn: close in and swing
       if (d > K.reach - .3) { mx = dx / d; mz = dz / d; sp = K.speed * 1.25; }
       else if (d < 1.35) { mx = -dx / d * .8; mz = -dz / d * .8; }
-      if (d < K.reach + .2 && e.cool <= 0) {
+      if (d < K.reach + .2 && e.cool <= 0 && this.canAttack(e, p) && this.W.clear(e.x, e.y + .3, e.z, p.x, p.y + .3, p.z, 2, .25)) {
         this.set(e, "windup");
         e.atk = { kind: e.weapon === "bat" ? "hook" : ["jab", "cross", "hook", "kick"][e.kidx++ % 4], heavy: e.kind === "brute" };
-        this.ev("windup", { e: e.id, target: p.id, kind: e.kind === "brute" ? "heavy" : "melee", t: K.windup });
+        this.warn(e, p, e.kind === "brute" ? "heavy" : "melee", K.windup);
         e.cool = K.cool[0] + Math.random() * (K.cool[1] - K.cool[0]);
         return;
       }
@@ -194,32 +224,33 @@ export class EnemySim {
     e.vx += (mx * sp - e.vx) * Math.min(1, dt * 6); e.vz += (mz * sp - e.vz) * Math.min(1, dt * 6);
   }
   thinkBoss(e, T, dt, players) {
-    const K = KINDS.boss, B = e.boss, p = T.p, d = T.d;
+    const K = KINDS.boss, B = e.boss, p = T.p, d = Math.max(.001, T.d);
     B.slamT -= dt;
     if (e.hp < e.max * .5 && B.phase === 1) { B.phase = 2; this.ev("bossphase", { e: e.id, phase: 2 }); }
     const sp = K.speed * (B.phase === 2 ? 1.3 : 1);
-    if (B.slamT <= 0 && d < 9) {
+    if (B.slamT <= 0 && d < 9 && !e.air && this.canAttack(e, p)) {
       // ground slam: a jump and a shockwave that knocks down anyone near the landing
       B.slamT = B.phase === 2 ? 5 : 8;
       this.set(e, "windup"); e.atk = { kind: "slam", heavy: true, aoe: 7 };
-      this.ev("windup", { e: e.id, target: p.id, kind: "slam", t: K.windup + .3 });
-      e.vy = 9; e.air = true;
+      this.warn(e, p, "slam", K.windup + .3 + 10 / 11);
+      e.vx = e.vz = 0;
       return;
     }
     if (d > K.reach - .2) { e.vx += (p.x - e.x) / d * sp * dt * 6; e.vz += (p.z - e.z) / d * sp * dt * 6; const s = Math.hypot(e.vx, e.vz); if (s > sp) { e.vx *= sp / s; e.vz *= sp / s; } }
-    else if (e.cool <= 0) {
+    else if (e.cool <= 0 && Math.abs(T.dy) <= 3.5 && this.canAttack(e, p) && this.W.clear(e.x, e.y + .3, e.z, p.x, p.y + .3, p.z, 2, .25)) {
       this.set(e, "windup");
       e.atk = { kind: ["hook", "uppercut", "roundhouse", "cross"][e.kidx++ % 4], heavy: e.kidx % 3 === 0 };
-      this.ev("windup", { e: e.id, target: p.id, kind: e.atk.heavy ? "heavy" : "melee", t: K.windup });
+      this.warn(e, p, e.atk.heavy ? "heavy" : "melee", K.windup);
       e.cool = K.cool[0] + Math.random() * (K.cool[1] - K.cool[0]) * (B.phase === 2 ? .7 : 1);
     }
   }
   // the moment a melee attack connects: anyone in reach in front of it (or round it, for a slam)
   strike(e, players) {
-    const K = KINDS[e.kind], a = e.atk || {};
+    const K = this.stats(e), a = e.atk || {};
     for (const p of players) {
+      if (p.down) continue;
       const dx = p.x - e.x, dz = p.z - e.z, d = Math.hypot(dx, dz), dy = Math.abs(p.y - e.y);
-      if (dy > 2.5) continue;
+      if (dy > (a.aoe ? 1.8 : 2.5) || !this.W.clear(e.x, e.y + .3, e.z, p.x, p.y + .3, p.z, 2, .25)) continue;
       if (a.aoe) { if (d > a.aoe) continue; }
       else {
         if (d > K.reach + .6) continue;
@@ -245,10 +276,11 @@ export class EnemySim {
       const nx = s.x + s.vx * dt, ny = s.y + s.vy * dt, nz = s.z + s.vz * dt;
       let gone = s.t > 1.5;
       for (const p of players) {
+        if (p.down) continue;
         // closest approach of this step's segment to the player's chest
         const ax = p.x - s.x, ay = p.y + .2 - s.y, az = p.z - s.z, sx = nx - s.x, sy = ny - s.y, sz = nz - s.z, L2 = sx * sx + sy * sy + sz * sz;
         const k = clamp((ax * sx + ay * sy + az * sz) / (L2 || 1), 0, 1), cx = s.x + sx * k - p.x, cy = s.y + sy * k - p.y - .2, cz = s.z + sz * k - p.z;
-        if (cx * cx + cy * cy + cz * cz < .55 * .55) { this.ev("shot", { target: p.id, dmg: s.dmg, x: p.x, y: p.y, z: p.z, kx: s.vx, kz: s.vz, id: s.id }); gone = true; break; }
+        if (cx * cx + cy * cy + cz * cz < .55 * .55 && this.W.clear(s.x, s.y, s.z, p.x, p.y + .2, p.z, 2, .05)) { this.ev("shot", { target: p.id, dmg: s.dmg, x: p.x, y: p.y, z: p.z, kx: s.vx, kz: s.vz, id: s.id }); gone = true; break; }
       }
       if (!gone) {
         const h = this.W.raycast(s.x, s.y, s.z, s.vx, s.vy, s.vz, Math.hypot(nx - s.x, ny - s.y, nz - s.z), 2, _h);
@@ -296,7 +328,12 @@ export class EnemySim {
         const v = -e.vy;
         e.vy = 0; e.y = fy;
         if (e.st === "air") { this.set(e, e.hp <= 0 ? "ko" : v > 14 || e.slam ? "down" : "down"); e.downT = v > 14 ? 2.4 : 1.6; this.ev("land", { e: e.id, v, x: e.x, y: e.y, z: e.z }); if (e.slam) { this.damage(e, 18, "slam", 0, 0); e.slam = false; } }
-        if (e.boss && e.atk?.kind === "slam") { this.set(e, "attack"); this.strike(e, this.lastPlayers || []); this.ev("shockwave", { e: e.id, x: e.x, y: e.y - HIP_H, z: e.z, r: 7 }); }
+        if (e.boss && e.atk?.airborne && e.st === "attack") {
+          e.atk.airborne = false;
+          this.strike(e, this.lastPlayers || []);
+          this.ev("shockwave", { e: e.id, x: e.x, y: e.y - HIP_H, z: e.z, r: 7 });
+          this.set(e, "recover"); e.cool = Math.max(e.cool, 1.2);
+        }
       } else if (!e.air) e.y += (fy - e.y) * Math.min(1, dt * 12);
       if (!e.air) { const k = e.st === "down" || e.st === "ko" ? Math.exp(-dt * 5) : 1; e.vx *= k; e.vz *= k; }
     } else if (!e.air && e.y > fy + .5) { e.air = true; }
@@ -335,7 +372,12 @@ export class EnemySim {
     if (e.st === "webbed" || e.st === "pinned") return;
     // armour: brutes and the boss shrug off light hits and can't be launched
     const heavy = h.heavy || kind === "wall" || kind === "slam" || kind === "throw" || kind === "finisher";
-    if (K.armor && !heavy && !h.launch) { e.hitT = 1; return; }
+    if (K.armor) {
+      e.stagger += heavy ? 1.4 : .45;
+      const broken = e.stagger >= (K.armor === 2 ? 4.8 : 3);
+      if (broken) { e.stagger = 0; this.set(e, "hit"); e.stun = K.armor === 2 ? .8 : 1.15; e.vx = kx * 3; e.vz = kz * 3; return; }
+      if (!heavy || K.armor === 2) { e.hitT = 1; return; }
+    }
     if (h.launch && !K.armor) {
       e.vy = h.launch / (1 + K.armor * .6); e.air = true; this.set(e, "air");
       e.vx = kx * 2; e.vz = kz * 2;
@@ -429,6 +471,7 @@ export class EnemyView {
     this.scene = scene;
     this.rigs = new Map(); this.pool = [];
     this.webMat = webMaterial();
+    this.warningGeo = new THREE.RingGeometry(.88, 1, 48).rotateX(-Math.PI / 2);
     this.weapons = {
       bat: new THREE.Mesh(new THREE.CylinderGeometry(.035, .02, .85, 8).translate(0, -.3, .02), new THREE.MeshStandardMaterial({ color: 0x8a6a42, roughness: .6 })),
       pistol: new THREE.Mesh(new THREE.BoxGeometry(.05, .13, .2).translate(0, -.08, .07), new THREE.MeshStandardMaterial({ color: 0x1a1a1c, roughness: .4, metalness: .7 })),
@@ -457,6 +500,10 @@ export class EnemyView {
     U.uBase.value.setHex(outfit.base).offsetHSL(h * .1 - .05, 0, (h - .5) * .12);
     r.rig.group.scale.setScalar(K.scale || 1);
     r.rig.group.visible = true;
+    if (!r.warning) {
+      r.warning = new THREE.Mesh(this.warningGeo, new THREE.MeshBasicMaterial({ color: 0xffbc5a, transparent: true, opacity: 0, depthWrite: false, side: THREE.DoubleSide }));
+      r.warning.frustumCulled = false; this.scene.add(r.warning);
+    }
     if (!r.rig.group.parent) this.scene.add(r.rig.group);
     r.anim = { t: Math.random() * 10, phase: 0 };
     r.kind = kind; r.weaponKind = null;
@@ -467,10 +514,11 @@ export class EnemyView {
     const r = this.rigs.get(id);
     if (!r) return;
     r.rig.group.visible = false;
+    r.warning.visible = false;
     if (r.weapon) { r.weapon.parent?.remove(r.weapon); r.weapon = null; }
     if (r.web) r.web.visible = false;
     this.rigs.delete(id);
-    if (this.pool.length < 24) this.pool.push(r); else { this.scene.remove(r.rig.group); r.rig.dispose(); }
+    if (this.pool.length < 24) this.pool.push(r); else { this.scene.remove(r.rig.group); this.scene.remove(r.warning); r.warning.material.dispose(); r.rig.dispose(); }
   }
   // list: enemy draw states { id, kind, x, y, z, vx, vz, yaw, st, t, web, weapon, air, atk, hp, max }
   draw(dt, list, cam) {
@@ -480,6 +528,17 @@ export class EnemyView {
       const r = this.rigFor(e), rig = r.rig, a = r.anim;
       const d2 = (e.x - cam.x) ** 2 + (e.z - cam.z) ** 2;
       rig.group.visible = d2 < 260 * 260;
+      const warning = e.st === "windup" || e.st === "aim";
+      r.warning.visible = warning && rig.group.visible;
+      if (r.warning.visible) {
+        const K = KINDS[e.kind] || KINDS.thug, slam = (typeof e.atk === "string" ? e.atk : e.atk?.kind) === "slam";
+        const duration = K.windup + (slam ? .3 : 0), progress = clamp(e.t / duration, 0, 1);
+        const radius = slam ? 7 : K.ranged && e.weapon ? 1.15 : K.reach + .35;
+        r.warning.position.set(e.x, e.y - HIP_H + .055, e.z);
+        r.warning.scale.setScalar(radius * (.86 + progress * .14));
+        r.warning.material.color.setHex(K.armor || slam ? 0xff3959 : e.st === "aim" ? 0xff8750 : 0xffc367);
+        r.warning.material.opacity = .2 + progress * .45 + Math.sin(e.t * 23) * .08;
+      }
       if (!rig.group.visible) continue;
       a.t += dt;
       const hs = Math.hypot(e.vx, e.vz);
@@ -499,7 +558,7 @@ export class EnemyView {
       const atkKind = (typeof e.atk === "string" ? e.atk : e.atk?.kind) || "jab";
       switch (e.st) {
         case "idle": attack = null; an.hs = hs; break;
-        case "windup": attack = { kind: atkKind, k: Math.min(.3, e.t / (KINDS[e.kind]?.windup || .5) * .3), side: -1 }; break;
+        case "windup": attack = { kind: atkKind, k: Math.min(.3, e.t / (KINDS[e.kind]?.ranged && !e.weapon ? KINDS.thug.windup : (KINDS[e.kind]?.windup || .5) + (atkKind === "slam" ? .3 : 0)) * .3), side: -1 }; break;
         case "attack": attack = { kind: atkKind, k: .3 + Math.min(.7, e.t / .25 * .3), side: -1 }; break;
         case "recover": attack = { kind: atkKind, k: Math.min(1, .6 + e.t), side: -1 }; break;
         case "hit": attack = { kind: "hit", k: Math.min(1, e.t / .45) }; break;

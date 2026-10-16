@@ -7,10 +7,10 @@ import * as THREE from "three";
 const V = THREE.Vector3;
 
 // ------------------------------------------------------------------ web lines
-const SEG = 18;
+const SEG = 22;
 export class WebLines {
   constructor(scene, cap = 40) {
-    this.cap = cap; this.lines = [];
+    this.cap = cap; this.lines = []; this.n = 0;
     const mk = (width, glow) => {
       const g = new THREE.BufferGeometry();
       const n = cap * (SEG + 1) * 2;
@@ -36,8 +36,8 @@ export class WebLines {
       scene.add(mesh);
       return { g, mesh, width };
     };
-    this.core = mk(.03, false);
-    this.halo = mk(.16, true);
+    this.core = mk(.024, false);
+    this.halo = mk(.12, true);
     this.dead = [];   // let-go lines falling away
   }
   // start a frame's list; line(points[], color, alpha, wobble)
@@ -47,8 +47,8 @@ export class WebLines {
   line(pts, col, alpha = 1, wob = 0, sag = 0, t = 0) {
     if (this.n >= this.cap || pts.length < 2) return;
     const i = this.n++;
-    this.write(this.core, i, pts, col, alpha, wob, sag, t, 1);
-    this.write(this.halo, i, pts, col, alpha * .32, wob, sag, t, 1);
+    this.write(this.core, i, pts, col, alpha, wob, sag, t);
+    this.write(this.halo, i, pts, col, alpha * .32, wob, sag, t);
   }
   write(L, li, pts, col, alpha, wob, sag, t) {
     const pos = L.g.attributes.position.array, cc = L.g.attributes.color.array, cam = this.cam;
@@ -68,16 +68,23 @@ export class WebLines {
       // the ribbon faces the camera
       _d.subVectors(b, a).normalize();
       _c.subVectors(cam, _p);
-      _s.crossVectors(_d, _c).normalize().multiplyScalar(L.width * (1 + .002 * _c.length()));
+      const edge = .55 + .45 * Math.sin(Math.PI * u);
+      ribbonSide(_d, _c, _s).multiplyScalar(L.width * (1 + .002 * Math.min(160, _c.length())) * edge);
       const o = ((li * (SEG + 1)) + s) * 2;
       pos[o * 3] = _p.x - _s.x; pos[o * 3 + 1] = _p.y - _s.y; pos[o * 3 + 2] = _p.z - _s.z;
       pos[o * 3 + 3] = _p.x + _s.x; pos[o * 3 + 4] = _p.y + _s.y; pos[o * 3 + 5] = _p.z + _s.z;
-      for (const q of [o, o + 1]) { cc[q * 4] = col.r; cc[q * 4 + 1] = col.g; cc[q * 4 + 2] = col.b; cc[q * 4 + 3] = alpha * (u > .96 ? 1 - (u - .96) * 10 : 1); }
+      const core = L === this.core, pulse = .9 + .1 * Math.sin(u * 48 - t * 16);
+      for (let q = o; q <= o + 1; q++) {
+        cc[q * 4] = core ? col.r * .6 + .4 : col.r;
+        cc[q * 4 + 1] = core ? col.g * .6 + .4 : col.g;
+        cc[q * 4 + 2] = core ? col.b * .6 + .4 : col.b;
+        cc[q * 4 + 3] = alpha * pulse;
+      }
     }
   }
   // a line that has been let go of: it springs loose and falls, fading out
   drop(a, b, col) {
-    if (this.dead.length > 12) this.dead.shift();
+    if (this.dead.length >= 12) this.dead.shift();
     this.dead.push({ a: a.clone(), b: b.clone(), va: new V((Math.random() - .5) * 3, -2, (Math.random() - .5) * 3), t: 0, col: col.clone() });
   }
   end(dt) {
@@ -98,6 +105,16 @@ export class WebLines {
   }
 }
 const _p = new V(), _d = new V(), _c = new V(), _s = new V();
+// A line aimed straight at the camera still needs a finite ribbon width.
+function ribbonSide(dir, view, out) {
+  out.crossVectors(dir, view);
+  if (out.lengthSq() < 1e-8) {
+    if (Math.abs(dir.y) < .9) out.set(-dir.z, 0, dir.x);
+    else out.set(0, dir.z, -dir.y);
+    if (out.lengthSq() < 1e-8) out.set(1, 0, 0);
+  }
+  return out.normalize();
+}
 
 // ------------------------------------------------------------------ particles
 // Two pooled point clouds: soft (normal blending: puffs, dust, water, debris) and glow (additive: sparks,
@@ -124,7 +141,7 @@ export class Particles {
     const pts = new THREE.Points(g, m);
     pts.frustumCulled = false; pts.renderOrder = glow ? 8 : 5;
     scene.add(pts);
-    const P = Array.from({ length: N }, () => ({ life: 0 }));
+    const P = Array.from({ length: N }, () => ({ life: 0, r: 0, gg: 0, b: 0, a: 0 }));
     return { N, pos, col, size, g, m, P, head: 0, pts };
   }
   // o: { x, y, z, vx, vy, vz, spread, n, life, size, grow, g, drag, r, gg, b, a, glow }
@@ -231,20 +248,24 @@ export class SpeedLines {
 // points and draws them as a camera-facing strip that thins and fades towards the tail.
 export class Trails {
   constructor(scene, count = 6, len = 18) {
-    this.count = count; this.len = len;
-    this.t = Array.from({ length: count }, () => ({ pts: [], on: 0, col: new THREE.Color(1, 1, 1) }));
+    this.count = count; this.len = Math.max(2, len); len = this.len;
+    this.t = Array.from({ length: count }, () => ({
+      pts: Array.from({ length: len }, () => new V()), next: new V(), prev: new V(),
+      head: 0, sampleT: 0, ready: false, want: 0, on: 0, col: new THREE.Color(1, 1, 1),
+    }));
     const n = count * len * 2;
     const g = new THREE.BufferGeometry();
     this.pos = new Float32Array(n * 3); this.col = new Float32Array(n * 4);
     g.setAttribute("position", new THREE.BufferAttribute(this.pos, 3).setUsage(THREE.DynamicDrawUsage));
     g.setAttribute("color", new THREE.BufferAttribute(this.col, 4).setUsage(THREE.DynamicDrawUsage));
+    g.setAttribute("side", new THREE.BufferAttribute(Float32Array.from({ length: n }, (_, i) => i % 2 ? 1 : -1), 1));
     const idx = [];
     for (let k = 0; k < count; k++) for (let i = 0; i < len - 1; i++) { const a = (k * len + i) * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
     g.setIndex(idx);
     this.g = g;
     const m = new THREE.ShaderMaterial({ transparent: true, depthWrite: false, blending: THREE.AdditiveBlending, side: THREE.DoubleSide,
-      vertexShader: "attribute vec4 color; varying vec4 vC; void main(){ vC = color; gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.); }",
-      fragmentShader: "varying vec4 vC; void main(){ gl_FragColor = vec4(vC.rgb * vC.a, 1.); }" });
+      vertexShader: "attribute vec4 color; attribute float side; varying vec4 vC; varying float vS; void main(){ vC = color; vS = side; gl_Position = projectionMatrix * viewMatrix * vec4(position, 1.); }",
+      fragmentShader: "varying vec4 vC; varying float vS; void main(){ float edge = 1. - abs(vS); gl_FragColor = vec4(vC.rgb * vC.a * edge * edge, 1.); }" });
     this.mesh = new THREE.Mesh(g, m);
     this.mesh.frustumCulled = false; this.mesh.renderOrder = 7;
     scene.add(this.mesh);
@@ -252,25 +273,43 @@ export class Trails {
   // feed point i of trail k this frame; on: 0..1 how strongly it is drawn
   push(k, p, on, col) {
     const T = this.t[k];
-    T.on += (on - T.on) * .25;
+    if (!T) return;
+    T.want = Math.max(0, Math.min(1, on));
     if (col) T.col.copy(col);
-    T.pts.unshift(p.clone());
-    if (T.pts.length > this.len) T.pts.pop();
+    // Reset after a respawn or teleport so the ribbon cannot cut across the city.
+    if (!T.ready || T.next.distanceToSquared(p) > 35 * 35) {
+      for (const q of T.pts) q.copy(p);
+      T.prev.copy(p); T.head = 0; T.sampleT = 0; T.on = 0; T.ready = true;
+    }
+    T.next.copy(p);
   }
-  update(cam) {
+  update(cam, dt = 1 / 60) {
+    dt = Math.max(0, Math.min(.1, dt));
+    const interval = 1 / 60;
     for (let k = 0; k < this.count; k++) {
       const T = this.t[k];
+      T.on += (T.want - T.on) * (1 - Math.exp(-dt * (T.want > T.on ? 18 : 10)));
+      // History is sampled in seconds, keeping the same trail length at every frame rate.
+      const oldT = T.sampleT, samples = Math.floor((oldT + dt + 1e-9) / interval);
+      for (let j = 1; j <= samples && T.ready; j++) {
+        const f = dt > 0 ? Math.min(1, (j * interval - oldT) / dt) : 1;
+        T.head = (T.head + this.len - 1) % this.len;
+        T.pts[T.head].lerpVectors(T.prev, T.next, f);
+      }
+      T.sampleT = Math.max(0, oldT + dt - samples * interval);
+      T.prev.copy(T.next);
       for (let i = 0; i < this.len; i++) {
-        const a = T.pts[Math.min(i, T.pts.length - 1)], b = T.pts[Math.min(i + 1, T.pts.length - 1)];
+        const a = i === 0 ? T.next : T.pts[(T.head + i - 1) % this.len];
+        const b = T.pts[(T.head + i) % this.len];
         const o = (k * this.len + i) * 2;
-        if (!a) { for (const q of [o, o + 1]) { this.pos[q * 3] = this.pos[q * 3 + 1] = this.pos[q * 3 + 2] = 0; this.col[q * 4 + 3] = 0; } continue; }
+        if (!T.ready) { for (let q = o; q <= o + 1; q++) { this.pos[q * 3] = this.pos[q * 3 + 1] = this.pos[q * 3 + 2] = 0; this.col[q * 4 + 3] = 0; } continue; }
         _d.subVectors(a, b); if (_d.lengthSq() < 1e-8) _d.set(0, 1, 0);
         _c.subVectors(cam, a);
-        const f = 1 - i / (this.len - 1), w = .09 * f;
-        _s.crossVectors(_d, _c).normalize().multiplyScalar(w);
+        const f = 1 - i / (this.len - 1), w = (.055 + T.on * .045) * f;
+        ribbonSide(_d, _c, _s).multiplyScalar(w);
         this.pos[o * 3] = a.x - _s.x; this.pos[o * 3 + 1] = a.y - _s.y; this.pos[o * 3 + 2] = a.z - _s.z;
         this.pos[o * 3 + 3] = a.x + _s.x; this.pos[o * 3 + 4] = a.y + _s.y; this.pos[o * 3 + 5] = a.z + _s.z;
-        for (const q of [o, o + 1]) { this.col[q * 4] = T.col.r; this.col[q * 4 + 1] = T.col.g; this.col[q * 4 + 2] = T.col.b; this.col[q * 4 + 3] = T.on * f * f * .9; }
+        for (let q = o; q <= o + 1; q++) { this.col[q * 4] = T.col.r; this.col[q * 4 + 1] = T.col.g; this.col[q * 4 + 2] = T.col.b; this.col[q * 4 + 3] = T.on * f * f * .9; }
       }
     }
     this.g.attributes.position.needsUpdate = this.g.attributes.color.needsUpdate = true;
@@ -291,10 +330,13 @@ export class Rings {
   }
   spawn(x, y, z, size = 4, col = 0xffffff, life = .5, up = null) {
     const m = this.pool[this.i++ % this.pool.length];
+    const old = this.list.indexOf(m);
+    if (old >= 0) this.list.splice(old, 1);
     m.position.set(x, y, z); m.visible = true; m.material.color.setHex(col);
+    m.scale.setScalar(.3); m.material.opacity = .65;
     m.quaternion.identity();
     if (up) m.quaternion.setFromUnitVectors(_c.set(0, 1, 0), up);
-    m.userData = { t: 0, life, size };
+    m.userData = { t: 0, life: Math.max(.01, life), size };
     this.list.push(m);
   }
   update(dt) {
