@@ -506,8 +506,7 @@ export function poseBody(rig, a) {
     arm(rig, -(a.swingSide || 1), -36, 35, 0, 24);
     rate = 18;
   } else if (st === "wall") {
-    // on the wall: body flat to it (the controller turns the root so "up" is the wall's normal), limbs
-    // spread like a climber's; moving cycles the diagonal pairs; running is a run cycle along it
+    // The chest faces the surface and the head points along it, so limbs reach forward to plant on the wall.
     const mv = a.wallMove || { x: 0, y: 0 }, spd = Math.hypot(mv.x, mv.y);
     if (a.wallMode === "run" && spd > 5) {
       const ph = a.phase, s1 = sin(ph);
@@ -520,11 +519,11 @@ export function poseBody(rig, a) {
       rate = 18;
     } else {
       const ph = a.phase, cyc = spd > .3 ? 1 : 0;
-      torso(rig, 10, 0, 0, 4); headP(rig, -55, a.lookSide || 0);
+      torso(rig, 6, 0, 0, 2); headP(rig, -35, a.lookSide || 0);
       for (const s of [1, -1]) {
         const p = s > 0 ? ph : ph + PI, sp = sin(p) * cyc;
-        arm(rig, s, 95 + sp * 30, 55, 0, 70 - sp * 30); hand(rig, s, 10, -20);
-        leg(rig, s, 70 - sp * 30, 48, 105 + sp * 25, -30);
+        arm(rig, s, 100 + sp * 15, 42, 0, 20 - sp * 10); hand(rig, s, 10, -15);
+        leg(rig, s, 75 - sp * 12, 42, 75 - sp * 12, -20);
       }
       rate = 12;
     }

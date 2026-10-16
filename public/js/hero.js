@@ -380,11 +380,16 @@ export class HeroMode {
       up.lerp(UP, .25).normalize();
       rate = 9;
     } else if (H.state === "wall") {
-      up.copy(H.n);
       const vm = _t.copy(H.v).addScaledVector(H.n, -H.v.dot(H.n));
-      if (vm.lengthSq() > 1) fwd.copy(vm).normalize();
-      else if (H.ceiling) fwd.copy(H.face);
-      else { fwd.set(0, 1, 0).addScaledVector(H.n, -H.n.y).normalize(); }
+      // The head follows the surface while the chest faces into it; pointing the head out makes us stand on the wall.
+      if (vm.lengthSq() > 1) up.copy(vm);
+      else if (a.state === "wall" && this.wallUp) up.copy(this.wallUp);
+      else up.copy(H.ceiling ? H.face : UP);
+      up.addScaledVector(H.n, -up.dot(H.n));
+      if (up.lengthSq() < .01) up.copy(H.ceiling ? H.face : UP).addScaledVector(H.n, -up.dot(H.n));
+      up.normalize();
+      fwd.copy(H.n).negate();
+      this.wallUp = (this.wallUp || new V()).copy(up);
       rate = 14;
     } else if (H.state === "air" && H.dive && H.speed > 8) {
       up.copy(H.v).normalize();
@@ -425,9 +430,8 @@ export class HeroMode {
     // roll: a forward tumble about the hips on a roll landing
     let extra = this.tricks.rot;
     if (H.rollT > 0) { _qa.setFromAxisAngle(_x, (1 - H.rollT / .45) * Math.PI * 2); extra = _qe.copy(extra).multiply(_qa); }
-    // on a wall the hips sit out from it by how the limbs are set: close for a crawl, further for a run
-    const pr = H.state === "wall" ? _pr.copy(H.p).addScaledVector(H.n, H.wallMode === "run" ? .32 : .06) : H.p;
-    rig.place(pr, up, fwd, extra, dt, this.firstFrames > 0 ? 0 : rate);
+    // Keep the hips at the physics position so the planted pose also lines up for other players.
+    rig.place(H.p, up, fwd, extra, dt, this.firstFrames > 0 ? 0 : rate);
     // limb pose
     a.state = H.state; a.speed = H.speed; a.hs = hs; a.vy = H.v.y; a.slide = H.slideT; a.roll = H.rollT; a.hard = H.hardT; a.landT = H.landT;
     a.crouch = inp.crouch && H.state === "ground" && hs < 5; a.dive = H.dive; a.glide = H.glide; a.dash = H.dashUsed && H.state === "air" && this.dashT > 0 ? 1 : 0;
@@ -888,5 +892,5 @@ const _cp = new V();
 export const heroXpFor = (lvl) => 500 + (lvl - 1) * 250;
 // an input with the player's hands off the controls
 function idle(inp) { return { ...inp, mx: 0, mz: 0, ix: 0, iy: 0, jump: false, jumpHeld: false, sprint: false, swing: false, swingDown: false, zip: false, crouch: false, crouchDown: false, trick: false, trickDown: false, attack: false, attackHeld: false, attackDown: false, attackUp: false, dodge: false, strike: false, gadget: 0, throwObj: false, finisher: false, finisherHeld: false }; }
-const _pr = new V(), _up = new V(), _fw = new V(), _t = new V(), _t2 = new V(), _t3 = new V(), _h1 = new V(), _h2 = new V();
+const _up = new V(), _fw = new V(), _t = new V(), _t2 = new V(), _t3 = new V(), _h1 = new V(), _h2 = new V();
 const _qa = new Q(), _qb = new Q(), _qe = new Q(), _qi = new Q(), _x = new V(1, 0, 0);
