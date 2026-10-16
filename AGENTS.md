@@ -38,10 +38,6 @@ no build step for the source. Live at https://xurco.xyz.
 ## Shipping
 
 Merging into `main` deploys automatically (the Action above), and the site updates a minute or two later.
-Players may need a hard refresh (Ctrl+Shift+R). To deploy by hand instead:
-
-```bash
-node scripts/build-pages.mjs xurco.xyz
-```
-
-then push the contents of `dist/` to the `gh-pages` branch.
+Players may need a hard refresh (Ctrl+Shift+R). When the Action can't run, `deploy.bat` (Windows) does the
+same by hand: pulls `main`, builds with `node scripts/build-pages.mjs xurco.xyz`, and force-pushes `dist/`
+to the `gh-pages` branch.
