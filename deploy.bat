@@ -13,7 +13,7 @@ node scripts\build-pages.mjs xurco.xyz || goto :fail
 echo Publishing...
 pushd dist
 git init -q -b gh-pages || goto :failpop
-git add -A || goto :failpop
+git -c core.autocrlf=false add -A || goto :failpop
 git commit -q -m "Deploy" || goto :failpop
 git push -q -f https://github.com/Xurcol/highway-dash.git gh-pages || goto :failpop
 popd
