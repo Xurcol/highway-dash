@@ -1,11 +1,14 @@
 @echo off
-rem Publishes the game to https://xurco.xyz by hand: gets the latest main from GitHub (including
-rem anything merged there from Codex), builds the site, and pushes it to the gh-pages branch that
-rem GitHub Pages serves. Normally the Deploy site action does this on every push to main; use this
-rem while that action can't run.
+rem Save and publish: double-click after making changes (by hand, or with Codex / ChatGPT editing the
+rem files here). It saves any changed files to GitHub, gets anything newer from GitHub, builds the
+rem site and publishes it to https://xurco.xyz. The licensed song, video and engine sounds are never
+rem uploaded - .gitignore and the build both leave them out.
 cd /d "%~dp0"
-echo Getting the latest version from GitHub...
-git pull --ff-only origin main || goto :fail
+echo Saving your changes to GitHub...
+git -c core.autocrlf=false add -A || goto :fail
+git diff --cached --quiet || git commit -q -m "Update %date% %time:~0,5%" || goto :fail
+git pull -q --rebase origin main || goto :fail
+git push -q origin main || goto :fail
 echo Installing / checking dependencies...
 call npm install --no-audit --no-fund >nul || goto :fail
 echo Building the site...
@@ -25,6 +28,6 @@ exit /b 0
 popd
 :fail
 echo.
-echo Deploy failed - see the message above.
+echo Something went wrong - see the message above.
 if "%1"=="" pause
 exit /b 1
