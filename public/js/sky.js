@@ -336,7 +336,7 @@ export class SkySystem {
     else if (style === 8) fogCol.lerp(new THREE.Color(0x5e2a6b), .45);
     else if (style === 9) fogCol.lerp(new THREE.Color(0x6a6f76), .55);
     this.scene.fog.color.copy(fogCol);
-    this.scene.fog.near = 60 * W.fog; this.scene.fog.far = 1100 * W.fog;
+    this.scene.fog.near = 60 * W.fog * (this.viewDist || 1); this.scene.fog.far = 1100 * W.fog * (this.viewDist || 1);
     this.lampsOn = Math.max(this.night, W.dark * .8, (1 - W.fog) * .6, tun) > .35 ? 1 : 0;
     this.renderer.toneMappingExposure = 1.0 + this.night * .35 + tun * .3;
 

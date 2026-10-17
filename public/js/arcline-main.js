@@ -11,9 +11,9 @@ import { signIn } from "./auth.js";
 import { ArclineUI } from "./arcline-ui.js";
 
 const QUALITY = {
-  low: { dpr: .85, lamps: 8, traffic: 20, shadows: false, shadowSize: 512, reflections: 32 },
-  medium: { dpr: 1.25, lamps: 12, traffic: 32, shadows: false, shadowSize: 1024, reflections: 48 },
-  high: { dpr: 1.5, lamps: 20, traffic: 48, shadows: true, shadowSize: 1024, reflections: 80 },
+  low: { dpr: .85, lamps: 8, traffic: 20, shadows: false, shadowSize: 512, reflections: 32, view: .8 },
+  medium: { dpr: 1.25, lamps: 12, traffic: 32, shadows: false, shadowSize: 1024, reflections: 48, view: 1 },
+  high: { dpr: 1.5, lamps: 20, traffic: 48, shadows: true, shadowSize: 1024, reflections: 80, view: 1.35 },
 };
 const unit = (value, fallback) => Number.isFinite(Number(value)) ? Math.max(0, Math.min(1, Number(value))) : fallback;
 
@@ -26,7 +26,7 @@ export async function bootArcline() {
   const sky = new SkySystem(renderer, scene), city = new City(renderer, scene), glows = new Glows(scene, 1200);
   const audio = new AudioManager(), net = await createNet(); net.sendRate = 15;
   let ui, active = false, online = false, paused = true, entering = false, wantsOnline = false, pendingPractice = false, roomCode = null, soloTime = 0;
-  let scale = 1, quality = QUALITY.medium, sendT = 0, mapT = 0, envT = 0, lifeT = 0, adaptiveT = 0, avgDt = 1 / 60;
+  let scale = 1, slowT = 0, quality = QUALITY.medium, sendT = 0, mapT = 0, envT = 0, lifeT = 0, adaptiveT = 0, avgDt = 1 / 60;
   const lights = [], ambience = { night: 0, height: 0, rain: 0, traffic: .6, wind: 0, enabled: false };
   const hero = new HeroMode({ renderer, scene, camera, sky, city, audio, net, P, save, get ui() { return ui; } });
   function resize() {
@@ -38,7 +38,7 @@ export async function bootArcline() {
     if (!key || key === "graphics") {
       quality = QUALITY[settings.graphics] || QUALITY.medium;
       city.setDetail(settings.graphics || "medium"); setLampBudget(quality.lamps);
-      renderer.shadowMap.enabled = quality.shadows; sky.setShadowSize(quality.shadowSize);
+      renderer.shadowMap.enabled = quality.shadows; sky.setShadowSize(quality.shadowSize); sky.viewDist = quality.view; slowT = 0;
       sky.setReflQuality(quality.reflections, 4); sky.envKey = null;
       // Let traffic replenish at the new budget without deleting cars involved in an active mission.
       if (city.traffic) city.traffic.target = quality.traffic;
@@ -194,8 +194,11 @@ export async function bootArcline() {
       }
       avgDt += (dt - avgDt) * .04; adaptiveT += dt;
       if (adaptiveT > 2 && !paused) {
-        adaptiveT = 0; const next = avgDt > .024 ? Math.max(.6, scale - .08) : avgDt < .018 ? Math.min(1, scale + .025) : scale;
+        adaptiveT = 0; const next = avgDt > .03 ? Math.max(.6, scale - .14) : avgDt > .024 ? Math.max(.6, scale - .08) : avgDt < .018 ? Math.min(1, scale + .025) : scale;
         if (next !== scale) { scale = next; resize(); }
+        // Resolution alone could not hold 40 FPS: shadows are the next most expensive pass, so drop them for this session.
+        slowT = scale <= .6 && avgDt > .025 ? slowT + 1 : 0;
+        if (slowT >= 3 && renderer.shadowMap.enabled) { renderer.shadowMap.enabled = false; ui.toast("Shadows turned off to keep the game smooth."); }
       }
     } else sky.update(dt, camera, camera.position, 0, audio);
     camera.updateMatrixWorld(); uploadLights(lights, camera); glows.end(renderer.domElement.height);

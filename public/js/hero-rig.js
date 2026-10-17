@@ -181,17 +181,22 @@ function suitMaterial() {
       .replace("#include <common>", `#include <common>
         varying vec4 vSuit; varying vec3 vLocal;
         uniform vec3 uBase, uAccent, uDark, uGlow, uLens; uniform float uStyle, uGlowAmt, uHit, uTime; uniform vec2 uShoot;
-        float gEm; float gRough; float gMetal;
+        float gEm; float gRough; float gMetal; float gHero;
         float band(float x, float c, float w) { return 1. - smoothstep(w * .5, w * .5 + .012, abs(x - c)); }`)
       .replace("#include <color_fragment>", `#include <color_fragment>
         {
           float part = floor(vSuit.x + .5), u = vSuit.y, v = vSuit.z, side = vSuit.w;
-          vec3 col = uBase; gEm = 0.; gRough = .48; gMetal = .12;
+          vec3 col = uBase; gEm = 0.; gRough = .48; gMetal = .12; gHero = 0.;
           float st = uStyle;
           // distance round the limb from its outside line (u .25 on the left limbs, .75 on the right)
           float sideU = side > 0. ? abs(u - .25) : abs(u - .75);
           bool limb = part > 3.5 && part < 9.5 && part != 6.;
           if (st < 2.5) {
+            gHero = 1.;
+            // a fine raised triangular weave over the base fabric (bind-pose metres, so it rides the limbs)
+            vec3 wq = vLocal * 34.;
+            float weave = max(max(band(fract(wq.y), .5, .07), band(fract(wq.x * .87 + wq.y * .5), .5, .07)), band(fract(-wq.x * .87 + wq.y * .5 + wq.z * .3), .5, .07));
+            if (part != 3.) { col = mix(col, col * .62, weave * .55); gRough += weave * .14 - .04; }
             // stripes down the outside of every limb, with a glowing seam in the middle
             if (limb) {
               float s = band(sideU, 0., st == 1. ? .17 : .11);
@@ -261,9 +266,9 @@ function suitMaterial() {
         }`)
       .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = gRough;")
       .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;")
-      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\ntotalEmissiveRadiance += uGlow * gEm * uGlowAmt * 1.6 + vec3(1., .2, .1) * uHit * .6;");
+      .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\nfloat gFres = pow(1. - clamp(abs(dot(normal, normalize(vViewPosition))), 0., 1.), 3.);\ntotalEmissiveRadiance += uGlow * gEm * uGlowAmt * 1.6 + vec3(1., .2, .1) * uHit * .6 + uGlow * gFres * gHero * .22;");
   };
-  extra.key = "herosuit3";
+  extra.key = "herosuit4";
   return patchLit(m, extra);
 }
 
@@ -449,7 +454,7 @@ function poseAir(rig, a) {
   const t = a.t || 0, vy = a.vy || 0, hs = a.hs || 0, turn = cl(a.turn || 0, -1, 1);
   const rise = smooth(vy / 16), fall = smooth((-vy - 2) / 34), apex = 1 - smooth(Math.abs(vy) / 7);
   const fast = cl(hs / 48, 0, 1), brace = smooth((8 - (a.heightAbove ?? 100)) / 7) * fall;
-  const tumble = smooth((-vy - 38) / 30) * (1 - brace), drift = sin(t * 2.8) * (2 + tumble * 7);
+  const tumble = smooth((-vy - 38) / 30) * (1 - brace), drift = sin(t * 2.8) * (2 + tumble * 7) + sin(t * 13) * fall * fast * 3;
   const s = a.swingSide || 1;
   if (a.dive) {
     torso(rig, 6 + brace * 20, -turn * 5, -turn * 7, -6 + brace * 12); headP(rig, -42 + brace * 28, turn * 12);
@@ -640,10 +645,12 @@ export function poseBody(rig, a) {
     const ph = a.swingPhase || 0;          // -1 coming down behind .. 0 bottom .. +1 out in front
     const kick = cl(ph, -1, 1), load = 1 - Math.abs(kick), fast = cl((a.speed || 0) / 48, 0, 1);
     const s = a.swingSide || 1, bank = turn * (8 + fast * 10);
-    torso(rig, -8 - kick * 19, s * (8 + load * 8), -bank, -8 - kick * 7, -s * 6);
-    headP(rig, -12 + kick * 10, turn * 22, bank * .4);
-    leg(rig, s, 30 + kick * 50, 8 + turn * s * 4, 30 + load * (45 + fast * 12), -18);
-    leg(rig, -s, 8 + kick * 34, 15 - turn * s * 4, 48 + load * 34, -7);
+    // wind on the limbs at speed, and the chest whipping round as the swing passes the bottom
+    const flutter = sin(t * 11) * fast * 4, whip = load * load * s * 10;
+    torso(rig, -8 - kick * 19, s * (8 + load * 8), -bank, -8 - kick * 7, -s * 6 + whip);
+    headP(rig, -12 + kick * 10, turn * 22 - whip * .5, bank * .4);
+    leg(rig, s, 30 + kick * 50 + flutter, 8 + turn * s * 4, 30 + load * (45 + fast * 12), -18 + flutter);
+    leg(rig, -s, 8 + kick * 34 - flutter, 15 - turn * s * 4, 48 + load * 34 - flutter * 1.5, -7);
     if (a.anchorLocal) aimArm(rig, s, a.anchorLocal, 5 + load * 5);
     else arm(rig, s, 160, 20, 0, 10);
     if (a.anchor2Local) aimArm(rig, -s, a.anchor2Local, 8);
