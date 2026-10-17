@@ -31,8 +31,9 @@ export class HeroNet {
     this.views = new Map();
     this.snapT = 0; this.fx = [];
     this.remoteEnemies = []; this.enemyMap = new Map(); this.props = [];
-    this.chaseCar = null;
-    this.wasHost = false;
+    this.chaseCar = null; this.carState = null;
+    this.wasHost = this.everClient = false;
+    this.idT = 0; this.suitSent = null;
     const net = hero.ctx.net;
     net.addEventListener("world", (e) => { if (this.hero.on && this.hero.online) this.onWorld(e.detail.from, e.detail.w); });
     net.addEventListener("peerLeft", (e) => this.drop(e.detail));
@@ -115,7 +116,16 @@ export class HeroNet {
     sc.remove(v.rig.group); v.rig.dispose(); sc.remove(v.tag); v.tag.material.map.dispose(); v.tag.material.dispose();
     this.views.delete(id);
   }
-  clear() { for (const id of [...this.views.keys()]) this.drop(id); this.remoteEnemies = []; this.enemyMap.clear(); this.props = []; if (this.chaseCar) { this.hero.ctx.scene.remove(this.chaseCar); this.chaseCar = null; } }
+  clear() {
+    for (const id of this.views.keys()) this.drop(id);
+    this.remoteEnemies.length = 0; this.enemyMap.clear(); this.props.length = 0;
+    if (this.chaseCar) { this.hero.ctx.scene.remove(this.chaseCar); this.chaseCar = null; }
+    this.carState = null;
+    // A new city must not inherit the last room's effects, host history or send timers.
+    this.fx.length = 0; this.snapT = 0;
+    this.wasHost = this.everClient = false;
+    this.idT = 0; this.suitSent = null;
+  }
   draw(v, s, dt, cam) {
     const h = this.hero, H = s.h || {}, rig = v.rig;
     if (H.su && H.su !== v.suit && SUITS[H.su]) { v.suit = H.su; rig.setLook(SUITS[H.su]); }

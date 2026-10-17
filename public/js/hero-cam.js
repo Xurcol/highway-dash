@@ -6,6 +6,7 @@
 import * as THREE from "three";
 
 const V = THREE.Vector3;
+const OPTIONS = {};
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const ease = (dt, rate) => 1 - Math.exp(-dt * rate);
 const wrapA = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
@@ -23,6 +24,7 @@ export class HeroCam {
     this.combat = null;      // { x, y, z } a point to keep in frame
     this.snapNext = true;
     this.wallK = 0; this.speed = 0;
+    this.probeT = 0;
     this.contacts = { contacts: [] };
   }
   shake(a) { this.trauma = Math.min(1, this.trauma + a); }
@@ -30,7 +32,7 @@ export class HeroCam {
   // where the camera looks, flattened onto the ground: what "forward" means for the move keys
   get heading() { return this.yaw; }
 
-  update(dt, H, inp, o = {}) {
+  update(dt, H, inp, o = OPTIONS) {
     dt = clamp(Number.isFinite(dt) ? dt : 0, 0, .1);
     this.t += dt;
     const p = H.p, v = H.v, sp = v.length(), hs = Math.hypot(v.x, v.z), snap = this.snapNext;
@@ -111,9 +113,12 @@ export class HeroCam {
     }
     const ox = this.pivot.x + rx * side, oz = this.pivot.z + rz * side, oy = this.pivot.y;
     let want = this.dist;
-    // Probe the camera's width as well as its centre so roof edges do not clip the lens.
+    // Keep the centre ray current every frame; repeat edge rays more often beside a wall or during a fast orbit.
+    this.probeT += dt;
+    const edges = snap || this.probeT >= 1 / 30 || wallK > .01 || this.curDist < this.dist - .1 || Math.abs(mdx) + Math.abs(mdy) > 2;
+    if (edges) this.probeT %= 1 / 30;
     const ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < (edges ? 5 : 1); i++) {
       const sx = i === 1 ? rx * .22 : i === 2 ? -rx * .22 : i === 3 ? ux * .22 : i === 4 ? -ux * .22 : 0;
       const sy = i === 3 ? uy * .22 : i === 4 ? -uy * .22 : 0;
       const sz = i === 1 ? rz * .22 : i === 2 ? -rz * .22 : i === 3 ? uz * .22 : i === 4 ? -uz * .22 : 0;
@@ -127,25 +132,25 @@ export class HeroCam {
     const floor = this.W.topAt(cx, cz, cy + .35);
     cy = Math.max(cy, floor + .3);
     this.pos.set(cx, cy, cz);
-    this.W.collide?.(this.pos, .28, this.contacts, 2);
     this.snapNext = false;
 
     // ---- shake, kicks, sway at speed ----
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
     const tr = this.trauma * this.trauma, spd = clamp((this.speed - 28) / 42, 0, 1);
-    const sx = (noise(this.t * 12, 1) * tr * .23) + noise(this.t * 1.3, 4) * spd * .035;
-    const sy = (noise(this.t * 12, 7) * tr * .2) + noise(this.t * 1.1, 9) * spd * .025;
+    const sx = (tr > 0 ? noise(this.t * 12, 1) * tr * .23 : 0) + (spd > 0 ? noise(this.t * 1.3, 4) * spd * .035 : 0);
+    const sy = (tr > 0 ? noise(this.t * 12, 7) * tr * .2 : 0) + (spd > 0 ? noise(this.t * 1.1, 9) * spd * .025 : 0);
     this.kick.multiplyScalar(Math.exp(-dt * 7));
     const C = this.cam;
     C.position.set(this.pos.x + rx * sx + this.kick.x, this.pos.y + sy + this.kick.y, this.pos.z + rz * sx + this.kick.z);
-    this.W.collide?.(C.position, .25, this.contacts, 2);
+    // One sphere correction after shake also covers the unshaken boom endpoint.
+    this.W.collide?.(C.position, .28, this.contacts, 2);
     C.position.y = Math.max(C.position.y, this.W.topAt(C.position.x, C.position.z, C.position.y + .3) + .25);
     C.up.set(0, 1, 0);
     C.lookAt(C.position.x + fx, C.position.y + fy, C.position.z + fz);
     // a little roll into hard turns at speed, and with the trauma
     const turn = H.turnRate || 0;
     this.roll += (clamp(-turn * .025 * clamp(hs / 35, 0, 1), -.055, .055) - this.roll) * ease(dt, 4.5);
-    C.rotateZ(this.roll + noise(this.t * 14, 3) * tr * .035);
+    C.rotateZ(this.roll + (tr > 0 ? noise(this.t * 14, 3) * tr * .035 : 0));
     if (Math.abs(C.fov - this.fov) > .05) { C.fov = this.fov; C.updateProjectionMatrix(); }
   }
 }

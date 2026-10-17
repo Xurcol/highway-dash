@@ -1,44 +1,44 @@
-# Notes for AI coding agents (Codex / ChatGPT, Claude, ...)
+# Notes for AI coding agents
 
-ARCLINE / Highway Dash: a browser game in plain ES modules on three.js - no bundler, no framework,
-no build step for the source. Live at https://xurco.xyz.
+ARCLINE is the active online superhero game at https://xurco.xyz. It uses plain ES modules and three.js, without a bundler or client framework.
 
-## Where things are
+The user's October 16, 2026 instruction explicitly separates this project from Highway Rush: the active site offers ARCLINE only. This replaces the earlier rule requiring highway modes, City Drive, and ARCLINE menus side by side. Preserve city/traffic helpers needed by ARCLINE, and keep the driving backup available.
 
-- `public/` - the whole game, served as-is.
-  - `index.html`, `style.css` - the page, every menu's markup, the icon sprite, all styles.
-  - `js/main.js` - the game loop, modes, cameras, driving physics hooks, HUD, networking glue.
-  - `js/ui.js` - menus, garage, settings, modals. `js/profile.js` - the save (`P`), coins, accounts.
-  - `js/hero*.js` - ARCLINE, the superhero mode (movement, swinging, combat, city life, multiplayer).
-  - `js/city-map.js` (pure JS: map, lanes, signals, traffic, collisions) and `js/city.js` (drawing it) - City Drive.
-  - `js/world.js`, `traffic.js`, `sky.js` - the highway modes. `cars.js`, `models.js`, `tuning.js`, `vehicle.js` - cars.
-  - `js/audio.js`, `engine-dsp.js`, `engine-worklet.js` - sound. `js/pad.js` - wheels and gamepads.
-  - `js/net.js`, `net-relay.js` - multiplayer (the public site uses an MQTT relay; `server.js` is the local server).
-- `server.js` - local dev server: `npm install`, then `npm start`, then open http://localhost:3000.
-- `scripts/build-pages.mjs` - builds `dist/` for GitHub Pages (copies `public/`, vendors three.js,
-  cache-busts module URLs, leaves out what may not be published).
-- `.github/workflows/deploy.yml` - on every push to `main`: build and publish to the `gh-pages` branch.
+## Source layout
+
+- `public/` is served directly in development.
+  - `index.html`, `arcline.css`: the standalone page and interface.
+  - `js/main.js`: the ARCLINE entry point.
+  - `js/arcline-main.js`: rendering, online sessions, city updates, settings, and the game loop.
+  - `js/arcline-ui.js`, `arcline-profile.js`: menus and separate ARCLINE `arc_` saves.
+  - `js/hero*.js`: the hero's movement, swinging, camera, animation, controls, combat, enemies, city life, missions, activities, progression, HUD, and multiplayer.
+  - `js/city*.js`, `cars.js`, `carmesh.js`, `lights.js`, `sky.js`: city rendering, procedural traffic, lighting, and weather. Some helpers are shared with the driving game.
+  - `js/audio.js`: generated effects/ambience and nearby sirens. `init({hero:true})` avoids engine worklets and unused driving sound loops.
+  - `js/net.js`, `net-relay.js`: shared multiplayer transport. The active entry point/interface offers superhero sessions only.
+- `server.js`: local static server plus the shared WebSocket service. Run `npm install`, then `npm start`, and open http://localhost:3000.
+- `scripts/build-pages.mjs`: creates `dist/` for GitHub Pages from reachable local modules and referenced stylesheets; vendors three.js/MQTT and versions local URLs.
+- `.github/workflows/deploy.yml`: existing deployment on a push to `main`.
 
 ## Rules
 
-- Edit files in `public/` directly. Keep imports as `import ... from "./name.js"` with plain
-  `[A-Za-z0-9-]` file names - the build's cache-busting matches exactly that pattern.
-- three.js is loaded through the import map (`"three"`, `"three/addons/..."`). Don't add a bundler or
-  client-side npm packages.
-- Never commit `public/loader-media/` or `public/sounds/` (licensed song, video and engine recordings;
-  they are gitignored on purpose). Car models only reach the site if `public/models/models.json` credits
-  them - leave that check alone.
-- Don't commit `dist/` or `data/` (local server database).
-- Match the existing style: small focused functions, comments that say *why* in full sentences, no emojis
-  in the interface (icons come from the SVG sprite in `index.html`).
-- Check a changed module's syntax by copying it to a `.mjs` file and running `node --check` on that
-  (`node --check file.js` won't parse ES modules in this package).
-- Keep every mode working: the menus offer the highway modes, City Drive and ARCLINE side by side.
+- Edit source files directly. Keep local imports in the form `import ... from "./name.js"`, with plain `[A-Za-z0-9-]` filenames.
+- Use the three.js import map (`"three"`, `"three/addons/..."`). Do not add a bundler or client-side packages.
+- Keep the active site focused on online ARCLINE. Do not reactivate the driving menus or restore the old startup in place of the standalone entry point.
+- Avoid new per-frame allocations and unnecessary physics/render/audio work. Keep required per-frame light/glow emission when throttling city simulation.
+- Follow existing styles: small focused functions, comments explaining why, and no interface emojis. Use the SVG symbols in `index.html` for icons.
+- Never commit `public/loader-media/` or `public/sounds/`; they contain licensed media/recordings and are deliberately ignored.
+- Normal ARCLINE publishing excludes car model downloads. If models are explicitly included, retain the `public/models/models.json` licence/credit filter; do not bypass it.
+- Do not commit generated `dist/` or the local `data/` database.
+- Check every changed browser module by copying it to a temporary `.mjs` file and running `node --check` on that copy. This package's `.js` files are not declared as ES modules. Check `.mjs` scripts and CommonJS server files directly; parse edited JSON files.
+- The user's current verification preference is syntax checks without gameplay tests. Do not run browser/headless gameplay checks or create `dist/` unless the user requests them.
+- After each change, explain it in simple words and remind the user to double-click `deploy.bat` to put it live. Do not deploy automatically without authorization.
+
+## Driving backup
+
+The full local source/assets backup made before conversion is `D:\2 TB Downloads\larptic\highway-rush-backup-20261016`. It excludes dependencies, generated output, the database, and Git metadata. Run its `start.bat` to install dependencies and launch it.
+
+The tracked Git backup is branch `backup/highway-rush-20261016` at `e78abd0`. Restore it into a separate checkout/worktree if needed; do not overwrite active ARCLINE source. Local-only assets are preserved in the folder backup.
 
 ## Shipping
 
-Merging into `main` deploys automatically (the Action above), and the site updates a minute or two later.
-Players may need a hard refresh (Ctrl+Shift+R). When the Action can't run, `deploy.bat` (Windows) does the
-whole thing from this folder: commits and pushes local changes to `main`, builds with
-`node scripts/build-pages.mjs xurco.xyz`, and force-pushes `dist/` to the `gh-pages` branch. When you finish
-a change here, tell the user to double-click `deploy.bat` to put it live.
+A push to `main` deploys through the existing GitHub workflow. `deploy.bat` commits/pushes local changes, builds with `node scripts/build-pages.mjs xurco.xyz`, and publishes `dist/` to `gh-pages`. Keep the existing deployment destination and asset safeguards. The site generally updates a minute or two later; Ctrl+Shift+R refreshes cached pages.

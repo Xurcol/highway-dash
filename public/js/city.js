@@ -22,6 +22,17 @@ function canvasTex(size, draw) {
 }
 // per-pixel grain tiles by itself
 function speckle(g, S, n, spread, size = 1) {
+  if (size === 1) {
+    // Generate grain in one pixel upload instead of issuing hundreds of thousands of canvas draws.
+    const image = g.getImageData(0, 0, S, S), pixels = image.data;
+    for (let i = 0; i < n; i++) {
+      const v = (Math.random() - .5) * spread, a = Math.abs(v), ink = v > 0 ? 255 : 0;
+      const p = (((Math.random() * S) | 0) + ((Math.random() * S) | 0) * S) * 4;
+      for (let c = 0; c < 3; c++) pixels[p + c] += (ink - pixels[p + c]) * a;
+    }
+    g.putImageData(image, 0, 0);
+    return;
+  }
   for (let i = 0; i < n; i++) {
     const v = (Math.random() - .5) * spread;
     g.fillStyle = v > 0 ? `rgba(255,255,255,${v})` : `rgba(0,0,0,${-v})`;
@@ -260,21 +271,39 @@ class GB {
     g.computeBoundingSphere();
     return g;
   }
-  mesh(mat, parent, { shadow = false, receive = true } = {}) {
+  mesh(mat, parent, { shadow = false, receive = true, cell = 0, distance = 0 } = {}) {
     if (!this.p.length) return null;
+    if (cell > 0) {
+      // Small road markings and signs need their own bounds to disappear outside the view.
+      const chunks = new Map(), group = new THREE.Group();
+      for (let i = 0; i < this.p.length; i += 9) {
+        const key = Math.floor((this.p[i] + this.p[i + 3] + this.p[i + 6]) / (3 * cell)) + "," + Math.floor((this.p[i + 2] + this.p[i + 5] + this.p[i + 8]) / (3 * cell));
+        let chunk = chunks.get(key);
+        if (!chunk) chunks.set(key, (chunk = new GB(this.t)));
+        for (let j = 0; j < 9; j++) { chunk.p.push(this.p[i + j]); chunk.n.push(this.n[i + j]); }
+        const uv = i / 3 * 2;
+        for (let j = 0; j < 6; j++) chunk.u.push(this.u[uv + j]);
+      }
+      for (const chunk of chunks.values()) chunk.mesh(mat, group, { shadow, receive, distance });
+      parent.add(group);
+      return group;
+    }
     const m = new THREE.Mesh(this.geometry(), mat);
     m.castShadow = shadow; m.receiveShadow = receive;
+    if (distance > 0) m.userData.cityDetailDistance = distance;
     parent.add(m);
     return m;
   }
 }
 // instanced boxes (or any shape) with per-instance colour
 class Inst {
-  constructor(parent, geo, mat, cap, { shadow = true, colors = false } = {}) {
+  constructor(parent, geo, mat, cap, { shadow = true, colors = false, dynamic = false } = {}) {
     this.cap = Math.max(1, cap);
     this.mesh = new THREE.InstancedMesh(geo, mat, this.cap);
     this.mesh.castShadow = shadow; this.mesh.receiveShadow = true; this.mesh.frustumCulled = false;
+    if (dynamic) this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     if (colors) this.mesh.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(this.cap * 3), 3);
+    if (dynamic && colors) this.mesh.instanceColor.setUsage(THREE.DynamicDrawUsage);
     this.n = 0;
     parent.add(this.mesh);
   }
@@ -308,12 +337,12 @@ class Inst {
     if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
   }
 }
-// Static instances bucketed into 600 m squares of the map, one InstancedMesh each with bounds of its
+// Static instances bucketed into map squares, one InstancedMesh each with bounds of its
 // own, so the renderer - and the shadow pass - skips whatever is out of view rather than drawing the
 // whole city every frame. Same add() / span() as Inst.
 class CInst {
   constructor(parent, geo, mat, opts = {}) { this.parent = parent; this.geo = geo; this.mat = mat; this.opts = opts; this.b = new Map(); }
-  put(x, z, op) { const k = Math.floor(x / 600) + "," + Math.floor(z / 600); let a = this.b.get(k); if (!a) this.b.set(k, (a = [])); a.push(op); }
+  put(x, z, op) { const cell = this.opts.cell || 600, k = Math.floor(x / cell) + "," + Math.floor(z / cell); let a = this.b.get(k); if (!a) this.b.set(k, (a = [])); a.push(op); }
   add(x, y, z, sx, sy, sz, rotY = 0, color) { this.put(x, z, (I) => I.add(x, y, z, sx, sy, sz, rotY, color)); }
   span(ax, ay, az, bx, by, bz, sy, sz, color) { this.put((ax + bx) / 2, (az + bz) / 2, (I) => I.span(ax, ay, az, bx, by, bz, sy, sz, color)); }
   end() {
@@ -323,6 +352,7 @@ class CInst {
       for (const op of ops) op(I);
       I.end();
       I.mesh.frustumCulled = true; I.mesh.computeBoundingSphere();
+      if (this.opts.distance > 0) I.mesh.userData.cityDetailDistance = this.opts.distance;
       this.meshes.push(I);
     }
     this.b = null;
@@ -341,6 +371,12 @@ const PRISM = (() => {
   return g.geometry();
 })();
 const BOXC = new THREE.BoxGeometry(1, 1, 1);
+const CITY_DETAIL = {
+  low: { range: .75, parked: 140, traffic: 300, signals: 300, signalHz: 4, screenHz: 4, lampRange: 300, lampCount: 8, carLights: 2, carShadow: 0 },
+  medium: { range: 1, parked: 185, traffic: 360, signals: 400, signalHz: 8, screenHz: 6, lampRange: 380, lampCount: 14, carLights: 4, carShadow: 150 },
+  high: { range: 1.25, parked: 230, traffic: 420, signals: 500, signalHz: 12, screenHz: 8, lampRange: 460, lampCount: 24, carLights: 6, carShadow: 210 },
+};
+const PARKED_COLORS = [0xf2f2f2, 0x1d1f24, 0x9aa1aa, 0xc62828, 0x1e5bd8, 0x5b6f86, 0xd8cbb0, 0x3a3d44];
 
 // ---------------------------------------------------------------- the city
 export class City {
@@ -350,8 +386,13 @@ export class City {
     this.pool = new Map(); this.meshes = new Map();
     this.lightPool = []; this.carLights = [];
     this.mapEl = null;
+    this.setDetail("medium");
   }
   get ready() { return !!this.M; }
+  setDetail(level) {
+    this.detail = CITY_DETAIL[level] || CITY_DETAIL.medium;
+    this.visibilityT = 0; this.signalT = 0;
+  }
   // "hero" builds the hero mode's taller city; anything else is City Drive's. Switching throws the
   // built city away, so the next show() builds the other one.
   setVariant(v) {
@@ -374,12 +415,17 @@ export class City {
     this.mapEl?.remove();
     this.group = null; this.M = null; this.traffic = null; this.mapEl = null; this.mapCtx = null;
     this.pool.clear(); this.meshes.clear(); this.heads = []; this.parked = []; this.signFaces = [];
+    this.detailMeshes = []; this.hx = null; this.screenReady = false;
   }
   show(on) {
     if (on && !this.M) this.build();
     if (this.group) this.group.visible = on;
     if (this.mapEl) this.mapEl.hidden = !on;
-    if (!on && this.traffic) { this.traffic.clear(); this.releaseAll(); }
+    if (!on && this.traffic) {
+      this.traffic.clear(); this.releaseAll();
+      for (const p of this.parked || []) if (p.mesh) { this.release(p.mesh); p.mesh = null; }
+    }
+    this.visibilityT = 0; this.signalT = 0;
   }
 
   build() {
@@ -470,14 +516,14 @@ export class City {
       const px = (-dz / L) * k.w / 2, pz = (dx / L) * k.w / 2, ya = k.ay + .018, yb = k.by + .018;
       (k.c ? yellow : white).quad([k.ax - px, ya, k.az - pz], [k.ax + px, ya, k.az + pz], [k.bx + px, yb, k.bz + pz], [k.bx - px, yb, k.bz - pz], [0, 1, 0], () => [0, 0]);
     }
-    white.mesh(mat.white, G); yellow.mesh(mat.yellow, G);
+    white.mesh(mat.white, G, { cell: 260, distance: 650 }); yellow.mesh(mat.yellow, G, { cell: 260, distance: 650 });
     const arrowSheet = atlas([...new Set(M.arrows.map((a) => a.type))].map((key) => ({ key, canvas: arrowCanvas(key) })), 1024);
     const arrows = new GB(1);
     for (const a of M.arrows) {
       const rx = -a.dz * 1.1, rz = a.dx * 1.1, fx = a.dx * 2.2, fz = a.dz * 2.2, y = .02, [u0, v0, u1, v1] = arrowSheet.uv.get(a.type);
       arrows.quadUV([a.x - rx - fx, y, a.z - rz - fz], [a.x + rx - fx, y, a.z + rz - fz], [a.x + rx + fx, y, a.z + rz + fz], [a.x - rx + fx, y, a.z - rz + fz], [[u0, v0], [u1, v0], [u1, v1], [u0, v1]], [0, 1, 0]);
     }
-    arrows.mesh(lit({ map: arrowSheet.tex, alphaTest: .5, color: 0xe8e8e2, roughness: .65, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), G);
+    arrows.mesh(lit({ map: arrowSheet.tex, alphaTest: .5, color: 0xe8e8e2, roughness: .65, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -4 }), G, { cell: 260, distance: 550 });
 
     // ---- buildings, with a far skyline beyond the wall ----
     const byLook = [[], [], [], [], [], []];
@@ -498,7 +544,7 @@ export class City {
     });
     const roundGeo = new THREE.CylinderGeometry(1, 1, 1, 36).translate(0, .5, 0);
     for (const v of new Set(M.rounds.map((r) => r.v))) {
-      const I = new Inst(G, roundGeo, facades[v], M.rounds.filter((r) => r.v === v).length, { colors: true });
+      const I = new CInst(G, roundGeo, facades[v], { colors: true });
       for (const r of M.rounds) if (r.v === v) I.add(r.x, r.y0, r.z, r.r, r.h, r.r, 0, r.col);
       I.end();
     }
@@ -506,11 +552,11 @@ export class City {
     // rather than one per kind of thing: small boxes (signal gear, lamp arms, benches, awnings), big
     // boxes (roof plant and parapets, barriers, gas stations, the wall), cylinders (posts, piers, tree
     // trunks, tanks, hydrants, bins) and the things that glow (lamp heads, shop signs, fascias).
-    const small = new CInst(G, BOXC, lit({ color: 0xffffff, roughness: .6, metalness: .3 }), { shadow: false, colors: true });
-    const big = new CInst(G, BOX, mat.roof, { colors: true });
-    const cyls = new CInst(G, CYL, lit({ color: 0xffffff, roughness: .55, metalness: .3 }), { colors: true });
+    const small = new CInst(G, BOXC, lit({ color: 0xffffff, roughness: .6, metalness: .3 }), { shadow: false, colors: true, cell: 260, distance: 500 });
+    const big = new CInst(G, BOX, mat.roof, { colors: true, cell: 450 });
+    const cyls = new CInst(G, CYL, lit({ color: 0xffffff, roughness: .55, metalness: .3 }), { colors: true, cell: 320, distance: 700 });
     this.glowMat = new THREE.MeshBasicMaterial({ color: 0xffffff, toneMapped: false });
-    const glow = new CInst(G, BOXC, this.glowMat, { shadow: false, colors: true });
+    const glow = new CInst(G, BOXC, this.glowMat, { shadow: false, colors: true, cell: 320, distance: 650 });
     const K = { metal: 0x4d5258, dark: 0x1b1d20, concrete: 0xb9b5ac, curb: 0xc9c5bc, rail: 0xb4b9bf, wood: 0x6b4a2c, timber: 0x6e4b30, trunk: 0x57412e, head: 0xfff1d6 };
 
     for (const r of M.roofs) big.add(r.x, r.y, r.z, r.sx, r.sy, r.sz, 0, r.col);
@@ -562,7 +608,7 @@ export class City {
     const LENS_GEO = new THREE.PlaneGeometry(.27, .27);
     const nArrow = M.heads.filter((h) => h.arrow).length, nRound = M.heads.length - nArrow;
     const lensMats = [lensMat(false), lensMat(true)];
-    const off = [new CInst(G, LENS_GEO, lensMats[0], { shadow: false, colors: true }), new CInst(G, LENS_GEO, lensMats[1], { shadow: false, colors: true })];
+    const off = [new CInst(G, LENS_GEO, lensMats[0], { shadow: false, colors: true, cell: 260, distance: 450 }), new CInst(G, LENS_GEO, lensMats[1], { shadow: false, colors: true, cell: 260, distance: 450 })];
     const dim = [new THREE.Color(.01, .13, .07), new THREE.Color(.17, .1, .01), new THREE.Color(.18, .025, .02)];
     for (const h of M.heads) {
       h.rot = Math.atan2(h.fx, h.fz);
@@ -574,7 +620,8 @@ export class City {
       }
     }
     off[0].end(); off[1].end();
-    this.lensOn = [new Inst(G, LENS_GEO, lensMats[0], nRound, { shadow: false, colors: true }), new Inst(G, LENS_GEO, lensMats[1], nArrow, { shadow: false, colors: true })];
+    this.lensOn = [new Inst(G, LENS_GEO, lensMats[0], nRound, { shadow: false, colors: true, dynamic: true }), new Inst(G, LENS_GEO, lensMats[1], nArrow, { shadow: false, colors: true, dynamic: true })];
+    for (const L of this.lensOn) L.end();
     this.LENS = [new THREE.Color(.25, 3.4, 1.7), new THREE.Color(4, 2.2, .12), new THREE.Color(4.2, .28, .16)];
 
     // ---- signs: every face on one of two atlases - plates (lit at night like reflective sheeting)
@@ -592,7 +639,7 @@ export class City {
     }
     this.plateMat = new THREE.MeshStandardMaterial({ map: plates.tex, roughness: .55, emissiveMap: plates.tex, emissive: 0xffffff, emissiveIntensity: 0 });
     this.nameMat = new THREE.MeshBasicMaterial({ map: names.tex, transparent: true, depthWrite: false, toneMapped: false });
-    plateGB.mesh(this.plateMat, G); nameGB.mesh(this.nameMat, G); backs.mesh(mat.metal, G);
+    plateGB.mesh(this.plateMat, G, { cell: 300, distance: 650 }); nameGB.mesh(this.nameMat, G, { cell: 450, distance: 950 }); backs.mesh(mat.metal, G, { cell: 300, distance: 650 });
 
     // ---- gas stations: canopies, columns, islands and pumps; their fascias glow ----
     const PART = { canopy: 0xf2f2ee, column: 0xdcdcd6, island: K.curb, pump: 0xeeeeea };
@@ -609,7 +656,7 @@ export class City {
     for (const b of F.bins) cyls.add(b.x, CURB, b.z, .28, .95, .28, 0, 0x2b3a2e);
     for (const m of F.manholes) cyls.add(m.x, .004, m.z, .45, .02, .45, 0, 0x2a2b2e);
     for (const p of F.pits) big.add(p.x, CURB, p.z, 1.25, .02, 1.25, 0, 0x2e2923);
-    const glass = new CInst(G, BOXC, new THREE.MeshStandardMaterial({ color: 0xbfd6e0, roughness: .05, metalness: .2, transparent: true, opacity: .28, depthWrite: false }), { shadow: false });
+    const glass = new CInst(G, BOXC, new THREE.MeshStandardMaterial({ color: 0xbfd6e0, roughness: .05, metalness: .2, transparent: true, opacity: .28, depthWrite: false }), { shadow: false, cell: 260, distance: 400 });
     for (const b of F.benches) {
       const r = Math.atan2(b.fx, b.fz), at = (o, y) => [b.x - b.fx * o, CURB + y, b.z - b.fz * o];
       small.add(...at(0, .45), 1.8, .07, .46, r, K.wood); small.add(...at(.24, .75), 1.8, .42, .06, r, K.wood);
@@ -644,7 +691,7 @@ export class City {
     paths.mesh(lit({ map: pavingTex(), color: 0xc8c0b0, roughness: .95, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 }), G);
 
     // ---- trees ----
-    const crowns = new CInst(G, new THREE.IcosahedronGeometry(1, 1), mat.crown, { colors: true });
+    const crowns = new CInst(G, new THREE.IcosahedronGeometry(1, 1), mat.crown, { colors: true, cell: 400, distance: 850 });
     const GREENS = [0x3f6a2e, 0x4c7a34, 0x36602a, 0x5a843c, 0x2f5626];
     for (const t of M.trees) {
       const y = groundAt(M, t.x, t.z), sc = t.s, th = 2.2 + sc * 1.4;
@@ -679,19 +726,21 @@ export class City {
     small.end(); big.end(); cyls.end(); glow.end();
 
     // ---- parked cars ----
-    this.parked = M.parked.map((p) => {
-      const col = [0xf2f2f2, 0x1d1f24, 0x9aa1aa, 0xc62828, 0x1e5bd8, 0x5b6f86, 0xd8cbb0, 0x3a3d44][p.ci % 8];
-      const m = makeTrafficCar(p.body, col);
-      m.position.set(p.x, .05, p.z); m.rotation.y = p.yaw;
-      G.add(m);
-      return m;
-    });
+    // The map keeps every parked car's collision, but its model is only needed near the camera.
+    this.parked = M.parked.map((p) => ({ p, mesh: null }));
 
     // ---- traffic ----
     const sizes = {};
     for (const b of CITY_BODIES) sizes[b] = { L: BODIES[b].L, W: BODIES[b].W };
     this.traffic = new CityTraffic(M, sizes);
     if (M.hx) this.hx = buildHeroExtras(M, G, { mat, tex });
+    this.detailMeshes = [];
+    G.traverse((m) => {
+      if (!m.userData.cityDetailDistance) return;
+      const sphere = m.boundingSphere || m.geometry?.boundingSphere;
+      if (sphere) this.detailMeshes.push({ mesh: m, sphere, distance: m.userData.cityDetailDistance });
+    });
+    this.visibilityT = 0; this.signalT = 0;
     this.buildMinimap();
   }
   // ---------------------------------------------------------------- traffic meshes
@@ -703,8 +752,60 @@ export class City {
     m.visible = true;
     return m;
   }
-  release(m) { m.visible = false; const p = this.pool.get(m.userData.body) || []; p.push(m); this.pool.set(m.userData.body, p); }
+  release(m) {
+    m.visible = false;
+    const body = m.userData.body, p = this.pool.get(body) || [];
+    if (p.length < 10) { p.push(m); this.pool.set(body, p); }
+    else m.removeFromParent();
+  }
   releaseAll() { for (const m of this.meshes.values()) this.release(m); this.meshes.clear(); }
+  carShadows(m, d2) {
+    const on = this.detail.carShadow > 0 && d2 < this.detail.carShadow ** 2;
+    if (m.userData.cityShadows === on) return;
+    m.userData.cityShadows = on;
+    for (let i = 0; i < 2; i++) m.children[i].castShadow = on;
+  }
+  updateVisibility(dt, cam) {
+    this.visibilityT -= dt;
+    if (this.visibilityT > 0 && this.visibilityCam?.distanceToSquared(cam) < 35 * 35) return;
+    this.visibilityT = .2;
+    (this.visibilityCam ||= new THREE.Vector3()).copy(cam);
+    for (const { mesh, sphere, distance } of this.detailMeshes || []) {
+      const range = distance * this.detail.range + sphere.radius;
+      mesh.visible = sphere.center.distanceToSquared(cam) < range * range;
+    }
+    const range = this.detail.parked;
+    for (const slot of this.parked) {
+      const p = slot.p, d2 = (p.x - cam.x) ** 2 + (.8 - cam.y) ** 2 + (p.z - cam.z) ** 2;
+      if (d2 > (range + 35) ** 2) {
+        if (slot.mesh) { this.release(slot.mesh); slot.mesh = null; }
+      } else if (!slot.mesh && d2 < range * range) {
+        slot.mesh = this.acquire(p.body, PARKED_COLORS[p.ci % PARKED_COLORS.length]);
+        slot.mesh.position.set(p.x, .05, p.z); slot.mesh.rotation.set(0, p.yaw, 0);
+      }
+      if (slot.mesh) this.carShadows(slot.mesh, d2);
+    }
+    const signals = this.detail.signals + 30, lamps = this.detail.lampRange + 30;
+    this.nearSignals = this.M.heads.filter((h) => distanceSq(h, cam) < signals * signals);
+    this.nearLamps = this.heads.filter((h) => distanceSq(h, cam) < lamps * lamps);
+    this.nearLamps.sort((a, b) => distanceSq(a, cam) - distanceSq(b, cam));
+    this.screensNear = this.hx?.screens?.list?.some((s) => distanceSq(s, cam) < (650 * this.detail.range) ** 2);
+    this.signalT = 0;
+  }
+  updateSignals(dt, T, cam) {
+    if ((this.signalT -= dt) > 0) return;
+    this.signalT = 1 / this.detail.signalHz;
+    this.signalGlows = [];
+    for (const L of this.lensOn) L.begin();
+    for (const h of this.nearSignals || []) {
+      if (distanceSq(h, cam) > this.detail.signals ** 2) continue;
+      const st = signalAt(h.n, h.axis, h.left, T), dy = st === 0 ? -.36 : st === 1 ? 0 : .36;
+      const x = h.x + h.fx * .18, y = h.y + dy, z = h.z + h.fz * .18;
+      this.lensOn[h.arrow ? 1 : 0].add(x, y, z, 1, 1, 1, h.rot, this.LENS[st]);
+      this.signalGlows.push({ x: x + h.fx * .05, y, z: z + h.fz * .05, col: this.LENS[st] });
+    }
+    for (const L of this.lensOn) L.end();
+  }
 
   // ---------------------------------------------------------------- per frame
   resetTraffic(focus, count) {
@@ -762,21 +863,29 @@ export class City {
     this.plateMat.emissiveIntensity = nk * .6;
     this.nameMat.color.setScalar(.8 + nk * 1.6);
     this.glowMat.color.setScalar(.6 + nk * 1.7);
+    this.updateVisibility(dt, cam);
+    this.updateSignals(dt, T, cam);
     const fwd = camera.getWorldDirection(_v);
-    const honks = this.traffic.step(dt, T, players, { x: focus.x, y: focus.y, z: focus.z, fx: fwd.x, fz: fwd.z });
+    const trafficFocus = this.trafficFocus ||= {};
+    trafficFocus.x = focus.x; trafficFocus.y = this.variant === "hero" ? Math.min(DECK_Y, focus.y) : focus.y;
+    trafficFocus.z = focus.z; trafficFocus.fx = fwd.x; trafficFocus.fz = fwd.z;
+    const honks = this.traffic.step(dt, T, players, trafficFocus);
 
     // ---- traffic ----
     const seen = _seen; seen.clear();
     const blink = Math.floor(T * 2.8) % 2 === 0;
-    let hl = 0;
+    const lightCars = this.lightCars ||= []; lightCars.length = 0;
     for (const c of this.traffic.cars) {
       seen.add(c);
+      const d2 = (c.x - cam.x) ** 2 + (c.y + .8 - cam.y) ** 2 + (c.z - cam.z) ** 2;
       let m = this.meshes.get(c);
+      if (d2 > this.detail.traffic ** 2) { if (m) m.visible = false; continue; }
       if (!m) { m = this.acquire(c.body, c.color); this.meshes.set(c, m); }
+      m.visible = true;
       m.position.set(c.x, c.y, c.z);
       m.rotation.set(c.pitch, c.yaw, 0);
-      const d2 = (c.x - cam.x) ** 2 + (c.z - cam.z) ** 2;
-      if (d2 > 380 * 380) continue;
+      this.carShadows(m, d2);
+      if (d2 > 280 * 280) continue;
       const B = BODIES[c.body], cy = Math.cos(c.yaw), sy = Math.sin(c.yaw);
       const pt = (lx, lz, h) => _pt.set(c.x + lx * cy + lz * sy, c.y + h, c.z - lx * sy + lz * cy);
       const braking = c.acc < -1.2 || c.v < .4, hw = c.W / 2 - .3;
@@ -787,30 +896,26 @@ export class City {
         if (c.sig === s && blink) { glows.add(t.x, t.y, t.z, 1, .55, .05, 1.1); const f = pt(s * hw, -c.L / 2 - .05, B.hl[1]); glows.add(f.x, f.y, f.z, 1, .55, .05, 1); }
         if (night) { const h = pt(s * (c.W / 2 - .35), -c.L / 2 - .05, B.hl[1]); glows.add(h.x, h.y, h.z, 1, .96, .86, 1.5); }
       }
-      if (night && hl < 6 && d2 < 140 * 140) {
-        const L = this.carLights[hl++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(), color: new THREE.Color(1, .95, .85), intensity: 4, range: 42, cosOuter: Math.cos(.5), cosInner: Math.cos(.22) };
-        const h = pt(0, -c.L / 2 - .3, B.hl[1] + .1);
-        L.pos.set(h.x, h.y, h.z); L.dir.set(-sy, -.12, -cy).normalize();
-        lights.push(L);
-      }
+      if (night && d2 < 95 * 95) lightCars.push(c);
     }
     for (const [c, m] of this.meshes) if (!seen.has(c)) { this.release(m); this.meshes.delete(c); }
+    lightCars.sort((a, b) => distanceSq(a, cam) - distanceSq(b, cam));
+    for (let i = 0; i < Math.min(this.detail.carLights, lightCars.length); i++) {
+      const c = lightCars[i], cy = Math.cos(c.yaw), sy = Math.sin(c.yaw), z = -c.L / 2 - .3;
+      const L = this.carLights[i] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(), color: new THREE.Color(1, .95, .85), intensity: 4, range: 42, cosOuter: Math.cos(.5), cosInner: Math.cos(.22) };
+      L.pos.set(c.x + z * sy, c.y + BODIES[c.body].hl[1] + .1, c.z + z * cy);
+      L.dir.set(-sy, -.12, -cy).normalize(); lights.push(L);
+    }
 
     // ---- signals: one lit lens per head ----
-    for (const L of this.lensOn) L.begin();
-    for (const h of M.heads) {
-      const st = signalAt(h.n, h.axis, h.left, T), dy = st === 0 ? -.36 : st === 1 ? 0 : .36;
-      const x = h.x + h.fx * .18, y = h.y + dy, z = h.z + h.fz * .18;
-      this.lensOn[h.arrow ? 1 : 0].add(x, y, z, 1, 1, 1, h.rot, this.LENS[st]);
-      const d2 = (x - cam.x) ** 2 + (z - cam.z) ** 2;
-      if (d2 < 280 * 280) { const c = this.LENS[st]; glows.add(x + h.fx * .05, y, z + h.fz * .05, c.r / 4, c.g / 4, c.b / 4, night ? 1.3 : .55); }
+    for (const h of this.signalGlows || []) {
+      if (distanceSq(h, cam) < 260 * 260) glows.add(h.x, h.y, h.z, h.col.r / 4, h.col.g / 4, h.col.b / 4, night ? 1.3 : .55);
     }
-    for (const L of this.lensOn) L.end();
     // the gas stations' canopies light the forecourt after dark
     if (night) {
       let si = 0;
       for (const s of M.stations) {
-        if ((s.cx - cam.x) ** 2 + (s.cz - cam.z) ** 2 > 220 * 220) continue;
+        if ((s.cx - cam.x) ** 2 + (5.2 - cam.y) ** 2 + (s.cz - cam.z) ** 2 > 180 * 180) continue;
         for (const [x, z] of s.lamps) {
           glows.add(x, 5.25, z, 1, .97, .92, 2.2);
           const P = this.stationLights[si++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -1, 0), color: new THREE.Color(1, .97, .92), intensity: 6, range: 14, cosOuter: Math.cos(1.25), cosInner: Math.cos(.7) };
@@ -823,21 +928,27 @@ export class City {
     // ---- lamps ----
     if (night) {
       let li = 0;
-      for (const h of this.heads) {
-        const d2 = (h.x - cam.x) ** 2 + (h.z - cam.z) ** 2;
-        if (d2 > 420 * 420) continue;
+      for (const h of this.nearLamps || []) {
+        const d2 = distanceSq(h, cam);
+        if (d2 > this.detail.lampRange ** 2) continue;
         glows.add(h.x, h.y, h.z, 1, .82, .55, 3);
-        if (d2 < 130 * 130 && li < 26) {
+        if (d2 < 90 * 90 && li < this.detail.lampCount) {
           const P = this.lightPool[li++] ||= { pos: new THREE.Vector3(), dir: new THREE.Vector3(0, -1, 0), color: new THREE.Color(1, .8, .55), intensity: 5, range: 30, cosOuter: Math.cos(1.2), cosInner: Math.cos(.55) };
           P.pos.set(h.x, h.y - .1, h.z);
           lights.push(P);
         }
       }
     }
-    // warning lights on the tallest towers, and the parked cars only when near
-    if (this.hx) updateHeroExtras(this.hx, dt, T, nk, glows, lights, cam);
+    // Warning lights stay visible on the skyline; street detail follows the camera in three dimensions.
+    if (this.hx) {
+      const screens = this.hx.screens;
+      // River motion and nearby lights keep updating while distant video screens stop uploading pixels.
+      if (screens?.list && this.screenReady && !this.screensNear) screens.t = Math.max(screens.t, dt + .25);
+      const refresh = screens?.list && screens.t <= dt;
+      updateHeroExtras(this.hx, dt, T, nk, glows, lights, cam);
+      if (refresh) { screens.t = 1 / this.detail.screenHz; this.screenReady = true; }
+    }
     if (Math.floor(T * 1.1) % 2 === 0) for (const b of M.beacons) glows.add(b.x, b.y, b.z, 1, .06, .05, night ? 5 : 2.5);
-    if ((this.pk = (this.pk || 0) + 1) % 15 === 0) for (const m of this.parked) m.visible = (m.position.x - cam.x) ** 2 + (m.position.z - cam.z) ** 2 < 190 * 190;
     return honks;
   }
 
@@ -919,4 +1030,5 @@ export class City {
     g.fillText("N", R + Math.cos(na) * (R - 22), R + Math.sin(na) * (R - 22));
   }
 }
+const distanceSq = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
 const _v = new THREE.Vector3(), _pt = new THREE.Vector3(), _seen = new Set();

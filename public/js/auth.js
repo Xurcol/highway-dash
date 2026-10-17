@@ -1,7 +1,7 @@
 // The account screen, shown over the loading video once everything has downloaded: sign in, or
 // create an account, or - when someone chose to stay signed in - one click to carry on. Resolves
 // once an account is signed in; the save it loaded is already in P.
-import { register, login, resume, keptAccount, hasAccounts, lastUsername } from "./profile.js";
+import { register, login, resume, keptAccount, hasAccounts, lastUsername } from "./arcline-profile.js";
 
 export function signIn() {
   const $ = (id) => document.getElementById(id);

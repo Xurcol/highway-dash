@@ -4,7 +4,7 @@
 // with the game's coins and worn online too.
 import { SUITS } from "./hero-rig.js";
 import { TUNE } from "./hero-move.js";
-import { spend } from "./profile.js";
+import { spend } from "./arcline-profile.js";
 
 export const SKILLS = {
   swing: { name: "Swing Mastery", max: 3, desc: "Faster swings: +7% top swing speed and pump per level" },

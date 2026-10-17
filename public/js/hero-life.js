@@ -81,6 +81,7 @@ export class Crowd {
     this.peds = [];
     this.paths = this.buildPaths(W.M);
     this.flash = [];
+    this.simT = 0; this.forceUpdate = true;
     this.m4 = new THREE.Matrix4(); this.q = new THREE.Quaternion(); this.s = new V(1, 1, 1); this.e = new THREE.Euler();
   }
   // straight walks: down the middle of every sidewalk strip, and round the edge of every block
@@ -122,6 +123,15 @@ export class Crowd {
   }
   // threats: points the crowd runs from ({ x, z, r }); show: where the hero is doing something to watch
   update(dt, cam, hero, threats, glows, night) {
+    this.simT += Math.max(0, dt);
+    if (this.forceUpdate || this.simT >= 1 / 30) {
+      const step = this.simT; this.simT = 0; this.forceUpdate = false;
+      this.simulate(step, cam, hero, threats, night);
+    }
+    // Camera flashes still enter the glow buffer on every rendered frame.
+    for (let i = this.flash.length - 1; i >= 0; i--) { const f = this.flash[i]; f[3] -= dt; if (f[3] <= 0) this.flash.splice(i, 1); else glows.add(f[0], f[1], f[2], 1, 1, 1, 2.5); }
+  }
+  simulate(dt, cam, hero, threats, night) {
     if (!this.paths.length) return;
     while (this.peds.length < this.n) { const p = {}; this.spawn(p, cam, true); this.peds.push(p); }
     const hx = hero.x, hz = hero.z, hy = hero.y;
@@ -183,9 +193,8 @@ export class Crowd {
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     for (const a of [this.aShirt, this.aPants, this.aSkin, this.aAnim]) a.needsUpdate = true;
-    for (let i = this.flash.length - 1; i >= 0; i--) { const f = this.flash[i]; f[3] -= dt; if (f[3] <= 0) this.flash.splice(i, 1); else glows.add(f[0], f[1], f[2], 1, 1, 1, 2.5); }
   }
-  setVisible(on) { this.mesh.visible = on; }
+  setVisible(on) { this.mesh.visible = on; this.simT = 0; this.forceUpdate = on; if (!on) this.flash.length = 0; }
 }
 const _v = new V(), _c = new THREE.Color();
 
@@ -243,7 +252,7 @@ export class Trains {
 // Some of the city's traffic are emergency vehicles: dark police cruisers and white ambulances, light
 // bars flashing, sirens on when there's trouble about.
 export class Emergency {
-  constructor(scene) { this.scene = scene; this.marked = new Map(); this.parked = []; this.officers = []; }
+  constructor(scene) { this.scene = scene; this.marked = new Map(); this.parked = []; this.officers = []; this.poseT = 0; }
   // tag new traffic cars as emergency vehicles now and then
   tag(traffic, alarm) {
     for (const c of traffic.cars) {
@@ -256,21 +265,37 @@ export class Emergency {
     if (this.marked.size > 4000) this.marked.clear();
   }
   // the light bars, and the sirens that are near enough to hear
-  lights(traffic, T, glows, cam, alarm) {
+  // cam may be a camera or its position. A listener can supply camera right, velocity and audible.
+  lights(traffic, T, glows, cam, alarm, listener = {}) {
+    const pos = cam.position || cam, matrix = cam.matrixWorld?.elements;
+    const right = listener.right || { x: matrix?.[0] ?? 1, z: matrix?.[2] ?? 0 };
+    const rl = Math.hypot(right.x, right.z) || 1, velocity = listener.velocity || {};
     const sirens = [];
     for (const c of traffic.cars) {
       if (!c.ev) continue;
-      const d = Math.hypot(c.x - cam.x, c.z - cam.z);
-      if (d > 300) continue;
+      const dx = c.x - pos.x, dz = c.z - pos.z, flat = Math.hypot(dx, dz);
+      if (flat > 240) continue;
       const on = Math.floor(T * 6 + c.id) % 2, sy = Math.sin(c.yaw), cy = Math.cos(c.yaw);
       for (const s of [-1, 1]) {
         const x = c.x + s * .45 * cy, z = c.z - s * .45 * sy, lit = (s > 0) === !!on;
         if (c.ev === "police") glows.add(x, c.y + 1.6, z, lit ? 3 : .1, .1, lit ? .1 : 3, 1.4);
         else glows.add(x, c.y + 2.4, z, 3, lit ? .3 : 2.6, lit ? .2 : 2.6, 1.3);
       }
-      if (alarm && d < 220) sirens.push({ key: "ev" + c.id, kind: c.ev, level: Math.max(0, 1 - d / 220), pan: 0, dop: 1, yelp: d < 60 });
+      if (!alarm || listener.audible === false) continue;
+      const dy = (c.y || 0) + 1.5 - (pos.y || 0), distance = Math.hypot(dx, dy, dz);
+      if (distance >= 85) continue;
+      // Street noise drops off quickly above the street instead of following the hero onto rooftops.
+      const edge = 1 - distance / 85;
+      const level = Math.min(1, 1.4 * edge * edge * Math.pow(14 / Math.max(14, distance), 1.3)) * Math.exp(-Math.abs(dy) / 18);
+      if (level < .003) continue;
+      const ux = dx / Math.max(1, distance), uy = dy / Math.max(1, distance), uz = dz / Math.max(1, distance);
+      const toward = (velocity.x || 0) * ux + (velocity.y || 0) * uy + (velocity.z || 0) * uz;
+      const away = (-sy * ux - cy * uz) * (c.v || 0);
+      sirens.push({ key: "ev" + c.id, kind: c.ev, level, distance,
+        pan: Math.max(-1, Math.min(1, (dx * right.x + dz * right.z) / (Math.max(1, flat) * rl))),
+        dop: Math.max(.85, Math.min(1.2, (343 + toward) / Math.max(200, 343 + away))), yelp: distance < 28 });
     }
-    return sirens;
+    return sirens.sort((a, b) => a.distance - b.distance).slice(0, 2);
   }
   // a police car stopped at a crime scene, lights going, two officers behind it
   park(x, z, yaw) {
@@ -286,7 +311,7 @@ export class Emergency {
       const ox = x + Math.cos(yaw) * s * 1.6 - Math.sin(yaw) * 2.6, oz = z - Math.sin(yaw) * s * 1.6 - Math.cos(yaw) * 2.6;
       ofc.push({ rig, x: ox, z: oz, yaw: yaw + Math.PI, t: Math.random() * 3 });
     }
-    const p = { car, x, z, yaw, ofc, t: 0 };
+    const p = { car, x, z, yaw, ofc, t: 0, fresh: true };
     this.parked.push(p);
     return p;
   }
@@ -296,22 +321,27 @@ export class Emergency {
     this.parked.splice(this.parked.indexOf(p), 1);
   }
   updateParked(dt, T, glows, W, aimAt) {
+    this.poseT += Math.max(0, dt);
+    const pose = this.poseT >= 1 / 30, step = this.poseT;
+    if (pose) this.poseT = 0;
     for (const p of this.parked) {
       p.t += dt;
       const on = Math.floor(T * 6) % 2, cy = Math.cos(p.yaw), sy = Math.sin(p.yaw);
       for (const s of [-1, 1]) { const lit = (s > 0) === !!on; glows.add(p.x + s * .45 * cy, 1.6, p.z - s * .45 * sy, lit ? 3 : .1, .1, lit ? .1 : 3, 1.5); }
+      if (!pose && !p.fresh) continue;
+      p.fresh = false;
       for (const o of p.ofc) {
-        o.t += dt;
+        o.t += step;
         const tgt = aimAt?.(o.x, o.z);
         if (tgt) o.yaw = Math.atan2(tgt.x - o.x, tgt.z - o.z);
         _p.set(o.x, W.topAt(o.x, o.z, 3) + HIP_H, o.z);
-        o.rig.place(_p, _u.set(0, 1, 0), _f.set(Math.sin(o.yaw), 0, Math.cos(o.yaw)), null, dt, 10);
+        o.rig.place(_p, _u.set(0, 1, 0), _f.set(Math.sin(o.yaw), 0, Math.cos(o.yaw)), null, step, 10);
         const r = poseBody(o.rig, { state: "ground", hs: 0, speed: 0, vy: 0, phase: 0, t: o.t, landT: 9, attack: tgt ? { kind: "aim", k: .5 } : null });
-        o.rig.apply(dt, r);
+        o.rig.apply(step, r);
       }
     }
   }
-  clear() { while (this.parked.length) this.unpark(this.parked[0]); }
+  clear() { while (this.parked.length) this.unpark(this.parked[0]); this.marked.clear(); this.officers.length = 0; this.poseT = 0; }
 }
 const _p = new V(), _u = new V(), _f = new V();
 

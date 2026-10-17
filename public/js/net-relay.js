@@ -14,7 +14,7 @@ import mqtt from "/vendor/mqtt.esm.js";
 import { store, pushState } from "./net.js";
 
 // ?root=... points a client at a private topic namespace, so tests never touch the real lobby.
-const ROOT = (() => { const r = new URLSearchParams(location.search).get("root"); return r && /^[\w\-\/]{3,60}$/.test(r) ? r.replace(/\/?$/, "/") : "xurcoxyz/hdash/v1/"; })();
+const ROOT = (() => { const r = new URLSearchParams(location.search).get("root"); return r && /^[\w\-\/]{3,60}$/.test(r) ? r.replace(/\/?$/, "/") : "xurcoxyz/arcline/v1/"; })();
 // Every player connects to all relays at once and publishes to each, so two players can never end up
 // on different relays (a slow or blocked relay just drops out). Duplicate deliveries are filtered by id.
 const BROKERS = [
@@ -24,7 +24,7 @@ const BROKERS = [
 ];
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const MAX_ROOM = 16, MIN_ROOM = 2;
-const ROOM_MODES = ["crash", "target", "timed", "free", "city", "hero"];
+const ROOM_MODES = ["hero"];
 const LISTING_TTL = 3 * 60 * 1000;      // a listing nobody has refreshed for this long is dead
 const cleanText = (s, n) => String(s ?? "").replace(/[\u0000-\u001f\u007f<>]/g, "").replace(/\s+/g, " ").trim().slice(0, n);
 const num = (v, lo, hi, d = 0) => { v = +v; return Number.isFinite(v) ? Math.min(hi, Math.max(lo, v)) : d; };
@@ -71,7 +71,7 @@ const cookie = {
   set(k, v) { document.cookie = `${k}=${encodeURIComponent(v)}; max-age=${60 * 60 * 24 * 400}; path=/; SameSite=Lax`; },
 };
 const randCode = (n = 6) => Array.from(crypto.getRandomValues(new Uint32Array(n)), (x) => CODE_CHARS[x % CODE_CHARS.length]).join("");
-const cleanName = (s) => String(s || "").replace(/[^\w .\-]/g, "").trim().slice(0, 16) || "Driver";
+const cleanName = (s) => String(s || "").replace(/[^\w .\-]/g, "").trim().slice(0, 16) || "Hero";
 
 export class RelayNet extends EventTarget {
   constructor() {
@@ -82,7 +82,7 @@ export class RelayNet extends EventTarget {
     this.peers = new Map();
     this.players = new Map();     // code -> presence
     this.publicRooms = new Map(); // code -> listing
-    this.friendCodes = new Set(store.get("hd_friends", []));
+    this.friendCodes = new Set(store.get("arc_friends", []));
     this.incomingMap = new Map();
     this.myScore = 0; this.lastRound = 0;
     this.clockOffset = 0; this.clockSamples = []; // everyone in a party follows the host's clock
@@ -125,12 +125,12 @@ export class RelayNet extends EventTarget {
   relayStatus() { return this.links.map((l) => ({ name: l.name, up: l.client.connected })); }
 
   connect(name, car) {
-    let code = cookie.get("hd_code") || store.get("hd_code", null);
+    let code = cookie.get("arc_code") || store.get("arc_code", null);
     if (!code || !/^[A-Z2-9]{6}$/.test(code)) code = randCode();
-    cookie.set("hd_code", code); store.set("hd_code", code);
-    const storedName = cookie.get("hd_name") || name;
+    cookie.set("arc_code", code); store.set("arc_code", code);
+    const storedName = name || cookie.get("arc_name");
     this.me = { id: code, code, name: cleanName(storedName), best: 0, level: 1 };
-    cookie.set("hd_name", this.me.name);
+    cookie.set("arc_name", this.me.name);
     this.car = car; this.joinT = 0;
     this.open();
   }
@@ -141,7 +141,7 @@ export class RelayNet extends EventTarget {
     this.pingBeat = setInterval(() => this.pingRelay(), 20000);
     for (const b of BROKERS) {
       const will = { topic: this.t(`presence/${this.me.code}`), payload: JSON.stringify({ ...this.presence(true), t: 0 }), qos: 1, retain: true };
-      const client = mqtt.connect(b.url, { clientId: `hd_${this.me.code}_${randCode(4)}`, keepalive: 30, reconnectPeriod: 4000, connectTimeout: 15000, clean: true, will });
+      const client = mqtt.connect(b.url, { clientId: `arc_${this.me.code}_${randCode(4)}`, keepalive: 30, reconnectPeriod: 4000, connectTimeout: 15000, clean: true, will });
       const link = { name: b.name, client };
       this.links.push(link);
       client.on("connect", () => {
@@ -245,7 +245,7 @@ export class RelayNet extends EventTarget {
           if (!peer && this.peers.size >= MAX_ROOM + 3) break;
           const st = sanitizeState(m);
           if (!st) break;
-          if (!peer) { peer = { buf: [], name: this.players.get(from)?.name || "Driver", car: st.c?.car }; this.peers.set(from, peer); this.roomSoon(); }
+          if (!peer) { peer = { buf: [], name: this.players.get(from)?.name || "Hero", car: st.c?.car }; this.peers.set(from, peer); this.roomSoon(); }
           if (typeof st.w === "number") this.clockSample(from, st.w);
           pushState(peer, st);
           peer.last = performance.now(); if (st.c?.car) peer.car = st.c.car;
@@ -263,7 +263,7 @@ export class RelayNet extends EventTarget {
   }
 
   // ---------- friends ----------
-  addFriend(code) { this.friendCodes.add(code); store.set("hd_friends", [...this.friendCodes]); this.incomingMap.delete(code); this.socialSoon(); }
+  addFriend(code) { this.friendCodes.add(code); store.set("arc_friends", [...this.friendCodes]); this.incomingMap.delete(code); this.socialSoon(); }
   socialSoon() {
     clearTimeout(this.socialT);
     this.socialT = setTimeout(() => {
@@ -335,10 +335,10 @@ export class RelayNet extends EventTarget {
       for (const p of players) { const peer = this.peers.get(p.id); if (peer) { peer.name = p.name; peer.car = p.car || peer.car; } }
       const now = this.now();
       const roundState = !info.round ? "lobby" : now < info.epoch ? "countdown" : "running";
-      this.room = { code: this.room.code, seed: info.seed ?? 1, epoch: info.epoch ?? now, round: info.round || 0, roundState, traffic: info.traffic || "Heavy", public: !!info.public, mode: ROOM_MODES.includes(info.mode) ? info.mode : "crash", target: info.target || 10000, dur: info.dur || 120, name: info.name || "", max: info.max || MAX_ROOM, hour: info.hour, weather: info.weather, players };
+      this.room = { code: this.room.code, seed: info.seed ?? 1, epoch: info.epoch ?? now, round: info.round || 0, roundState, traffic: info.traffic || "Heavy", public: !!info.public, mode: ROOM_MODES.includes(info.mode) ? info.mode : "hero", target: info.target || 10000, dur: info.dur || 120, name: info.name || "", max: info.max || MAX_ROOM, hour: info.hour, weather: info.weather, players };
       this.publishListing();
       const fresh = this.freshRoom; this.freshRoom = false;
-      if (!fresh && this.prevPlayers) for (const p of players) if (p.id !== this.me.code && !this.prevPlayers.has(p.id)) this.emit("toast", { msg: `🟢 ${p.name} joined the party` });
+      if (!fresh && this.prevPlayers) for (const p of players) if (p.id !== this.me.code && !this.prevPlayers.has(p.id)) this.emit("toast", { msg: `${p.name} joined the city` });
       this.prevPlayers = new Set(players.map((p) => p.id));
       this.emit("room", { fresh });
     }, 120);
@@ -347,7 +347,7 @@ export class RelayNet extends EventTarget {
   }
   newRoundInfo(extra = {}) {
     const info = this.roomInfo || {};
-    return { round: (info.round || 0) + 1, seed: (Math.random() * 2 ** 31) | 0, epoch: this.now() + 3000, traffic: info.traffic || "Heavy", public: !!info.public, mode: info.mode || "crash", target: info.target || 10000, dur: info.dur || 120, name: info.name || "", max: info.max || MAX_ROOM, hour: info.hour, weather: info.weather, ...extra };
+    return { round: (info.round || 0) + 1, seed: (Math.random() * 2 ** 31) | 0, epoch: this.now() + 3000, traffic: info.traffic || "Normal", public: !!info.public, mode: info.mode || "hero", target: info.target || 10000, dur: info.dur || 120, name: info.name || "", max: info.max || MAX_ROOM, hour: info.hour, weather: info.weather, ...extra };
   }
 
   // ---------- public servers ----------
@@ -356,7 +356,7 @@ export class RelayNet extends EventTarget {
     return {
       name: cleanText(m.name, 24) || `${this.me.name}'s server`,
       max: Math.round(num(m.max, MIN_ROOM, MAX_ROOM, MAX_ROOM)),
-      mode: ROOM_MODES.includes(m.mode) ? m.mode : "crash",
+      mode: ROOM_MODES.includes(m.mode) ? m.mode : "hero",
       target: Math.round(num(m.target, 1000, 100000, 10000)), dur: Math.round(num(m.dur, 30, 600, 120)),
       traffic: ["Chill", "Normal", "Heavy", "Insane"].includes(m.traffic) ? m.traffic : "Heavy",
       public: !!m.public,
@@ -380,7 +380,7 @@ export class RelayNet extends EventTarget {
       if (!n && now - (l.t || 0) > 20000) continue;
       if (now - (l.t || 0) > LISTING_TTL && !n) continue;
       const max = l.max || MAX_ROOM;
-      out.push({ code, name: cleanText(l.name, 24) || "Public server", mode: ROOM_MODES.includes(l.mode) ? l.mode : "crash", players: n, max, traffic: l.traffic || "Heavy", host: cleanName(l.host), full: n >= max, mine: this.room?.code === code });
+      out.push({ code, name: cleanText(l.name, 24) || "Public server", mode: ROOM_MODES.includes(l.mode) ? l.mode : "hero", players: n, max, traffic: l.traffic || "Heavy", host: cleanName(l.host), full: n >= max, mine: this.room?.code === code });
     }
     return out.sort((a, b) => (a.full - b.full) || b.players - a.players || a.name.localeCompare(b.name));
   }
@@ -425,13 +425,13 @@ export class RelayNet extends EventTarget {
     if (!this.me) return;
     const c = this.me.code;
     switch (m.t) {
-      case "setName": this.me.name = cleanName(m.name); cookie.set("hd_name", this.me.name); this.publishPresence(); this.emit("status"); if (this.room) this.roomSoon(); break;
+      case "setName": this.me.name = cleanName(m.name); cookie.set("arc_name", this.me.name); this.publishPresence(); this.emit("status"); if (this.room) this.roomSoon(); break;
       case "setCar": this.car = m.car; this.publishPresence(); break;
       case "setBuild": this.build = m.build; this.publishPresence(); if (this.room) this.roomSoon(); break;
       case "friendAdd": {
         const code = String(m.code || "").toUpperCase().trim();
         if (code === c) return this.emit("error", { msg: "That's your own code. Your friend needs to open the game on their own device or browser." });
-        if (!/^[A-Z2-9]{6}$/.test(code)) return this.emit("error", { msg: "Driver codes are 6 letters/numbers" });
+        if (!/^[A-Z2-9]{6}$/.test(code)) return this.emit("error", { msg: "Hero codes are 6 letters/numbers" });
         if (this.friendCodes.has(code)) return this.emit("error", { msg: "Already friends" });
         if (this.incomingMap.has(code)) return this.send({ t: "friendAccept", id: code });
         this.pub(`req/${code}/${c}`, { name: this.me.name }, true);
@@ -445,7 +445,7 @@ export class RelayNet extends EventTarget {
         this.pub(`req/${c}/${m.id}`, null, true);
         break;
       case "friendDecline": this.incomingMap.delete(m.id); this.pub(`req/${c}/${m.id}`, null, true); this.socialSoon(); break;
-      case "friendRemove": this.friendCodes.delete(m.id); store.set("hd_friends", [...this.friendCodes]); this.socialSoon(); break;
+      case "friendRemove": this.friendCodes.delete(m.id); store.set("arc_friends", [...this.friendCodes]); this.socialSoon(); break;
       case "roomCreate": {
         const o = this.roomOpts(m);
         this.joinRoom(String(100000 + Math.floor(Math.random() * 900000)), { round: 0, seed: 1, epoch: Date.now(), ...o });
@@ -491,7 +491,7 @@ export class RelayNet extends EventTarget {
       // the host (first to join) sets the party's mode, score target, time and traffic between rounds
       case "roomSettings": {
         if (!this.room || this.room.players?.[0]?.id !== c || this.room.roundState === "running") return;
-        const info = { ...(this.roomInfo || {}), mode: ROOM_MODES.includes(m.mode) ? m.mode : "crash", target: Math.max(1000, Math.min(100000, m.target | 0 || 10000)), dur: Math.max(30, Math.min(600, m.dur | 0 || 120)), traffic: m.traffic || this.roomInfo?.traffic || "Heavy" };
+        const info = { ...(this.roomInfo || {}), mode: ROOM_MODES.includes(m.mode) ? m.mode : "hero", target: Math.max(1000, Math.min(100000, m.target | 0 || 10000)), dur: Math.max(30, Math.min(600, m.dur | 0 || 120)), traffic: m.traffic || this.roomInfo?.traffic || "Heavy" };
         this.pub(`room/${this.room.code}/info`, info, true);
         break;
       }

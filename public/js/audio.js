@@ -266,9 +266,16 @@ class SmartEngine {
 }
 
 export class AudioManager {
-  constructor() { this.ctx = null; this.ready = false; this.vol = { master: 0.8, engine: 0.9, fx: 0.9, wind: 0.35 }; }
+  constructor() {
+    this.ctx = null; this.ready = false; this.vol = { master: 0.8, engine: 0.9, fx: 0.9, wind: 0.35 };
+    this.cityEnabled = null;
+    // Background tabs stop receiving animation frames, so silence their world audio immediately.
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", () => {
+      if (document.hidden) { this.cityAmbience(0); this.update(0, 0, false, 0); this.tires(0, 0, 0); }
+    });
+  }
 
-  async init() {
+  async init(options = {}) {
     if (this.ctx) { if (this.ctx.state !== "running") await this.ctx.resume(); return; }
     const ctx = (this.ctx = new (window.AudioContext || window.webkitAudioContext)({ latencyHint: "interactive" }));
     this.master = ctx.createGain();
@@ -316,20 +323,20 @@ export class AudioManager {
     this.noiseBuf = this.makeNoise(3);
     this.brownBuf = this.makeNoise(3, true);
     this.wind = this.loop(this.noiseBuf, "bandpass", 500, 0.6, this.windBus);
-    this.road = this.loop(this.brownBuf, "lowpass", 160, 0.7, this.windBus);
+    this.road = options.hero ? null : this.loop(this.brownBuf, "lowpass", 160, 0.7, this.windBus);
     this.rain = this.loop(this.noiseBuf, "highpass", 1800, 0.5, this.windBus);
     this.rainLow = this.loop(this.brownBuf, "lowpass", 600, 0.5, this.windBus);
-    this.scrape = this.loop(this.noiseBuf, "bandpass", 2400, 3);
-    // tyres: a resonant squeal for slides, a lower scrub for wheelspin, both driven from the physics
-    this.squeal = this.loop(this.noiseBuf, "bandpass", 1150, 9);
-    this.squeal2 = this.loop(this.noiseBuf, "bandpass", 2300, 12);
-    this.scrub = this.loop(this.brownBuf, "bandpass", 420, 1.6);
+    this.scrape = options.hero ? null : this.loop(this.noiseBuf, "bandpass", 2400, 3);
+    if (!options.hero) this.makeTires();
 
     if (this.musicEl) this.attachMusic(this.musicEl);
-    try {
-      await ctx.audioWorklet.addModule(new URL("./engine-worklet.js", import.meta.url));
-      this.worklet = true;
-    } catch { this.worklet = false; }
+    this.worklet = false;
+    if (!options.hero) {
+      try {
+        await ctx.audioWorklet.addModule(new URL("./engine-worklet.js", import.meta.url));
+        this.worklet = true;
+      } catch { this.worklet = false; }
+    }
     this.ready = true;
   }
   applyVolumes() {
@@ -464,9 +471,88 @@ export class AudioManager {
     const f = this.ctx.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
     const g = this.ctx.createGain(); g.gain.value = 0;
     src.connect(f).connect(g).connect(dest || this.fx); src.start();
-    return { f, g };
+    return { src, f, g };
   }
   set(node, v, tc = 0.1) { node.setTargetAtTime(v, this.ctx.currentTime, tc); }
+
+  // All city beds are generated here and share the effects/master sliders. No engine voice is needed.
+  makeCityAmbience() {
+    const ctx = this.ctx, bus = ctx.createGain(); bus.gain.value = 0; bus.connect(this.fx);
+    const traffic = this.loop(this.brownBuf, "lowpass", 280, .65, bus);
+    const wind = this.loop(this.noiseBuf, "bandpass", 640, .55, bus);
+    const insects = this.loop(this.noiseBuf, "bandpass", 3900, 5, bus);
+    const hum = ctx.createGain(); hum.gain.value = 0; hum.connect(bus);
+    const hums = [54, 81].map((frequency) => {
+      const o = ctx.createOscillator(); o.type = "sine"; o.frequency.value = frequency;
+      o.connect(hum); o.start(); return o;
+    });
+    return { bus, traffic, wind, insects, hum, hums, birds: new Set(), nextBird: ctx.currentTime + 4 + Math.random() * 5, nextUpdate: 0 };
+  }
+  stopCityAmbience() {
+    const a = this.cityBed;
+    if (!a) return;
+    const t = this.ctx.currentTime;
+    a.bus.gain.cancelScheduledValues(t); a.bus.gain.setValueAtTime(a.bus.gain.value, t);
+    a.bus.gain.linearRampToValueAtTime(0, t + .08);
+    for (const b of a.birds) { try { b.o.stop(t + .08); } catch {} }
+    const sources = [a.traffic.src, a.wind.src, a.insects.src, ...a.hums];
+    let remaining = sources.length;
+    for (const src of sources) {
+      src.onended = () => {
+        src.disconnect();
+        if (--remaining === 0) {
+          for (const bed of [a.traffic, a.wind, a.insects]) { bed.f.disconnect(); bed.g.disconnect(); }
+          a.hum.disconnect(); a.bus.disconnect();
+        }
+      };
+      src.stop(t + .09);
+    }
+    this.cityBed = null;
+  }
+  cityBird(a, night, level) {
+    const ctx = this.ctx, t = ctx.currentTime, o = ctx.createOscillator(), g = ctx.createGain(), p = ctx.createStereoPanner();
+    const base = night > .6 ? 1200 : 2350 + Math.random() * 700;
+    o.type = "sine"; p.pan.value = (Math.random() * 2 - 1) * .8;
+    g.gain.value = 0; o.connect(g).connect(p).connect(a.bus);
+    for (let i = 0; i < 2; i++) {
+      const at = t + i * .2;
+      o.frequency.setValueAtTime(base, at); o.frequency.exponentialRampToValueAtTime(base * 1.38, at + .055);
+      o.frequency.exponentialRampToValueAtTime(base * .87, at + .14);
+      g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(level, at + .025);
+      g.gain.exponentialRampToValueAtTime(.0001, at + .15);
+    }
+    const bird = { o, g, p }; a.birds.add(bird);
+    o.onended = () => { o.disconnect(); g.disconnect(); p.disconnect(); a.birds.delete(bird); };
+    o.start(t); o.stop(t + .4);
+  }
+  // Call each active frame with night/rain/traffic/wind in 0..1 and height above the street in metres.
+  // Passing plain 0 clears the world. With enabled:true, level 0 mutes ambience but keeps local sirens.
+  cityAmbience(level, opts = {}) {
+    const unit = (v, fallback = 0) => Math.max(0, Math.min(1, Number.isFinite(v) ? v : fallback));
+    this.cityEnabled = (unit(level) > 0 || opts.enabled === true) && opts.enabled !== false && !(typeof document !== "undefined" && document.hidden);
+    if (!this.ready) return;
+    if (!this.cityEnabled || this.vol.fx <= 0 || this.vol.master <= 0) {
+      this.stopCityAmbience(); this.evSirens([]); this.siren(0); return;
+    }
+    if (this.sirenNodes) this.set(this.sirenNodes.g.gain, 0, .04);
+    if (unit(level) <= 0) { this.stopCityAmbience(); return; }
+    const a = this.cityBed ||= this.makeCityAmbience(), t = this.ctx.currentTime;
+    if (t < a.nextUpdate) return;
+    a.nextUpdate = t + .12;
+    const night = unit(opts.night), rain = unit(opts.rain), traffic = unit(opts.traffic, .65), wind = unit(opts.wind, .35);
+    const height = Math.max(0, Number.isFinite(opts.height) ? opts.height : 0), street = Math.exp(-height / 36), rooftop = unit(height / 120);
+    this.set(a.bus.gain, unit(level), .45);
+    this.set(a.traffic.g.gain, .075 * street * (.35 + traffic * .65) * (1 - night * .4), .7);
+    this.set(a.traffic.f.frequency, 160 + street * 240, .7);
+    this.set(a.hum.gain, .008 * (.3 + street * .7), .9);
+    this.set(a.wind.g.gain, .009 + .018 * wind + .024 * rooftop, .8);
+    this.set(a.wind.f.frequency, 420 + rooftop * 550 + wind * 300, .8);
+    this.set(a.insects.g.gain, .009 * night * (1 - rain) * street * (.65 + Math.sin(t * 3.8) * .35), .15);
+    if (t >= a.nextBird) {
+      a.nextBird = t + (night > .6 ? 24 : 8) + Math.random() * (night > .6 ? 18 : 12);
+      if (rain < .35) this.cityBird(a, night, .012 * (1 - rain) * (.25 + street * .75) * (night > .6 ? .5 : 1));
+    }
+  }
 
   // continuous beds
   // road: how much tyre roar goes with the speed (0 for the hero, who has no tyres)
@@ -475,15 +561,18 @@ export class AudioManager {
     const s = Math.min(1, speedKmh / 320);
     this.set(this.wind.g.gain, s * s * 0.12);
     this.set(this.wind.f.frequency, 300 + s * 900);
-    this.set(this.road.g.gain, Math.min(1, speedKmh / 120) * 0.16 * road);
+    if (!this.road && road > 0 && speedKmh > 0) this.road = this.loop(this.brownBuf, "lowpass", 160, .7, this.windBus);
+    if (this.road) this.set(this.road.g.gain, Math.min(1, speedKmh / 120) * 0.16 * road);
     this.set(this.rain.g.gain, rainAmt * 0.16, 0.8);
     this.set(this.rainLow.g.gain, rainAmt * 0.25, 0.8);
-    this.set(this.scrape.g.gain, scraping ? 0.25 : 0, 0.03);
+    if (!this.scrape && scraping) this.scrape = this.loop(this.noiseBuf, "bandpass", 2400, 3);
+    if (this.scrape) this.set(this.scrape.g.gain, scraping ? 0.25 : 0, 0.03);
   }
 
   // two-tone wail; level 0 silences it
   siren(level, pan = 0) {
     if (!this.ready) return;
+    if (this.cityEnabled !== null) level = 0;
     if (!this.sirenNodes && level > 0) {
       const o = this.ctx.createOscillator(), lfo = this.ctx.createOscillator(), depth = this.ctx.createGain(), g = this.ctx.createGain(), p = this.ctx.createStereoPanner();
       o.type = "square"; o.frequency.value = 900; lfo.frequency.value = .55; depth.gain.value = 320;
@@ -495,9 +584,15 @@ export class AudioManager {
     if (this.sirenNodes) { this.set(this.sirenNodes.g.gain, level * .09, .2); this.set(this.sirenNodes.p.pan, pan, .2); }
   }
   // slide 0..1 (lateral), spin 0..1 (wheelspin), speed km/h
+  makeTires() {
+    this.squeal = this.loop(this.noiseBuf, "bandpass", 1150, 9);
+    this.squeal2 = this.loop(this.noiseBuf, "bandpass", 2300, 12);
+    this.scrub = this.loop(this.brownBuf, "bandpass", 420, 1.6);
+  }
   tires(slide, spin, kmh) {
     if (!this.ready) return;
     const sq = Math.min(1, slide * 1.4 + spin * .9) * Math.min(1, .3 + kmh / 60);
+    if (!this.squeal) { if (sq <= 0 && spin <= 0) return; this.makeTires(); }
     this.set(this.squeal.g.gain, sq * .22, .05);
     this.set(this.squeal.f.frequency, 950 + slide * 500 + spin * 300, .08);
     this.set(this.squeal2.g.gain, sq * sq * .08, .05);
@@ -600,32 +695,46 @@ export class AudioManager {
   // through the effects bus, so a tunnel makes them ring.
   evSirens(list) {
     if (!this.ready) return;
-    const seen = new Set();
+    if (this.cityEnabled === false || this.vol.fx <= 0 || this.vol.master <= 0 || typeof document !== "undefined" && document.hidden) list = [];
+    // The city supplies nearby sources only; the mixer also caps voices and removes duplicate feeds.
+    const unique = new Map();
+    for (const s of list || []) if (s && s.key != null && Number.isFinite(s.level) && s.level > .003) {
+      if (!unique.has(s.key) || unique.get(s.key).level < s.level) unique.set(s.key, s);
+    }
+    list = [...unique.values()].sort((a, b) => (a.distance ?? Infinity) - (b.distance ?? Infinity) || b.level - a.level).slice(0, 2);
+    const seen = new Set(list.map((s) => s.key)), spare = [];
     this.evVoices ||= new Map();
+    for (const [key, voice] of this.evVoices) if (!seen.has(key)) { this.evVoices.delete(key); spare.push(voice); }
     for (const s of list) {
-      seen.add(s.key);
       let v = this.evVoices.get(s.key);
+      const cfg = { police: ["square", 1050, 420, .23, "sine"], ambulance: ["square", 850, 120, .95, "square"], fire: ["sawtooth", 740, 330, .14, "triangle"] }[s.kind] || ["square", 1000, 400, .25, "sine"];
+      if (!v && spare.length) { v = spare.pop(); this.evVoices.set(s.key, v); }
       if (!v) {
-        const ctx = this.ctx, cfg = { police: ["square", 1050, 420, .23, "sine"], ambulance: ["square", 850, 120, .95, "square"], fire: ["sawtooth", 740, 330, .14, "triangle"] }[s.kind] || ["square", 1000, 400, .25, "sine"];
+        const ctx = this.ctx;
         const o = ctx.createOscillator(), lfo = ctx.createOscillator(), depth = ctx.createGain(), lp = ctx.createBiquadFilter(), g = ctx.createGain(), p = ctx.createStereoPanner();
         o.type = cfg[0]; o.frequency.value = cfg[1]; depth.gain.value = cfg[2]; lfo.frequency.value = cfg[3]; lfo.type = cfg[4];
         lp.type = "lowpass"; lp.frequency.value = 2400; g.gain.value = 0;
         lfo.connect(depth).connect(o.frequency); o.connect(lp).connect(g).connect(p).connect(this.fx);
         o.start(); lfo.start();
-        v = { o, lfo, g, p, lp, kind: s.kind };
+        v = { o, lfo, depth, g, p, lp, kind: s.kind };
         this.evVoices.set(s.key, v);
       }
-      this.set(v.g.gain, s.level * .12, .15);
-      this.set(v.p.pan, Math.max(-1, Math.min(1, s.pan)), .1);
-      this.set(v.o.detune, 1200 * Math.log2(Math.max(.5, Math.min(2, s.dop || 1))), .08);
-      this.set(v.lp.frequency, 800 + 2600 * Math.min(1, s.level * 1.5), .2);
+      if (v.kind !== s.kind) {
+        v.kind = s.kind; v.o.type = cfg[0]; v.lfo.type = cfg[4];
+        this.set(v.o.frequency, cfg[1], .08); this.set(v.depth.gain, cfg[2], .08); this.set(v.lfo.frequency, cfg[3], .08);
+      }
+      const level = Math.max(0, Math.min(1, s.level)), pan = Number.isFinite(s.pan) ? s.pan : 0, dop = Number.isFinite(s.dop) ? s.dop : 1;
+      this.set(v.g.gain, level * .1, .08);
+      this.set(v.p.pan, Math.max(-1, Math.min(1, pan)), .08);
+      this.set(v.o.detune, 1200 * Math.log2(Math.max(.75, Math.min(1.3, dop))), .08);
+      this.set(v.lp.frequency, 650 + 2300 * Math.min(1, level * 1.5), .2);
       if (v.kind === "police") this.set(v.lfo.frequency, s.yelp ? 3.4 : .23, .25);
     }
-    for (const [k, v] of this.evVoices) if (!seen.has(k)) {
-      this.set(v.g.gain, 0, .15);
-      const end = this.ctx.currentTime + .9;
+    for (const v of spare) {
+      this.set(v.g.gain, 0, .025);
+      const end = this.ctx.currentTime + .16;
+      v.o.onended = () => { v.o.disconnect(); v.lfo.disconnect(); v.depth.disconnect(); v.lp.disconnect(); v.g.disconnect(); v.p.disconnect(); };
       v.o.stop(end); v.lfo.stop(end);
-      this.evVoices.delete(k);
     }
   }
   truckHorn(pan) {

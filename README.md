@@ -1,8 +1,8 @@
-# Highway Dash
+# ARCLINE
 
-A browser traffic-weaving racer: city streets that turn into the open highway, a synthesized engine sound for each car, a manual gearbox, sky and weather settings, and online parties with friends.
+An online superhero game set in New Meridian. Swing between towers, run along walls, explore the city, stop crimes, fight gangs, and patrol with other players. The active site is ARCLINE only.
 
-## Run it
+## Run locally
 
 Double-click `start.bat`, or run:
 
@@ -11,73 +11,70 @@ npm install
 npm start
 ```
 
-Then open http://localhost:3000.
+Open http://localhost:3000. Multiplayer uses public MQTT relays by default, including on static hosting. The local Node server also serves the source files and the shared WebSocket service.
 
 ## Controls
 
-| Key | Action |
+| Control | Action |
 | --- | --- |
-| W / ↑ | Throttle |
-| S / ↓ | Brake |
-| Space | Look back (hold) |
-| A D / ← → | Steer |
-| N | Sport / Comfort: Comfort shuts the exhaust valves (quieter, no burbles or pops) and changes up early while cruising |
-| M | Switch between manual and automatic |
-| Q / E | Gear lever: R - N - 1 - 2 ... |
-| Z / X | Left / right turn signal (flashes 3 times, then turns off) |
-| H | Horn |
-| C | Change camera |
-| T / B / V | Change time of day / weather / sky style |
-| G | Switch vehicle |
-| P / R | Pause / restart |
-| L | Leaderboard |
-| Enter | Chat (online) |
-| Tab | Player list (online) |
-| Shift | Handbrake (City Drive) |
-| S at a standstill | Reverse (City Drive); W drives on again |
+| W A S D / left stick | Move and steer in the air |
+| Mouse / right stick | Look |
+| Right mouse / RT | Hold to swing |
+| Space / A | Jump, launch from a swing, or launch from a perch |
+| Shift / left stick click | Sprint and parkour |
+| E / LB | Web zip; rescue someone nearby |
+| Ctrl / B | Crouch, dive, or slide |
+| F / RB | Air trick |
+| Left mouse / X | Attack; hold for an uppercut |
+| Q / LT | Dodge |
+| R / Y | Web strike |
+| 1-6 / D-pad | Web gadgets |
+| G | Throw an object or stunned enemy |
+| Z | Finisher; hold to heal with focus |
+| Middle mouse / mouse wheel | Lock on / change target |
+| K | Activities |
+| H | Full controls |
+| Escape | Session menu |
 
-## Steering wheel / gamepad
+## Source layout
 
-Plug in a wheel (Logitech G29 / G920 / G923, Thrustmaster, Fanatec, Moza...) or a gamepad and press any button on it.
+The browser runs plain ES modules directly; there is no bundler or client framework.
 
-- **Gamepad** (Xbox / PlayStation): works straight away. Left stick steers, RT gas, LT brake, RB / LB shift up / down, A handbrake, B look back, X horn, Y camera, Menu start / pause, View sport / comfort, D-pad left / right signals, D-pad up manual.
-- **Wheel**: Settings, CONTROLLER, SET UP WHEEL - turn it left and right, press each pedal, pull each paddle (and pick buttons for handbrake, horn, camera, look back, pause and sport / comfort, or skip them). Saved per wheel. Pedals are analog. Steering lock sets how far you turn the wheel for full lock.
-- No force feedback: browsers cannot drive a wheel's motor. Turn on the centering spring for non-force-feedback games in Logitech G HUB. Gamepads that can rumble do.
+- `public/index.html`, `public/arcline.css`: the standalone page and interface.
+- `public/js/main.js`: the small ARCLINE entry point.
+- `public/js/arcline-main.js`: renderer, city, online sessions, settings, and the game loop.
+- `public/js/arcline-ui.js`, `arcline-profile.js`: ARCLINE menus and separate `arc_` saves.
+- `public/js/hero*.js`: movement, animation, camera, controls, combat, enemies, missions, activities, progression, and multiplayer heroes.
+- `public/js/city*.js`, `cars.js`, `carmesh.js`, `lights.js`, `sky.js`: the city, procedural traffic, lighting, and weather shared with the earlier game.
+- `public/js/audio.js`: generated hero/city sound and local sirens. Hero initialization skips engine worklets and unused driving sound loops.
+- `public/js/net.js`, `net-relay.js`: shared networking. The ARCLINE entry point controls which sessions the active interface offers.
+- `scripts/build-pages.mjs`: static hosting preparation. It follows the active entry point's module dependencies, versions module/stylesheet URLs, and vendors three.js and MQTT.
 
-## City Drive
+The old driving source and local assets remain available for recovery. Unused driving entry points, the car viewer, recorded sound banks, loading media, and car model downloads are omitted from the normal published ARCLINE output. Some car and city helpers remain dependencies because they draw the city's traffic.
 
-A free-roam 3D mode (solo, or as a server mode), about 2.4 km across: an 11 x 11 downtown grid (two round glass landmark towers in the middle, water tanks on the old brick roofs), midtown, and four outer districts - industry with tank farms and chimney stacks, houses with pitched roofs and yards, a retail park of big-box stores, and a lakeside park with a path round the water. Downtown has signalised junctions, sidewalks, towers that get taller towards the middle, and traffic that obeys the lights, queues, zip-merges and honks at you if you sit in its way. An elevated six-lane ring expressway runs round downtown, with a diamond interchange on every side, so you can take an on-ramp, merge, and leave again by any exit. Engine sound echoes off the buildings, and booms under the ring. Every road has a centre lane that turns into a left-turn pocket before each signal, with painted lane arrows, arrow signal heads over the pockets, and street-name, LEFT ONLY, NO TURN ON RED and speed-limit signs. Downtown has shop fronts with awnings and signs that light up at night, company names on the tallest towers, benches, hydrants, bus shelters and manholes.
+## Highway Rush backup
 
-**Fuel:** every car has a tank in City Drive (about 35 minutes of cruising, 5 flat out), kept per car. Run dry and the engine only limps along. Six gas stations are spread round the city and marked on the minimap - the nearest one is pinned to the map's edge when you're low. Stop under a canopy to fill up at a coin per percent.
+The driving game was preserved before the standalone conversion:
 
-A heading-up minimap sits bottom right. The city's traffic runs on each player's own machine; players see each other.
+- Full local source/assets: `D:\2 TB Downloads\larptic\highway-rush-backup-20261016`.
+- Tracked Git reference: `backup/highway-rush-20261016` at `e78abd0`.
 
-## Cars, sound & tuning
+To run the local backup, open that folder and double-click `start.bat`; it installs dependencies if needed. The backup omits `node_modules`, `dist`, `data`, and Git metadata. Its source/assets copy preserves the local state; the Git branch preserves the tracked commit.
 
-The garage has 20 real cars: BMW M240i, M340i, M2, M3, M4, X3 M, X5 M and X6 M; Brancuck Red Sport (Q50); Infiniti Q60; Mercedes-AMG C63 and E63; Audi RS3 and RS6; Dodge Charger and Challenger Hellcat; Toyota Supra; Nissan GT-R; VW Golf R; and Chevrolet Corvette C8. The 8 original cars are also still there.
+To inspect the Git backup in a separate folder without replacing ARCLINE:
 
-Every car has paint colors and a choice of engine sound. Its **TUNE** screen sets burble amount and duration, pop style, rasp, exhaust volume, turbo whistle, the turbo flutter or blow-off sound when you let off W, engine braking, and the default drive mode.
+```bash
+git worktree add ../highway-rush-restored backup/highway-rush-20261016
+```
 
-## Multiplayer
+## Publishing
 
-Open **MULTIPLAYER**. There is no sign-up: your name and driver code are kept in a cookie.
+Double-click `deploy.bat` to save and publish the active ARCLINE site to https://xurco.xyz. A push to `main` also runs the existing GitHub Pages workflow. Players may need Ctrl+Shift+R after a deployment.
 
-- **Public servers** lists every public server that is live right now, with its mode, traffic, player count and the relay ping. Press JOIN; nobody has to invite you.
-- **Create server** makes a public or private (code-only) server: name, max players (2-8), game mode, traffic, and optionally a fixed time of day and weather.
-- **Private & friends** keeps the original party code, friend list, invites and Quick Play.
-- **Modes:** Free Drive (no rounds, no finish, join and leave any time), City Drive (the same, in the 3D city), Last One Standing, First To Score, Timed Battle.
-- **In a server:** Enter opens chat, Tab lists players, G switches vehicle, Esc opens the session menu (Leave Server). Chat commands: `/players`, `/tp <player>` (also `/teleport`, `/goto`; Free Drive servers only), `/help`.
-- **Switching cars** works in every mode, on the road, without leaving the run or the server. Other players see the change immediately.
-- Traffic is deterministic from the server seed and time, so everyone sees the same cars with nothing streamed.
-
-Multiplayer runs over public MQTT relays (HiveMQ, EMQX and Mosquitto at once), so the game works on static hosting. The server list is the relays' retained `public/<code>` topics: the host of a public room keeps its listing fresh and the last player out removes it. Relays are third-party brokers, so there is no authoritative server: receivers clamp and sanitize every packet and rate-limit chat themselves. The optional Node server (`npm start`, then open with `?server=1`) provides the same features over WebSockets and does validate everything server-side (room capacity, chat rate, state ranges).
-
-Add `?root=some/test/namespace` to the URL to point a client at a private topic namespace, which is how the multiplayer tests avoid touching the real lobby.
-
-## Hosting (GitHub Pages)
+The publishing build is:
 
 ```bash
 node scripts/build-pages.mjs xurco.xyz
 ```
 
-This builds `dist/` (the game plus the vendored three.js and mqtt files, CNAME and .nojekyll). Publish that folder to the `gh-pages` branch. `node scripts/serve-dist.mjs` serves `dist/` locally for testing.
+It writes `dist/`, `CNAME`, and `.nojekyll`. Normal builds omit `public/models/`; optional `--with-models` inclusion still applies the model manifest's licence/credit gate. Recorded engine banks remain opt-in with `--with-sounds`. Loading-screen commercial media is always excluded. Do not commit `dist/`, `data/`, licensed recordings, or loading media.

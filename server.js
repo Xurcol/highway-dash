@@ -1,4 +1,4 @@
-// Highway Dash server: static files + WebSocket for accounts, friends, parties and leaderboards.
+// ARCLINE local server: static files plus the shared WebSocket multiplayer/account service.
 const http = require("http");
 const fs = require("fs");
 const path = require("path");
@@ -373,7 +373,7 @@ wss.on("connection", (ws) => {
 });
 
 server.listen(PORT, () => {
-  console.log(`Highway Dash running:  http://localhost:${PORT}`);
+  console.log(`ARCLINE running:       http://localhost:${PORT}`);
   const nets = require("os").networkInterfaces();
   for (const list of Object.values(nets)) for (const n of list) if (n.family === "IPv4" && !n.internal) console.log(`  on your network:      http://${n.address}:${PORT}`);
 });

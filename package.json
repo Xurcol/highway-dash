@@ -1,8 +1,8 @@
 {
-  "name": "highway-dash",
+  "name": "arcline",
   "version": "2.0.0",
   "private": true,
-  "description": "Browser traffic-weaving racer with online parties",
+  "description": "Online superhero city game with swinging, combat and shared patrols",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

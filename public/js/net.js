@@ -152,7 +152,7 @@ export class Net extends EventTarget {
     const ws = (this.ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`));
     ws.onopen = () => {
       this.connected = true; this.retry = 1000;
-      this.send({ t: "hello", token: store.get("hd_token", null), name: this.pendingName, car: this.pendingCar });
+      this.send({ t: "hello", token: store.get("arc_token", null), name: this.pendingName, car: this.pendingCar });
       this.bestRtt = Infinity;
       for (let i = 0; i < 6; i++) setTimeout(() => this.send({ t: "ping", c: performance.now() }), 200 + i * 250);
       clearInterval(this.pingTimer);
@@ -185,7 +185,7 @@ export class Net extends EventTarget {
       }
       case "publicList": this.publicList = Array.isArray(m.servers) ? m.servers : []; this.listState = "ready"; this.emit("publicList"); break;
       case "welcome":
-        store.set("hd_token", m.token);
+        store.set("arc_token", m.token);
         this.me = { id: m.id, code: m.code, name: m.name, best: m.best };
         this.emit("status");
         break;

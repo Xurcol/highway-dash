@@ -18,13 +18,17 @@ import { Events, EVENT_TYPES } from "./hero-events.js";
 import { HeroNet } from "./hero-net.js";
 import { Activities } from "./hero-activities.js";
 import { Progress } from "./hero-progress.js";
-import { earn } from "./profile.js";
+import { earn } from "./arcline-profile.js";
 import { HeroHud } from "./hero-hud.js";
 
 const V = THREE.Vector3, Q = THREE.Quaternion;
 const UP = new V(0, 1, 0);
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const STATE_LABEL = { ground: "ON FOOT", air: "AIRBORNE", swing: "SWINGING", zip: "WEB ZIP", wall: "WALL", ledge: "LEDGE", perch: "PERCHED", water: "SWIMMING" };
+const TRAIL_BONES = ["handL", "handR", "footL", "footR"];
+const WHITE = [1, 1, 1];
+const EMPTY = [];
+const IDLE_INPUT = { mx: 0, mz: 0, ix: 0, iy: 0, jump: false, jumpHeld: false, sprint: false, swing: false, swingDown: false, zip: false, crouch: false, crouchDown: false, trick: false, trickDown: false, attack: false, attackHeld: false, attackDown: false, attackUp: false, dodge: false, strike: false, gadget: 0, throwObj: false, finisher: false, finisherHeld: false };
 
 export class HeroMode {
   constructor(ctx) {
@@ -62,6 +66,46 @@ export class HeroMode {
     this.activities = new Activities(this);
     this.progress = new Progress(this);
     this.lines = [];      // short-lived combat lines: { side, to, t, life, follow }
+    this.frameEvents = []; this.stepInput = {}; this.idleInput = {};
+    this.webPoints = []; this.webPair = [new V(), new V()];
+    this.posePoints = [new V(), new V(), new V()];
+    this.lastWebPool = [{ side: 0, a: new V() }, { side: 0, a: new V() }];
+    this.lastWebs = []; this.tracerQueue = []; this.trickEvents = [];
+    this.cameraEnemies = []; this.cameraFrame = { x: 0, z: 0, d: 0 }; this.inCombat = false;
+    this.visibleEnemies = []; this.visibleProps = [];
+    this.viewFrustum = new THREE.Frustum(); this.viewMatrix = new THREE.Matrix4(); this.viewSphere = new THREE.Sphere();
+    this.crowdThreats = []; this.threatPool = []; this.threatT = 0;
+    this.emergencyBefore = new Set(); this.visualSolids = [];
+    this.crowdHero = { x: 0, y: 0, z: 0, show: 0 };
+    this.sirenListener = { right: { x: 1, z: 0 }, velocity: this.H.v, audible: false };
+    this.policeTarget = (x, z) => {
+      let best = null, distance = 900;
+      for (const e of this.enemyList()) {
+        if (e.hp <= 0 || e.st === "ko") continue;
+        const d = (e.x - x) ** 2 + (e.z - z) ** 2;
+        if (d < distance) { distance = d; best = e; }
+      }
+      return best;
+    };
+    this.trafficActor = { x: 0, y: 0, z: 0, vx: 0, vz: 0, L: .6, W: .7 };
+    this.trafficActors = [this.trafficActor];
+    this.localPlayer = { id: "", x: 0, y: 0, z: 0, vx: 0, vz: 0, down: false, local: true }; this.playerStates = [];
+    this.previewInput = {}; this.anchorOrigin = new V(); this.anchorLook = new V();
+    this.zipPreviewT = 0; this.anchorAge = 1; this.hudState = {}; this.gadgetT = 0;
+    this.hudProjection = [0, 0];
+    this.projectHud = (x, y, z) => {
+      _t.set(x, y, z).project(this.ctx.camera);
+      if (_t.z >= 1 || Math.abs(_t.x) >= 1.2 || Math.abs(_t.y) >= 1.2) return null;
+      this.hudProjection[0] = (_t.x * .5 + .5) * innerWidth; this.hudProjection[1] = (-_t.y * .5 + .5) * innerHeight;
+      return this.hudProjection;
+    };
+    this.zipMarker = (m) => m.classList.toggle("perch", this.zipPreview.kind === "perch");
+    this.targetMarker = (m) => {
+      const tg = this.hudTarget, cb = this.combat;
+      const name = (KINDS[tg.kind]?.name || "") + (cb.lock === tg.id ? " (LOCKED)" : "");
+      if (m.dataset.n !== name) { m.dataset.n = name; m.querySelector("b").textContent = name; }
+      m.querySelector("i").style.width = Math.max(0, tg.hp / (tg.max || 1)) * 100 + "%";
+    };
   }
   // the hero's city: the tall variant of the City Drive map, and the solids built from it
   world() {
@@ -102,7 +146,9 @@ export class HeroMode {
     this.H.reset(sp.x, sp.y, sp.z);
     this.prevV = null; this.prevHeading = undefined; this.emote = null;
     this.anchorPreview = null; this.zipPreview = null; this.previewT = 0;
-    this.lastWebs = []; this.lines.length = 0; this.shootFlash = 0; this.dashT = 0;
+    this.zipPreviewT = 0; this.anchorAge = 1; this.gadgetT = 0; this.threatT = 0;
+    this.inCombat = false; this.cam.combat = null;
+    this.lastWebs.length = 0; this.lines.length = 0; this.shootFlash = 0; this.dashT = 0;
     this.H.face.set(Math.sin(sp.yaw || 0), 0, Math.cos(sp.yaw || 0));
     this.H.state = sp.perch ? "perch" : "ground";
     this.cam.yaw = Math.atan2(-this.H.face.x, -this.H.face.z); this.cam.pitch = -.1; this.cam.snapNext = true;
@@ -172,7 +218,7 @@ export class HeroMode {
       const cb = this.combat;
       // knocked down: no control until the hero gets back up (somewhere safe)
       let I = inp;
-      if (cb.downT > 0) { cb.downT -= dt; I = idle(inp); if (cb.downT <= 0) this.respawn(); }
+      if (cb.downT > 0) { cb.downT -= dt; I = idle(inp, this.idleInput); if (cb.downT <= 0) this.respawn(); }
       if (H.state === "wall" && I.trickDown) { I.jump = true; I.trickDown = false; this.wallFlip = true; }
       // hit-stop on a landed blow, slow motion after a perfect dodge
       let bdt = dt;
@@ -189,10 +235,12 @@ export class HeroMode {
       // Small traversal steps keep rope catches, collision response and jumps consistent at low frame rates.
       const sub = Math.min(8, Math.max(1, Math.ceil(bdt * 120)));
       const sdt = bdt / sub;
-      this.frameEvents = [];
+      this.frameEvents.length = 0;
+      const held = Object.assign(this.stepInput, I);
+      held.jump = held.swingDown = held.zip = held.crouchDown = held.dodge = held.trickDown = false;
       for (let k = 0; k < sub; k++) {
-        H.step(sdt, k === 0 ? I : { ...I, jump: false, swingDown: false, zip: false, crouchDown: false, dodge: false, trickDown: false });
-        for (const e of H.events) this.frameEvents.push({ ...e });
+        H.step(sdt, k === 0 ? I : held);
+        for (const e of H.events) this.frameEvents.push(e);
       }
       cb.post(bdt);
       // the enemies and the city's events: run here when this machine is in charge of them
@@ -205,15 +253,7 @@ export class HeroMode {
       this.updateCarry(dt);
       this.activities.update(dt);
       if (this.online) this.netx.tick(dt, T);
-      // the fight frames the camera
-      const near = cb.inCombat ? cb.near(20) : [];
-      if (near.length) {
-        let x = 0, z = 0, d = 0;
-        for (const e of near) { x += e.x; z += e.z; }
-        x /= near.length; z /= near.length;
-        for (const e of near) d = Math.max(d, Math.hypot(e.x - x, e.z - z));
-        cam.combat = { x: (x + H.p.x) / 2, z: (z + H.p.z) / 2, d };
-      } else cam.combat = null;
+      this.updateCombatFrame();
       // tricks start in the air (and on lines, on zips), never mid-vault; on a wall the trick key flips off it
       const airborne = (H.state === "air" || H.state === "swing" || H.state === "zip") && !H.move;
       if (this.wallFlip && H.state === "air") this.tricks.start("wallFlip", H);
@@ -231,8 +271,7 @@ export class HeroMode {
     // ---- the other heroes ----
     if (this.online) this.netx.update(real, T);
     // ---- enemies and props, as this machine sees them ----
-    this.enemyView.draw(real, this.enemyList(), camera.position);
-    this.enemyView.drawProps(this.propList());
+    this.drawEnemies(real);
     this.tracers.update(dt);
     // ---- effects ----
     this.drawWebs(real);
@@ -242,9 +281,58 @@ export class HeroMode {
     this.rings.update(dt);
     // ---- HUD ----
     this.updateHud(real, inp);
-    this.trickEvents = this.tricks.events.splice(0);
+    this.trickEvents.length = 0;
+    for (const e of this.tricks.events) this.trickEvents.push(e);
+    this.tricks.events.length = 0;
     for (const e of this.trickEvents) this.trickSound(e);
     if (this.firstFrames > 0) this.firstFrames--;
+  }
+  updateCombatFrame() {
+    const H = this.H, cb = this.combat, near = this.cameraEnemies;
+    near.length = 0;
+    let fighting = false, x = 0, z = 0;
+    for (const e of this.enemyList()) {
+      if (!cb.alive(e) || Math.abs(e.y - H.p.y) >= 8) continue;
+      const d2 = (e.x - H.p.x) ** 2 + (e.z - H.p.z) ** 2;
+      if (d2 < 484 && e.alert !== false && e.st !== "idle") fighting = true;
+      if (d2 < 400) { near.push(e); x += e.x; z += e.z; }
+    }
+    this.inCombat = fighting;
+    if (!fighting || !near.length) { this.cam.combat = null; return; }
+    x /= near.length; z /= near.length;
+    let d2 = 0;
+    for (const e of near) d2 = Math.max(d2, (e.x - x) ** 2 + (e.z - z) ** 2);
+    const frame = this.cameraFrame;
+    frame.x = (x + H.p.x) / 2; frame.z = (z + H.p.z) / 2; frame.d = Math.sqrt(d2);
+    this.cam.combat = frame;
+  }
+  drawEnemies(dt) {
+    const camera = this.ctx.camera, pos = camera.position, H = this.H, cb = this.combat;
+    camera.updateMatrixWorld();
+    this.viewFrustum.setFromProjectionMatrix(this.viewMatrix.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+    const enemies = this.visibleEnemies, props = this.visibleProps, sphere = this.viewSphere;
+    enemies.length = props.length = 0;
+    // Cull before asking for a rig, while keeping the whole nearby fight available behind the camera.
+    for (const e of this.enemyList()) {
+      const nearby = (e.x - H.p.x) ** 2 + (e.y - H.p.y) ** 2 + (e.z - H.p.z) ** 2 < 2025;
+      const tracked = e.id === cb.target || e.id === cb.lock || e.id === cb.held?.enemy;
+      if (!nearby && !tracked) {
+        if ((e.x - pos.x) ** 2 + (e.y - pos.y) ** 2 + (e.z - pos.z) ** 2 > 67600) continue;
+        sphere.center.set(e.x, e.y, e.z); sphere.radius = 4 * (KINDS[e.kind]?.scale || 1);
+        if (!this.viewFrustum.intersectsSphere(sphere)) continue;
+      }
+      enemies.push(e);
+    }
+    for (const p of this.propList()) {
+      if ((p.x - H.p.x) ** 2 + (p.y - H.p.y) ** 2 + (p.z - H.p.z) ** 2 >= 1225) {
+        if ((p.x - pos.x) ** 2 + (p.y - pos.y) ** 2 + (p.z - pos.z) ** 2 > 48400) continue;
+        sphere.center.set(p.x, p.y, p.z); sphere.radius = 3;
+        if (!this.viewFrustum.intersectsSphere(sphere)) continue;
+      }
+      props.push(p);
+    }
+    this.enemyView.draw(dt, enemies, pos);
+    this.enemyView.drawProps(props);
   }
   // after the city has moved its traffic: the life on the streets, lights, sirens, the events' look
   afterCity(dt, T, glows, lights) {
@@ -252,27 +340,43 @@ export class HeroMode {
     const L = this.life, city = this.ctx.city, cam = this.ctx.camera.position, sky = this.ctx.sky, H = this.H;
     const alarm = this.events.list.some((e) => e.state === "active" && EVENT_TYPES[e.kind].crime);
     if (city.traffic) {
-      const before = new Set(L.emergency.marked.keys());
+      const before = this.emergencyBefore;
+      before.clear();
+      for (const id of L.emergency.marked.keys()) before.add(id);
       L.emergency.tag(city.traffic, alarm);
       for (const c of city.traffic.cars) if (c.ev && !before.has(c.id)) city.meshes.get(c)?.children[0]?.userData?.setColor?.(c.color);
-      this.ctx.audio.evSirens?.(L.emergency.lights(city.traffic, T, glows, cam, alarm || this.events.list.some((e) => e.kind === "chase" && e.state === "active")));
+      const siren = this.sirenListener, elements = this.ctx.camera.matrixWorld.elements;
+      siren.right.x = elements[0]; siren.right.z = elements[2]; siren.audible = dt > 0;
+      this.ctx.audio.evSirens?.(L.emergency.lights(city.traffic, T, glows, cam, alarm || this.events.list.some((e) => e.kind === "chase" && e.state === "active"), siren));
     }
     // officers at a scene cover the nearest robber
-    L.emergency.updateParked(dt, T, glows, this.W, (x, z) => { let b = null, bd = 30; for (const e of this.enemyList()) { if (e.hp <= 0 || e.st === "ko") continue; const d = Math.hypot(e.x - x, e.z - z); if (d < bd) { bd = d; b = e; } } return b; });
-    L.trains.update(T, glows, []);
+    L.emergency.updateParked(dt, T, glows, this.W, this.policeTarget);
+    this.visualSolids.length = 0;
+    L.trains.update(T, glows, this.visualSolids);
     // the crowd runs from fights and gunfire, and stops to watch the hero
-    const threats = [];
-    for (const e of this.events.list) if (e.state === "active" && EVENT_TYPES[e.kind].crime) threats.push({ x: e.x, z: e.z, r: 32 });
-    for (const e of this.enemyList()) if (e.alert && e.hp > 0 && e.st !== "ko") { threats.push({ x: e.x, z: e.z, r: 18 }); if (threats.length > 12) break; }
+    const threats = this.crowdThreats;
+    if ((this.threatT -= dt) <= 0) {
+      this.threatT = .15; threats.length = 0;
+      for (const e of this.events.list) if (e.state === "active" && EVENT_TYPES[e.kind].crime) this.addCrowdThreat(e.x, e.z, 32);
+      for (const e of this.enemyList()) if (e.alert && e.hp > 0 && e.st !== "ko") { this.addCrowdThreat(e.x, e.z, 18); if (threats.length > 12) break; }
+    }
     const show = H.state === "perch" || H.landT < 1.5 && H.landT > 0 || this.emote ? 22 : 0;
-    L.crowd.update(dt, cam, { x: H.p.x, y: H.p.y - HIP_H, z: H.p.z, show }, threats, glows, sky.night > .5);
+    const hero = this.crowdHero;
+    hero.x = H.p.x; hero.y = H.p.y - HIP_H; hero.z = H.p.z; hero.show = show;
+    L.crowd.update(dt, cam, hero, threats, glows, sky.night > .5);
     this.events.draw(dt, T, glows, this.parts);
     for (const t of this.tracerQueue || []) this.tracers.add(...t);
-    this.tracerQueue = [];
+    this.tracerQueue.length = 0;
     // the weather turns over the hours (unless the server fixed it)
     const fixed = this.online && this.ctx.net.room?.weather;
     const w = L.weather.update(dt, sky, fixed);
     if (w) this.hud.center(w.toUpperCase(), "The weather is turning", 2, "small");
+  }
+  addCrowdThreat(x, z, r) {
+    const i = this.crowdThreats.length;
+    const threat = this.threatPool[i] || (this.threatPool[i] = { x: 0, z: 0, r: 0 });
+    threat.x = x; threat.z = z; threat.r = r;
+    this.crowdThreats.push(threat);
   }
   mapDots() {
     const out = [];
@@ -355,8 +459,10 @@ export class HeroMode {
   // for the city's traffic: give way to the hero standing in the road
   trafficPlayers() {
     const H = this.H;
-    if (!H || H.p.y - HIP_H > 2.5) return [];
-    return [{ x: H.p.x, y: H.p.y - HIP_H, z: H.p.z, vx: H.v.x, vz: H.v.z, L: .6, W: .7 }];
+    if (!H || H.p.y - HIP_H > 2.5) return EMPTY;
+    const actor = this.trafficActor;
+    actor.x = H.p.x; actor.y = H.p.y - HIP_H; actor.z = H.p.z; actor.vx = H.v.x; actor.vz = H.v.z;
+    return this.trafficActors;
   }
 
   // ------------------------------------------------------------------ animation
@@ -437,21 +543,24 @@ export class HeroMode {
     a.crouch = inp.crouch && H.state === "ground" && hs < 5; a.dive = H.dive; a.glide = H.glide; a.dash = H.dashUsed && H.state === "air" && this.dashT > 0 ? 1 : 0;
     a.move = H.move; a.wallMode = H.wallMode; a.trick = this.tricks.shape();
     a.turn = clamp(H.turnRate || 0, -1, 1);
-    a.combat = this.combat.inCombat;
+    a.combat = this.inCombat;
     a.releaseT = H.releaseT; a.releaseQuality = H.releaseQuality;
-    if (H.state === "wall") { const r = _t.set(-H.n.z, 0, H.n.x); a.wallMove = { x: H.v.dot(r), y: H.v.y }; }
+    if (H.state === "wall") {
+      const r = _t.set(-H.n.z, 0, H.n.x), wallMove = a.wallMove || (a.wallMove = { x: 0, y: 0 });
+      wallMove.x = H.v.dot(r); wallMove.y = H.v.y;
+    }
     // the arm holding a line points at its anchor; the swing's phase decides the legs
     a.anchorLocal = null; a.anchor2Local = null; a.swingSide = H.webs[0]?.side || H.lastSide;
     if (H.state === "swing" && P) {
-      a.anchorLocal = this.toBody(P, a.swingSide);
-      if (H.webs[1]) a.anchor2Local = this.toBody(H.webs[1].pivot(), -a.swingSide);
+      a.anchorLocal = this.toBody(P, a.swingSide, this.posePoints[0]);
+      if (H.webs[1]) a.anchor2Local = this.toBody(H.webs[1].pivot(), -a.swingSide, this.posePoints[1]);
       const ox = H.p.x - P.x, oz = H.p.z - P.z, hv = Math.max(1, hs);
       a.swingPhase = clamp((ox * H.v.x + oz * H.v.z) / hv / Math.max(5, H.webs[0].L * .7), -1, 1);
-    } else if (H.state === "zip" && H.zip) a.anchorLocal = this.toBody(_t.set(H.zip.x, H.zip.y, H.zip.z), a.swingSide);
+    } else if (H.state === "zip" && H.zip) a.anchorLocal = this.toBody(_t.set(H.zip.x, H.zip.y, H.zip.z), a.swingSide, this.posePoints[0]);
     a.shootLocal = null;
-    if (this.shootFlash > 0) { this.shootFlash -= dt; a.shootLocal = this.toBody(this.shootAt, this.shootSide); a.shootSide = this.shootSide; }
+    if (this.shootFlash > 0) { this.shootFlash -= dt; a.shootLocal = this.toBody(this.shootAt, this.shootSide, this.posePoints[2]); a.shootSide = this.shootSide; }
     a.attack = this.combat.downT > 0 ? { kind: "down", k: .5 } : this.combat.attackPose() || (this.emote ? { kind: "emote", id: this.emote.id, t: this.emote.t, k: .5 } : null);
-    if (inp.emote && !this.combat.inCombat) this.emote = { id: inp.emote - 1, t: 0 };
+    if (inp.emote && !this.inCombat) this.emote = { id: inp.emote - 1, t: 0 };
     if (this.emote) { this.emote.t += dt; if (H.speed > 1.5 || H.state !== "ground" || this.emote.t > 8) this.emote = null; }
     const r = poseBody(rig, a);
     rig.apply(this.combat.stopT > 0 ? dt * .1 : dt, this.firstFrames > 0 ? 1000 : r);
@@ -464,19 +573,20 @@ export class HeroMode {
     for (const w of H.webs) if (w.side > 0) U.uShoot.value.x = Math.max(U.uShoot.value.x, .5); else U.uShoot.value.y = Math.max(U.uShoot.value.y, .5);
   }
   // a world point as a direction from the shoulder, in the rig's own frame
-  toBody(pt, side) {
+  toBody(pt, side, out = new V()) {
     const rig = this.rig;
     _t2.set(side > 0 ? .2 : -.2, HIP_H + .45, 0).applyQuaternion(rig.group.quaternion).add(rig.group.position);
-    return _t3.subVectors(pt, _t2).applyQuaternion(_qi.copy(rig.group.quaternion).invert()).normalize().clone();
+    return out.subVectors(pt, _t2).applyQuaternion(_qi.copy(rig.group.quaternion).invert()).normalize();
   }
 
   // ------------------------------------------------------------------ webs and trails
   drawWebs(dt) {
     const H = this.H, rig = this.rig, cam = this.ctx.camera.position;
+    const pts = this.webPoints, pair = this.webPair;
     this.webs.begin(cam);
     for (const w of H.webs) {
-      const hand = rig.handPos(w.side, _h1).clone();
-      const pts = [hand];
+      pts.length = 0;
+      pts.push(rig.handPos(w.side, pair[0]));
       for (let i = w.pivots.length - 1; i >= 0; i--) pts.push(w.pivots[i]);
       pts.push(w.a);
       const d = H.p.distanceTo(w.pivot());
@@ -485,27 +595,33 @@ export class HeroMode {
       w.t += dt;
     }
     for (const s of H.shots) {
-      const hand = rig.handPos(s.side, _h1).clone(), k = Math.min(1, s.t / s.travel);
-      const tip = hand.clone().lerp(s.to, k);
-      this.webs.line([hand, tip], this.webCol, 1, .8, 0, this.clock);
+      rig.handPos(s.side, pair[0]);
+      pair[1].copy(pair[0]).lerp(s.to, Math.min(1, s.t / s.travel));
+      this.webs.line(pair, this.webCol, 1, .8, 0, this.clock);
     }
     // combat lines: a pull, a launch, a web strike, a throw on the end of a line, web shots in flight
     for (let i = this.lines.length - 1; i >= 0; i--) {
       const l = this.lines[i];
       l.t += dt;
       if (l.t > l.life) { this.lines.splice(i, 1); continue; }
-      const hand = rig.handPos(l.side, _h1).clone(), to = l.follow ? l.follow() : l.to;
+      const to = l.follow ? l.follow() : l.to;
       if (!to) { this.lines.splice(i, 1); continue; }
+      rig.handPos(l.side, pair[0]);
       const k = Math.min(1, l.t / .06);
-      this.webs.line([hand, hand.clone().lerp(to, k)], this.webCol, 1 - Math.max(0, (l.t - l.life + .1) / .1), k < 1 ? .6 : 0, 0, this.clock);
+      pair[1].copy(pair[0]).lerp(to, k);
+      this.webs.line(pair, this.webCol, 1 - Math.max(0, (l.t - l.life + .1) / .1), k < 1 ? .6 : 0, 0, this.clock);
     }
     if (this.online) this.netx.drawWebs(this.webs, this.webCol, this.clock);
-    for (const s of this.combat.shots) this.webs.line([_t.set(s.x - s.vx * .05, s.y - s.vy * .05, s.z - s.vz * .05).clone(), new V(s.x, s.y, s.z)], this.webCol, 1, 0, 0, this.clock);
+    for (const s of this.combat.shots) {
+      pair[0].set(s.x - s.vx * .05, s.y - s.vy * .05, s.z - s.vz * .05); pair[1].set(s.x, s.y, s.z);
+      this.webs.line(pair, this.webCol, 1, 0, 0, this.clock);
+    }
     for (const t of this.combat.traps) if (Math.random() < .3) this.parts.energy(t.x + t.nx * .2, t.y + t.ny * .2, t.z + t.nz * .2, 1, this.glowRGB());
-    for (const b of this.combat.bombs) this.parts.energy(b.x, b.y, b.z, 1, [1, 1, 1]);
+    for (const b of this.combat.bombs) this.parts.energy(b.x, b.y, b.z, 1, WHITE);
     if (H.state === "zip" && H.zip) {
-      const hand = rig.handPos(H.lastSide, _h1).clone(), z = H.zip, k = Math.min(1, z.t / z.travel);
-      this.webs.line([hand, hand.clone().lerp(_t.set(z.x, z.y, z.z), k)], this.webCol, 1, k < 1 ? .8 : .1, 0, this.clock);
+      const z = H.zip, k = Math.min(1, z.t / z.travel);
+      rig.handPos(H.lastSide, pair[0]); pair[1].copy(pair[0]).lerp(_t.set(z.x, z.y, z.z), k);
+      this.webs.line(pair, this.webCol, 1, k < 1 ? .8 : .1, 0, this.clock);
     }
     this.webs.end(dt);
   }
@@ -513,7 +629,7 @@ export class HeroMode {
     const H = this.H, rig = this.rig, on = this.tricks.active ? 1 : H.state === "swing" && H.speed > 25 ? .3 : H.speed > 38 ? .45 : 0;
     const col = this.webCol;
     rig.mesh.updateMatrixWorld(true);
-    ["handL", "handR", "footL", "footR"].forEach((b, i) => this.trails.push(i, rig.bonePos(b, _h2), on, col));
+    for (let i = 0; i < TRAIL_BONES.length; i++) this.trails.push(i, rig.bonePos(TRAIL_BONES[i], _h2), on, col);
     this.trails.update(this.ctx.camera.position, dt);
   }
 
@@ -555,36 +671,69 @@ export class HeroMode {
   dropWebs() {
     const rig = this.rig;
     for (const w of this.lastWebs || []) this.webs.drop(rig.handPos(w.side, _h1), w.a, this.webCol);
-    this.lastWebs = [];
+    this.lastWebs.length = 0;
   }
-  glowRGB() { const c = new THREE.Color(SUITS[this.suitId].glow); return [c.r, c.g, c.b]; }
+  glowRGB() {
+    if (this.glowSuit !== this.suitId) {
+      const c = new THREE.Color(SUITS[this.suitId].glow);
+      this.glowColor = [c.r, c.g, c.b]; this.glowSuit = this.suitId;
+    }
+    return this.glowColor;
+  }
   // keep a copy of the attached lines so a let-go can draw them falling away
-  noteWebs() { this.lastWebs = this.H.webs.map((w) => ({ side: w.side, a: w.a.clone() })); }
+  noteWebs() {
+    const webs = this.H.webs;
+    this.lastWebs.length = webs.length;
+    for (let i = 0; i < webs.length; i++) {
+      const snapshot = this.lastWebPool[i];
+      snapshot.side = webs[i].side; snapshot.a.copy(webs[i].a);
+      this.lastWebs[i] = snapshot;
+    }
+  }
 
   // ------------------------------------------------------------------ HUD
   updateHud(dt, inp) {
     const H = this.H, hud = this.hud, cam = this.ctx.camera;
     if (H.webs.length) this.noteWebs();
-    // where would a swing line go? (a ghost marker, refreshed a few times a second)
-    if ((this.previewT -= dt) <= 0) {
-      this.previewT = .12;
-      this.anchorPreview = H.state === "air" || H.state === "ground" || H.state === "wall" || H.state === "perch" ? H.findAnchor({ ...inp, look: this.cam.look }) : null;
-      this.zipPreview = H.zipTarget({ ...inp, look: this.cam.look, camPos: cam.position });
+    const preview = this.previewInput, enabled = this.frameDt > 0 && this.input.wantLock;
+    const canSwing = H.state === "air" || H.state === "ground" || H.state === "wall" || H.state === "perch";
+    this.anchorAge += dt;
+    // Previews are advisory; the real shot still chooses its anchor immediately when the player acts.
+    if (enabled && canSwing && !this.inCombat && !inp.swing && !H.shots.length && !H.move) {
+      if ((this.previewT -= dt) <= 0) {
+        this.previewT = .35;
+        if (this.anchorAge >= .9 || this.anchorOrigin.distanceToSquared(H.p) > 4 || this.anchorLook.dot(this.cam.look) < .995) {
+          Object.assign(preview, inp); preview.look = this.cam.look; preview.camPos = cam.position;
+          this.anchorPreview = H.findAnchor(preview);
+          this.anchorOrigin.copy(H.p); this.anchorLook.copy(this.cam.look); this.anchorAge = 0;
+        }
+      }
+    } else { this.anchorPreview = null; this.previewT = 0; this.anchorAge = 1; }
+    if (enabled && !H.move) {
+      if ((this.zipPreviewT -= dt) <= 0) {
+        this.zipPreviewT = .25;
+        Object.assign(preview, inp); preview.look = this.cam.look; preview.camPos = cam.position;
+        this.zipPreview = H.zipTarget(preview);
+      }
+    } else { this.zipPreview = null; this.zipPreviewT = 0; }
+    if ((this.gadgetT -= dt) <= 0) {
+      this.gadgetT = .1; this.gadgetHtml = this.gadgetBar();
     }
     const W = innerWidth, Hh = innerHeight;
-    const proj = (x, y, z) => { _t.set(x, y, z).project(cam); return _t.z < 1 && Math.abs(_t.x) < 1.2 && Math.abs(_t.y) < 1.2 ? [(_t.x * .5 + .5) * W, (-_t.y * .5 + .5) * Hh] : null; };
+    const proj = this.projectHud;
     const zp = this.zipPreview && proj(this.zipPreview.x, this.zipPreview.y, this.zipPreview.z);
-    hud.mark("hhZip", zp?.[0] || 0, zp?.[1] || 0, !!zp, (m) => m.classList.toggle("perch", this.zipPreview.kind === "perch"));
+    hud.mark("hhZip", zp?.[0] || 0, zp?.[1] || 0, !!zp, this.zipMarker);
     const ap = this.anchorPreview && H.state !== "swing" && proj(this.anchorPreview.x, this.anchorPreview.y, this.anchorPreview.z);
     hud.mark("hhAnchor", ap?.[0] || 0, ap?.[1] || 0, !!ap);
     const alt = H.p.y - HIP_H;
-    hud.update(dt, {
-      speed: H.speed, alt, stateLabel: H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "",
-      level: this.profile().level || 1, suit: SUITS[this.suitId].name,
-      traversal: this.traversalHint(inp), releaseReady: this.releaseReady(), anchorReady: !!this.anchorPreview,
-      tricks: this.tricks, trickEvents: this.trickEvents, hp: this.combat.hp, focus: this.combat.focus, noWeb: H.noWebT,
-      gadgets: this.gadgetBar(), hits: this.combat.combo, sense: this.senseHud(), mission: hud.missionHtml || "", race: this.activities.raceHtml || "",
-    });
+    const state = this.hudState, releaseReady = this.releaseReady();
+    state.speed = H.speed; state.alt = alt;
+    state.stateLabel = H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "";
+    state.level = this.profile().level || 1; state.suit = SUITS[this.suitId].name;
+    state.traversal = this.traversalHint(inp, releaseReady); state.releaseReady = releaseReady; state.anchorReady = !!this.anchorPreview;
+    state.tricks = this.tricks; state.trickEvents = this.trickEvents; state.hp = this.combat.hp; state.focus = this.combat.focus; state.noWeb = H.noWebT;
+    state.gadgets = this.gadgetHtml; state.hits = this.combat.combo; state.sense = this.senseHud(); state.mission = hud.missionHtml || ""; state.race = this.activities.raceHtml || "";
+    hud.update(dt, state);
     // the nearest event: the panel, and an arrow to it
     const near = this.activities.target ? { e: { ...this.activities.target, kind: "race" }, d: H.p.distanceTo(_t2.set(this.activities.target.x, this.activities.target.y, this.activities.target.z)) } : this.events?.nearest(H.p);
     if (near && near.e.kind === "race") {
@@ -614,12 +763,9 @@ export class HeroMode {
     } else { hud.missionHtml = ""; hud.$("hhWay").hidden = true; }
     // the target: a ring, its name and its health
     const cb = this.combat, tg = cb.target != null ? cb.byId(cb.target) : null;
-    const tp = tg && cb.alive(tg) && (cb.inCombat || cb.lock) && proj(tg.x, tg.y + 1.15 * (KINDS[tg.kind]?.scale || 1), tg.z);
-    hud.mark("hhTarget", tp?.[0] || 0, tp?.[1] || 0, !!tp, (m) => {
-      const name = (KINDS[tg.kind]?.name || "") + (cb.lock === tg.id ? " (LOCKED)" : "");
-      if (m.dataset.n !== name) { m.dataset.n = name; m.querySelector("b").textContent = name; }
-      m.querySelector("i").style.width = Math.max(0, tg.hp / (tg.max || 1)) * 100 + "%";
-    });
+    const tp = tg && cb.alive(tg) && (this.inCombat || cb.lock) && proj(tg.x, tg.y + 1.15 * (KINDS[tg.kind]?.scale || 1), tg.z);
+    this.hudTarget = tg;
+    hud.mark("hhTarget", tp?.[0] || 0, tp?.[1] || 0, !!tp, this.targetMarker);
     if ((this.distT = (this.distT || 0) - dt) <= 0) {
       this.distT = .5;
       // street-level names, except when actually standing on the expressway deck
@@ -635,13 +781,13 @@ export class HeroMode {
     const angle = Math.acos(clamp(-dy / Math.max(.01, Math.hypot(dx, dy, dz)), -1, 1));
     return dx * H.v.x + dz * H.v.z > 0 && angle > .75 && angle < 1.25;
   }
-  traversalHint(inp) {
+  traversalHint(inp, releaseReady = this.releaseReady()) {
     const H = this.H, cb = this.combat, pad = inp.pad;
     const jump = pad ? "A" : "Space", swing = pad ? "RT" : "Right mouse", zip = pad ? "LB" : "E";
     if (cb.downT > 0) return "Recovering";
     if (cb.senses.length) return `${pad ? "LT" : "Q"} · Dodge the incoming attack`;
-    if (cb.inCombat) return cb.focus >= 1 ? `${pad ? "X" : "Left mouse"} · Combo   ${pad ? "Y" : "R"} · Web strike` : `${pad ? "X" : "Left mouse"} · Attack   ${pad ? "LT" : "Q"} · Dodge`;
-    if (H.state === "swing") return this.releaseReady() ? `${jump} · Perfect launch now` : `${jump} · Launch   WASD / stick · Steer`;
+    if (this.inCombat) return cb.focus >= 1 ? `${pad ? "X" : "Left mouse"} · Combo   ${pad ? "Y" : "R"} · Web strike` : `${pad ? "X" : "Left mouse"} · Attack   ${pad ? "LT" : "Q"} · Dodge`;
+    if (H.state === "swing") return releaseReady ? `${jump} · Perfect launch now` : `${jump} · Launch   WASD / stick · Steer`;
     if (H.state === "zip") return `${jump} · Time a point launch on arrival`;
     if (H.state === "wall") return `${pad ? "L3" : "Shift"} · Run up   ${jump} · Wall jump`;
     if (H.state === "water") return `${jump} · Jump out   ${swing} · Swing away`;
@@ -703,7 +849,7 @@ export class HeroMode {
   }
   // ---- online glue ----
   netState(T, now, round) { return this.H ? this.netx.state(T, now, round) : null; }
-  remoteHeroes() { return this.online ? this.netx.list() : []; }
+  remoteHeroes() { return this.online ? this.netx.list() : EMPTY; }
   relay(e) { this.netx.relay(e); }
   sendWorld(w) { if (this.online) this.netx.send(w); }
   playerRows() {
@@ -753,12 +899,15 @@ export class HeroMode {
     return room.players?.[0]?.id === this.meId();
   }
   meId() { const me = this.ctx.net.me; return me?.id ?? me?.code ?? "me"; }
-  enemyList() { return this.authority() ? this.sim.list : this.remoteEnemies || []; }
-  propList() { return this.authority() ? this.sim.props : this.remoteProps || []; }
+  enemyList() { return this.authority() ? this.sim.list : this.netx.remoteEnemies; }
+  propList() { return this.authority() ? this.sim.props : this.netx.props; }
   // everyone the enemies can see and hit: this hero, and (online) the other heroes
   players() {
-    const H = this.H, out = [{ id: this.meId(), x: H.p.x, y: H.p.y, z: H.p.z, vx: H.v.x, vz: H.v.z, down: this.combat.downT > 0, local: true }];
-    for (const r of this.remoteHeroes?.() || []) out.push(r);
+    const H = this.H, out = this.playerStates, local = this.localPlayer;
+    local.id = this.meId(); local.x = H.p.x; local.y = H.p.y; local.z = H.p.z;
+    local.vx = H.v.x; local.vz = H.v.z; local.down = this.combat.downT > 0;
+    out.length = 0; out.push(local);
+    for (const r of this.remoteHeroes()) out.push(r);
     return out;
   }
   hitEnemy(id, h) {
@@ -769,9 +918,13 @@ export class HeroMode {
     if (h.prop) { const p = this.propList().find((q) => q.id === h.prop); if (p) { p.x = pos.x; p.y = pos.y; p.z = pos.z; p.held = this.meId(); p.rest = false; p.vx = p.vy = p.vz = 0; } }
     else if (this.authority()) this.sim.holdEnemy(h.enemy, pos.x, pos.y, pos.z);
     else this.sendWorld?.({ k: "hold", id: h.enemy, x: +pos.x.toFixed(2), y: +pos.y.toFixed(2), z: +pos.z.toFixed(2) });
-    const to = pos.clone();
-    if (!this.lines.some((l) => l.hold)) this.lines.push({ side: 1, t: .1, life: .62, hold: true, follow: () => this.combat.held ? to.copy(pos) : null });
-    else this.lines.find((l) => l.hold).follow = () => this.combat.held ? to.copy(pos) : null;
+    let line = this.lines.find((l) => l.hold);
+    if (!line) {
+      line = { side: 1, t: .1, life: .62, hold: true, to: new V() };
+      line.follow = () => this.combat.held ? line.to : null;
+      this.lines.push(line);
+    }
+    line.to.copy(pos);
   }
   throwHeld(h, pos, vx, vy, vz) {
     if (h.prop) {
@@ -803,8 +956,10 @@ export class HeroMode {
     H.state = "ground";
     this.combat.reset();
     this.prevV = null; this.prevHeading = undefined; this.emote = null;
-    this.lastWebs = []; this.lines.length = 0; this.shootFlash = 0; this.dashT = 0;
+    this.lastWebs.length = 0; this.lines.length = 0; this.shootFlash = 0; this.dashT = 0;
     this.anchorPreview = null; this.zipPreview = null; this.previewT = 0; this.firstFrames = 3;
+    this.zipPreviewT = 0; this.anchorAge = 1; this.gadgetT = 0; this.threatT = 0;
+    this.inCombat = false; this.cam.combat = null;
     this.cam.snapNext = true;
     this.hud.center("BACK ON YOUR FEET", "", 1.6, "small");
   }
@@ -891,6 +1046,6 @@ const _cp = new V();
 // how much XP each hero level takes
 export const heroXpFor = (lvl) => 500 + (lvl - 1) * 250;
 // an input with the player's hands off the controls
-function idle(inp) { return { ...inp, mx: 0, mz: 0, ix: 0, iy: 0, jump: false, jumpHeld: false, sprint: false, swing: false, swingDown: false, zip: false, crouch: false, crouchDown: false, trick: false, trickDown: false, attack: false, attackHeld: false, attackDown: false, attackUp: false, dodge: false, strike: false, gadget: 0, throwObj: false, finisher: false, finisherHeld: false }; }
-const _up = new V(), _fw = new V(), _t = new V(), _t2 = new V(), _t3 = new V(), _h1 = new V(), _h2 = new V();
+function idle(inp, out) { return Object.assign(out, inp, IDLE_INPUT); }
+const _up = new V(), _fw = new V(), _t = new V(), _t2 = new V(), _h1 = new V(), _h2 = new V();
 const _qa = new Q(), _qb = new Q(), _qe = new Q(), _qi = new Q(), _x = new V(1, 0, 0);
