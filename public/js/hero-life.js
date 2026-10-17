@@ -144,9 +144,8 @@ export class Crowd {
       for (const t of threats) { const d = Math.hypot(p.x - t.x, p.z - t.z); if (d < t.r) { flee = t; break; } }
       const dh = Math.hypot(p.x - hx, p.z - hz);
       if (flee) { p.state = 2; p.st = 0; p.fx = p.x - flee.x; p.fz = p.z - flee.z; }
-      else if (p.state === 2 && (p.st += dt) > 4) p.state = 1;
+      else if (p.state === 2 && (p.st += dt) > 4) { p.state = 1; this.rejoin(p); }
       else if (hero.show && dh < hero.show && Math.abs(hy - p.y) < 6 && p.cool <= 0 && p.state < 2) { p.state = Math.random() < .5 ? 3 : 4; p.st = 0; p.cool = 8; }
-      else if (dh < 1.6 && p.state < 2) { p.state = 5; p.st = 0; }
       // ---- moving ----
       const P = p.path, ux = (P.bx - P.ax) / P.L, uz = (P.bz - P.az) / P.L;
       let mvx = 0, mvz = 0, sp = 0;
@@ -161,6 +160,13 @@ export class Crowd {
           if (Math.random() < .15) { p.state = 0; p.st = 0; }
         }
         const Q = p.path, qx = (Q.bx - Q.ax) / Q.L, qz = (Q.bz - Q.az) / Q.L;
+        // the hero in the way: step to the side of the walk and slow a little - never backwards
+        const lat = (hx - (Q.ax + (Q.bx - Q.ax) * p.t)) * -qz + (hz - (Q.az + (Q.bz - Q.az) * p.t)) * qx;
+        const along = ((hx - p.x) * qx + (hz - p.z) * qz) * p.dir;
+        p.home ??= p.side;
+        const want = dh < 3 && along > -1.2 && Math.abs(hy - p.y) < 2.5 ? lat - Math.sign(lat - p.side || 1) * 1.6 : p.home;
+        p.side = clamp(p.side + clamp(want - p.side, -2.2 * dt, 2.2 * dt), -3, 3);
+        if (dh < 1.2) p.t -= p.dir * p.speed * dt * .6 / Q.L;
         const tx = Q.ax + (Q.bx - Q.ax) * p.t - qz * p.side, tz = Q.az + (Q.bz - Q.az) * p.t + qx * p.side;
         mvx = tx - p.x; mvz = tz - p.z; sp = p.speed;
         p.x = tx; p.z = tz; p.y = Q.y;
@@ -170,13 +176,12 @@ export class Crowd {
         const L = Math.hypot(p.fx, p.fz) || 1;
         const vx = p.fx / L * 5.2, vz = p.fz / L * 5.2, nx = p.x + vx * dt, nz = p.z + vz * dt;
         if (this.W.topAt(nx, nz, p.y + .5) < p.y + .4 && this.W.topAt(nx, nz, p.y + .5) > p.y - .4) { p.x = nx; p.z = nz; }
-        else { p.fx = -p.fz; p.fz = p.fx; }
+        else { const f = p.fx; p.fx = -p.fz; p.fz = f; }
         p.yaw = Math.atan2(vx, vz); sp = 5.2;
       } else if (p.state >= 3) {
         // watching the hero: turn to them, cheer or hold up a phone
         p.yaw = Math.atan2(hx - p.x, hz - p.z);
-        if (p.state === 5) { const L = dh || 1; p.x += (p.x - hx) / L * 1.8 * dt; p.z += (p.z - hz) / L * 1.8 * dt; if ((p.st += dt) > .8) p.state = 1; }
-        else if ((p.st += dt) > 5) p.state = 1;
+        if ((p.st += dt) > 5) p.state = 1;
         if (p.state === 4 && night && Math.random() < dt * .8) this.flash.push([p.x + Math.sin(p.yaw) * .3, p.y + 1.6, p.z + Math.cos(p.yaw) * .3, .12]);
       }
       p.phase += sp * dt * (p.state === 2 ? 2.2 : 3.4);
@@ -193,6 +198,12 @@ export class Crowd {
     }
     this.mesh.instanceMatrix.needsUpdate = true;
     for (const a of [this.aShirt, this.aPants, this.aSkin, this.aAnim]) a.needsUpdate = true;
+  }
+  // back on the path from wherever running took them: the nearest point on it, keeping their offset
+  rejoin(p) {
+    const P = p.path, ux = (P.bx - P.ax) / P.L, uz = (P.bz - P.az) / P.L;
+    p.t = clamp(((p.x - P.ax) * ux + (p.z - P.az) * uz) / P.L, 0, 1);
+    p.side = clamp((p.x - P.ax) * -uz + (p.z - P.az) * ux, -3, 3);
   }
   setVisible(on) { this.mesh.visible = on; this.simT = 0; this.forceUpdate = on; if (!on) this.flash.length = 0; }
 }
