@@ -26,8 +26,8 @@ Open http://localhost:3000. Multiplayer uses public MQTT relays by default, incl
 | Ctrl / B | Crouch, dive, or slide |
 | Hold T + W A S D / arrows, or RB + left stick | Directional air tricks; change direction while holding to blend into another trick |
 | Shift / Ctrl while holding T | Layout/barrel or pike/scissor trick variants; F also works as the trick key |
-| Left mouse / X | Attack; hold for an uppercut |
-| Q / LT | Dodge |
+| Left mouse / X | Seven-hit attack chain; hold for a launcher, then continue in the air |
+| Q / LT | Dodge / air dash; perfect timing opens a counter window |
 | R / Y | Web strike |
 | 1-6 / D-pad | Web gadgets |
 | G | Throw an object or stunned enemy |

@@ -10,7 +10,10 @@ import { HIP_H } from "./hero-rig.js";
 
 const V = THREE.Vector3;
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
-const COMBO = ["jab", "cross", "hook", "kick", "roundhouse"];
+// The ground string is deliberately longer than a simple punch loop.  Each branch has a
+// different silhouette, so the player can read where the chain is going before the hit lands.
+const COMBO = ["jab", "cross", "hook", "uppercut", "kick", "roundhouse", "spin"];
+const FINISHERS = ["hook", "kick", "uppercut", "roundhouse", "spin"];
 export const GADGETS = [
   null,
   { id: "shot", name: "Web Shot", key: "1", cool: 0, ammo: 10 },
@@ -138,7 +141,13 @@ export class HeroCombat {
     switch (b.cmd) {
       case "dodge": if (H.state === "ground" || this.inCombat && H.state === "air") this.dodge(I); break;
       case "strike": if (tgt && this.dist(tgt) < 34) this.start({ kind: "webstrike", dur: 2, target: tgt.id, fly: true }); else this.hero.onCombat("deny"); break;
-      case "finisher": if (tgt && this.dist(tgt) < 9 && this.focus >= 1) { this.focus -= 1; this.start({ kind: "finisher", dur: .9, target: tgt.id, hitAt: .63, lunge: true }); } else this.hero.onCombat("deny"); break;
+      case "finisher": if (tgt && this.dist(tgt) < 9 && this.focus >= 1) {
+        this.focus -= 1;
+        // Context changes the finisher silhouette: the current chain chooses the family, while the
+        // target's height selects an aerial-looking kick or an uppercut when they are grounded.
+        const style = tgt.air ? 1 : this.chain % FINISHERS.length;
+        this.start({ kind: "finisher", style, dur: .9, target: tgt.id, hitAt: .63, lunge: true });
+      } else this.hero.onCombat("deny"); break;
       case "throw": this.grab(I, tgt); break;
       case "attack": this.attack(I, tgt, air); break;
       default: this.gadget(+b.cmd.slice(1), I, tgt);
@@ -160,7 +169,8 @@ export class HeroCombat {
     // downed enemies get a ground pound
     if (t && (t.st === "down" || t.st === "webbed")) return this.start({ kind: "slam", dur: .45, hitAt: .22, target: t.id, lunge: true, ground: true });
     const kind = COMBO[this.chain % COMBO.length];
-    this.start({ kind, dur: kind === "roundhouse" ? .42 : kind === "kick" ? .34 : .29, hitAt: kind === "roundhouse" ? .17 : .11, target: t?.id, lunge: !!t });
+    const heavy = ["roundhouse", "spin"].includes(kind);
+    this.start({ kind, dur: heavy ? .44 : kind === "kick" ? .36 : kind === "uppercut" ? .34 : .29, hitAt: heavy ? .17 : .12, target: t?.id, lunge: !!t });
   }
   start(a) {
     const H = this.H;
@@ -250,19 +260,19 @@ export class HeroCombat {
   // the moment a blow lands
   land(a, tg) {
     const H = this.H, f = H.face;
-    const base = { jab: 9, cross: 11, hook: 13, kick: 14, roundhouse: 18, air: 11, launch: 10, slam: 20, finisher: 999 }[a.kind] || 10;
+    const base = { jab: 9, cross: 11, hook: 13, uppercut: 15, kick: 14, roundhouse: 18, spin: 20, air: 11, launch: 10, slam: 20, finisher: 999 }[a.kind] || 10;
     const dmg = base * (a.counter ? 2 : 1) * (1 + Math.min(1, this.combo / 30) * .5) * (this.dmgK || 1);
-    const opts = { heavy: a.kind === "roundhouse" || a.counter || a.kind === "finisher", launch: a.kind === "launch" ? 12 : 0, slam: false, knock: a.kind === "kick" ? 6 : undefined };
+    const opts = { heavy: ["roundhouse", "spin"].includes(a.kind) || a.counter || a.kind === "finisher", launch: a.kind === "launch" ? 12 : a.kind === "uppercut" ? 9 : 0, slam: false, knock: ["kick", "spin"].includes(a.kind) ? 6 : undefined };
     if (a.kind === "air" && this.combo % 5 === 4) opts.slam = true;            // the last hit of an air string sends them down
     const hits = [];
-    const reach = a.kind === "roundhouse" ? 2.8 : 2.3;
+    const reach = ["roundhouse", "spin"].includes(a.kind) ? 2.8 : 2.3;
     for (const e of this.list) {
       if (!this.alive(e)) continue;
       const dx = e.x - H.p.x, dz = e.z - H.p.z, d = Math.hypot(dx, dz), dy = Math.abs(e.y - H.p.y);
       const front = (dx * f.x + dz * f.z) / (d || 1);
       const isT = tg && e.id === tg.id;
       if (dy > 2.5 || d > reach + (isT ? .7 : 0) || !this.visible(e)) continue;
-      if (!isT && (front < (a.kind === "roundhouse" ? -.2 : .5) || a.kind === "finisher")) continue;
+      if (!isT && (front < (["roundhouse", "spin"].includes(a.kind) ? -.2 : .5) || a.kind === "finisher")) continue;
       hits.push(e);
     }
     if (!hits.length) { this.hero.onCombat("whiff", a); return; }
@@ -503,7 +513,10 @@ export class HeroCombat {
     const impact = a.hitAt < a.dur ? clamp(a.hitAt / a.dur, .15, .85) : undefined;
     if (a.kind === "air") return { kind: "air", k, side: a.side, n: a.n || 0, impact };
     if (a.kind === "launch") return { kind: "uppercut", k, side: a.side, impact };
-    if (a.kind === "finisher") return { kind: ["hook", "kick", "uppercut", "roundhouse"][Math.min(3, Math.floor(k * 4))], k: (k * 4) % 1, side: a.side };
+    if (a.kind === "finisher") {
+      const n = FINISHERS[a.style == null ? 0 : a.style % FINISHERS.length];
+      return { kind: n, k, side: a.side, impact };
+    }
     return { kind: a.kind, k, side: a.side, dir: a.dir, impact };
   }
 }
