@@ -24,7 +24,8 @@ Open http://localhost:3000. Multiplayer uses public MQTT relays by default, incl
 | Shift / left stick click | Sprint and parkour |
 | E / LB | Web zip; rescue someone nearby |
 | Ctrl / B | Crouch, dive, or slide |
-| F / RB | Air trick |
+| Hold T + W A S D / arrows, or RB + left stick | Directional air tricks; change direction while holding to blend into another trick |
+| Shift / Ctrl while holding T | Layout/barrel or pike/scissor trick variants; F also works as the trick key |
 | Left mouse / X | Attack; hold for an uppercut |
 | Q / LT | Dodge |
 | R / Y | Web strike |

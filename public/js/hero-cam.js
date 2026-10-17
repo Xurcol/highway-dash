@@ -45,7 +45,7 @@ export class HeroCam {
     this.pitch -= mdy * this.sens * (this.invertY ? -1 : 1);
     // ---- following on its own when left alone: swing round behind the direction of travel ----
     const moving = (H.state === "swing" || H.state === "air" || H.state === "zip") && hs > 9 || H.state === "ground" && hs > 12 || H.state === "wall" && sp > 3;
-    if (this.autoFollow && this.idle > 1.1 && moving && !this.combat && !o.aim) {
+    if (this.autoFollow && this.idle > 1.1 && moving && !this.combat && !o.aim && !o.tricking) {
       // on a wall: look along the run from a little way out; elsewhere: behind the direction of travel
       let wx = v.x, wz = v.z;
       if (H.state === "wall" && !H.ceiling) { const al = v.x * -H.n.z + v.z * H.n.x; wx = -H.n.z * al - H.n.x * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; wz = H.n.x * al - H.n.z * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; if (Math.hypot(wx, wz) < .5) { wx = -H.n.x; wz = -H.n.z; } }
@@ -69,6 +69,8 @@ export class HeroCam {
     if (H.state === "ledge") { dist = 4.2; up = .7; }
     if (H.dive) { fov += 8; dist += .6; }
     if (H.glide) { dist += 1.2; fov += 4; }
+    // Keep the whole flip readable without orbiting the camera with the hero's rotation.
+    if (o.tricking) { dist += 1.1; up = .55; side = .15; fov += 3; }
     if (H.state === "ground" && H.slideT > 0) { up = .2; dist = 3.8; }
     if (this.combat) { dist = Math.max(dist, 5.8 + Math.min(4, this.combat.d * .25)); up = 1.0; side = .15; fov = Math.max(fov, 66); }
     if (o.aim) { dist = 2.6; side = .7; up = .45; fov = 52; }

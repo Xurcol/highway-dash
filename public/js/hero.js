@@ -91,6 +91,8 @@ export class HeroMode {
     this.trafficActors = [this.trafficActor];
     this.localPlayer = { id: "", x: 0, y: 0, z: 0, vx: 0, vz: 0, down: false, local: true }; this.playerStates = [];
     this.previewInput = {}; this.anchorOrigin = new V(); this.anchorLook = new V();
+    this.wallUp = new V(0, 1, 0); this.cameraOptions = { tricking: false };
+    this.poseClearT = 0; this.poseClearance = 30;
     this.zipPreviewT = 0; this.anchorAge = 1; this.hudState = {}; this.gadgetT = 0;
     this.hudProjection = [0, 0];
     this.projectHud = (x, y, z) => {
@@ -144,6 +146,7 @@ export class HeroMode {
     this.hud.show(true);
     const sp = opt.spawn || this.spawnPoint(opt.index || 0);
     this.H.reset(sp.x, sp.y, sp.z);
+    this.tricks.reset(); this.poseClearT = 0; this.anim.state = null;
     this.prevV = null; this.prevHeading = undefined; this.emote = null;
     this.anchorPreview = null; this.zipPreview = null; this.previewT = 0;
     this.zipPreviewT = 0; this.anchorAge = 1; this.gadgetT = 0; this.threatT = 0;
@@ -155,7 +158,7 @@ export class HeroMode {
     this.rig.place(this.H.p, UP, this.H.face, null, 0, 0);
     this.tricks.score = this.profile().score || 0;
     this.tricks.best = this.profile().best || 0;
-    this.hud.center("NEW MERIDIAN", "Hold right mouse to swing · Space launches · K opens activities", 3.4);
+    this.hud.center("NEW MERIDIAN", "Right mouse swings · T + WASD does air tricks · K opens activities", 4);
     this.firstFrames = 3;
   }
   exit() {
@@ -255,7 +258,7 @@ export class HeroMode {
       if (this.online) this.netx.tick(dt, T);
       this.updateCombatFrame();
       // tricks start in the air (and on lines, on zips), never mid-vault; on a wall the trick key flips off it
-      const airborne = (H.state === "air" || H.state === "swing" || H.state === "zip") && !H.move;
+      const airborne = (H.state === "air" || H.state === "swing" || H.state === "zip") && !H.move && cb.downT <= 0 && H.combatLock <= 0;
       if (this.wallFlip && H.state === "air") this.tricks.start("wallFlip", H);
       this.wallFlip = false;
       this.tricks.input(dt, H, inp, airborne);
@@ -265,7 +268,8 @@ export class HeroMode {
       this.handleEvents(this.frameEvents);
     }
     // ---- camera ----
-    cam.update(real, H, inp);
+    this.cameraOptions.tricking = this.tricks.active && (H.state === "air" || H.state === "swing" || H.state === "zip") && !H.move && this.combat.downT <= 0 && H.combatLock <= 0;
+    cam.update(real, H, inp, this.cameraOptions);
     // ---- the character ----
     this.animate(dt > 0 ? dt : 0, inp);
     // ---- the other heroes ----
@@ -470,8 +474,13 @@ export class HeroMode {
     const H = this.H, rig = this.rig, a = this.anim;
     a.t += dt;
     const hs = Math.hypot(H.v.x, H.v.z);
+    a.dt = dt; a.stateT = H.stateT; a.airT = H.airT; a.ceiling = H.ceiling;
+    if (H.state === "air" && (this.poseClearT -= dt) <= 0) {
+      this.poseClearT = .2; this.poseClearance = Math.max(0, H.heightAbove());
+    } else if (H.state !== "air") this.poseClearT = 0;
+    a.heightAbove = H.state === "ground" ? 0 : this.poseClearance;
     // stride phase: one full cycle per two steps, longer strides the faster
-    const stride = 1.15 + hs * .075;
+    const stride = H.state === "wall" ? H.wallMode === "run" ? Math.max(.75, H.speed / 8) : Math.max(.36, H.speed / 6) : 1.15 + hs * .075;
     if (H.state === "ground" || H.state === "wall") a.phase += (H.state === "wall" ? H.speed : hs) * dt / stride * Math.PI;
     // which way is the body pointing?
     const up = _up.set(0, 1, 0), fwd = _fw.copy(H.face);
@@ -485,18 +494,25 @@ export class HeroMode {
       // tip the head back a little from the rope so the body hangs naturally
       up.lerp(UP, .25).normalize();
       rate = 9;
-    } else if (H.state === "wall") {
+    } else if (H.state === "wall" && !H.move) {
       const vm = _t.copy(H.v).addScaledVector(H.n, -H.v.dot(H.n));
-      // The head follows the surface while the chest faces into it; pointing the head out makes us stand on the wall.
-      if (vm.lengthSq() > 1) up.copy(vm);
+      if (vm.lengthSq() > .05) up.copy(vm);
       else if (a.state === "wall" && this.wallUp) up.copy(this.wallUp);
       else up.copy(H.ceiling ? H.face : UP);
       up.addScaledVector(H.n, -up.dot(H.n));
       if (up.lengthSq() < .01) up.copy(H.ceiling ? H.face : UP).addScaledVector(H.n, -up.dot(H.n));
       up.normalize();
+      // Turn within the surface plane, keeping the chest against it even during catches and reversals.
+      this.wallUp.addScaledVector(H.n, -this.wallUp.dot(H.n));
+      if (a.state !== "wall" || this.wallUp.lengthSq() < .01) this.wallUp.copy(up);
+      else {
+        this.wallUp.normalize();
+        const angle = Math.atan2(_t2.crossVectors(this.wallUp, up).dot(H.n), clamp(this.wallUp.dot(up), -1, 1));
+        this.wallUp.applyAxisAngle(H.n, angle * (1 - Math.exp(-dt * 9)));
+      }
+      up.copy(this.wallUp).normalize();
       fwd.copy(H.n).negate();
-      this.wallUp = (this.wallUp || new V()).copy(up);
-      rate = 14;
+      rate = 0;
     } else if (H.state === "air" && H.dive && H.speed > 8) {
       up.copy(H.v).normalize();
       fwd.set(0, -1, 0).addScaledVector(up, up.y).normalize();
@@ -526,7 +542,8 @@ export class HeroMode {
       a.accel = acc.dot(H.face);
       rate = 14;
     } else if (H.state === "air") {
-      up.addScaledVector(_t.set(H.v.x, 0, H.v.z), .006).normalize();
+      const falling = clamp((-H.v.y - 3) / 28, 0, 1) * clamp((a.heightAbove - 4) / 18, 0, 1);
+      up.addScaledVector(_t.set(H.v.x, 0, H.v.z), .006).addScaledVector(H.face, falling * .3).normalize();
       fwd.addScaledVector(up, -fwd.dot(up)).normalize();
       rate = 7;
     } else if (H.state === "ledge" || H.state === "perch" || H.state === "water") rate = 10;
@@ -534,20 +551,22 @@ export class HeroMode {
     this.prevHeading = Math.atan2(H.v.x, H.v.z);
     if (this.H.prevState !== H.state && H.stateT < .05) rate = Math.min(rate, 8);
     // roll: a forward tumble about the hips on a roll landing
-    let extra = this.tricks.rot;
-    if (H.rollT > 0) { _qa.setFromAxisAngle(_x, (1 - H.rollT / .45) * Math.PI * 2); extra = _qe.copy(extra).multiply(_qa); }
+    const airborne = (H.state === "air" || H.state === "swing" || H.state === "zip") && !H.move && this.combat.downT <= 0 && H.combatLock <= 0;
+    let extra = airborne ? this.tricks.rot : null;
+    if (H.rollT > 0) { _qa.setFromAxisAngle(_x, (1 - H.rollT / .45) * Math.PI * 2); extra = _qe.copy(extra || _qi.identity()).multiply(_qa); }
     // Keep the hips at the physics position so the planted pose also lines up for other players.
     rig.place(H.p, up, fwd, extra, dt, this.firstFrames > 0 ? 0 : rate);
     // limb pose
     a.state = H.state; a.speed = H.speed; a.hs = hs; a.vy = H.v.y; a.slide = H.slideT; a.roll = H.rollT; a.hard = H.hardT; a.landT = H.landT;
     a.crouch = inp.crouch && H.state === "ground" && hs < 5; a.dive = H.dive; a.glide = H.glide; a.dash = H.dashUsed && H.state === "air" && this.dashT > 0 ? 1 : 0;
-    a.move = H.move; a.wallMode = H.wallMode; a.trick = this.tricks.shape();
+    a.move = H.move; a.wallMode = H.wallMode; a.trick = airborne ? this.tricks.shape() : null;
     a.turn = clamp(H.turnRate || 0, -1, 1);
     a.combat = this.inCombat;
     a.releaseT = H.releaseT; a.releaseQuality = H.releaseQuality;
     if (H.state === "wall") {
-      const r = _t.set(-H.n.z, 0, H.n.x), wallMove = a.wallMove || (a.wallMove = { x: 0, y: 0 });
-      wallMove.x = H.v.dot(r); wallMove.y = H.v.y;
+      const wallMove = a.wallMove || (a.wallMove = { x: 0, y: 0 });
+      _t.copy(H.v).applyQuaternion(_qi.copy(rig.group.quaternion).invert());
+      wallMove.x = _t.x; wallMove.y = _t.y; a.wallDistance = TUNE.r + .02;
     }
     // the arm holding a line points at its anchor; the swing's phase decides the legs
     a.anchorLocal = null; a.anchor2Local = null; a.swingSide = H.webs[0]?.side || H.lastSide;
@@ -557,6 +576,8 @@ export class HeroMode {
       const ox = H.p.x - P.x, oz = H.p.z - P.z, hv = Math.max(1, hs);
       a.swingPhase = clamp((ox * H.v.x + oz * H.v.z) / hv / Math.max(5, H.webs[0].L * .7), -1, 1);
     } else if (H.state === "zip" && H.zip) a.anchorLocal = this.toBody(_t.set(H.zip.x, H.zip.y, H.zip.z), a.swingSide, this.posePoints[0]);
+    a.swingT = H.swingT || 0; a.catch = H.state === "swing" ? Math.max(0, 1 - a.swingT / .4) : 0;
+    a.load = H.state === "swing" && H.webs[0]?.taut ? clamp(H.speed * H.speed / Math.max(1, H.webs[0].L * 80), 0, 1) : 0;
     a.shootLocal = null;
     if (this.shootFlash > 0) { this.shootFlash -= dt; a.shootLocal = this.toBody(this.shootAt, this.shootSide, this.posePoints[2]); a.shootSide = this.shootSide; }
     a.attack = this.combat.downT > 0 ? { kind: "down", k: .5 } : this.combat.attackPose() || (this.emote ? { kind: "emote", id: this.emote.id, t: this.emote.t, k: .5 } : null);
@@ -729,6 +750,7 @@ export class HeroMode {
     const state = this.hudState, releaseReady = this.releaseReady();
     state.speed = H.speed; state.alt = alt;
     state.stateLabel = H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "";
+    if ((H.state === "air" || H.state === "swing") && this.tricks.active) state.stateLabel = this.tricks.cur?.d?.name?.toUpperCase() || "AIR TRICK";
     state.level = this.profile().level || 1; state.suit = SUITS[this.suitId].name;
     state.traversal = this.traversalHint(inp, releaseReady); state.releaseReady = releaseReady; state.anchorReady = !!this.anchorPreview;
     state.tricks = this.tricks; state.trickEvents = this.trickEvents; state.hp = this.combat.hp; state.focus = this.combat.focus; state.noWeb = H.noWebT;
@@ -787,6 +809,7 @@ export class HeroMode {
     if (cb.downT > 0) return "Recovering";
     if (cb.senses.length) return `${pad ? "LT" : "Q"} · Dodge the incoming attack`;
     if (this.inCombat) return cb.focus >= 1 ? `${pad ? "X" : "Left mouse"} · Combo   ${pad ? "Y" : "R"} · Web strike` : `${pad ? "X" : "Left mouse"} · Attack   ${pad ? "LT" : "Q"} · Dodge`;
+    if (inp.trick && (H.state === "air" || H.state === "swing")) return `${pad ? "RB + stick" : "T + WASD / arrows"} · Change trick direction   ${pad ? "Release RB" : "Release T"} · Recover`;
     if (H.state === "swing") return releaseReady ? `${jump} · Perfect launch now` : `${jump} · Launch   WASD / stick · Steer`;
     if (H.state === "zip") return `${jump} · Time a point launch on arrival`;
     if (H.state === "wall") return `${pad ? "L3" : "Shift"} · Run up   ${jump} · Wall jump`;
@@ -954,6 +977,7 @@ export class HeroMode {
     if (best) { const x = best.x - best.nx * 2.5, z = best.z - best.nz * 2.5; H.reset(x, W.topAt(x, z, best.y + 2) + HIP_H, z); }
     else { const sp = this.spawnPoint(); H.reset(sp.x, sp.y, sp.z); }
     H.state = "ground";
+    this.tricks.reset(); this.poseClearT = 0; this.anim.state = null;
     this.combat.reset();
     this.prevV = null; this.prevHeading = undefined; this.emote = null;
     this.lastWebs.length = 0; this.lines.length = 0; this.shootFlash = 0; this.dashT = 0;

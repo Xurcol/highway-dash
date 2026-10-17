@@ -34,7 +34,7 @@ function sanitizeState(m) {
   if (!m || typeof m !== "object" || !Number.isFinite(+m.T) || !Number.isFinite(+m.x) || !Number.isFinite(+m.z)) return null;
   const o = {
     T: +m.T, x: num(m.x, -6000, 6000), z: num(m.z, -1e7, 1e7), y: num(m.y, -60, 900), ry: num(m.ry, -7, 7), pitch: num(m.pitch, -7, 7), roll: num(m.roll, -7, 7),
-    w: num(m.w, 0, 1e15), rd: num(m.rd, 0, 1e9), tp: num(m.tp, 0, 1e9), vx: num(m.vx, -80, 80), v: num(m.v, -80, 220),
+    w: num(m.w, 0, 1e15), rd: num(m.rd, 0, 1e9), tp: num(m.tp, 0, 1e9), vx: num(m.vx, -80, 80), vz: num(m.vz, -80, 80), v: num(m.v, -80, 220),
     rpm: num(m.rpm, 0, 20000), thr: num(m.thr, 0, 1), ld: num(m.ld, 0, 2), g: num(m.g, -1, 20) | 0, sh: m.sh ? 1 : 0, bo: num(m.bo, 0, 200),
     brk: m.brk ? 1 : 0, sl: m.sl ? 1 : 0, sr: m.sr ? 1 : 0, cr: m.cr ? 1 : 0, sc: num(m.sc, 0, 1e9) | 0,
   };
@@ -53,7 +53,8 @@ const arr = (a, n, lo, hi) => (Array.isArray(a) ? a.slice(0, n).map((v) => num(v
 function sanitizeHero(h) {
   return {
     st: num(h.st, 0, 20) | 0, vy: num(h.vy, -150, 150), ph: num(h.ph, -1e7, 1e7), fl: num(h.fl, 0, 1 << 20) | 0, sw: num(h.sw, -1, 1) | 0,
-    q: arr(h.q, 4, -1, 1), zp: arr(h.zp, 3, -6000, 6000), at: arr(h.at, 4, -100, 100), tr: arr(h.tr, 2, -20, 20),
+    q: arr(h.q, 4, -1, 1), zp: arr(h.zp, 3, -6000, 6000), at: arr(h.at, 4, -100, 100), tr: arr(h.tr, 14, -1000, 1000),
+    an: arr(h.an, 10, -1000, 1000),
     wb: Array.isArray(h.wb) ? h.wb.slice(0, 2).map((w) => arr(w, 13, -6000, 6000) || []) : undefined,
     em: num(h.em, 0, 16) | 0, su: cleanText(h.su, 12), hp: num(h.hp, 0, 1), cb: num(h.cb, 0, 1e9) | 0, sy: num(h.sy, 0, 1e12), lv: num(h.lv, 0, 999) | 0,
     rc: arr(h.rc, 3, -1, 1e6),

@@ -2,14 +2,15 @@
 // read into one frame-sized snapshot - held buttons, presses and releases since the last frame, mouse
 // travel - and the move keys are turned into a direction on the ground relative to the camera.
 export const HERO_KEYS = [
-  ["W A S D", "Move", "Left stick"],
+  ["W A S D / arrows", "Move", "Left stick"],
   ["Mouse", "Camera", "Right stick"],
   ["Space", "Jump · wall jump · release-jump · point launch · hold to glide", "A"],
   ["Shift", "Sprint / parkour: vault, wall run, run up buildings", "L3"],
   ["Right mouse", "Web swing (hold; holding keeps swinging)", "RT"],
   ["E", "Web zip to the point you aim at (Space on arrival = point launch)", "LB"],
   ["Ctrl / C", "Crouch · slide · dive · drop off a wall · hold before Space = super jump", "B"],
-  ["F + WASD", "Tricks (F alone spins; F + mouse sideways twists)", "RB + stick"],
+  ["Hold T + direction", "Repeat flips, side rolls and diagonal corkscrews; change direction to blend into the next trick", "Hold RB + stick"],
+  ["T + Shift / Ctrl", "Layout / barrel variations, or pike / scissor variations (F also works)", "RB + L3 / B"],
   ["Left mouse", "Attack (hold = launcher, in the air = air combo)", "X"],
   ["Q", "Dodge / air dash", "LT"],
   ["R", "Web strike - zip-kick the target", "Y"],
@@ -39,7 +40,7 @@ export class HeroInput {
       if (!this.active || !this.wantLock || this.typing()) return;
       if (e.repeat) return;
       this.keys.add(e.code); this.down.add(e.code);
-      if (["Space", "Tab", "KeyF", "ControlLeft", "AltLeft"].includes(e.code) || /^Digit/.test(e.code) || e.code.startsWith("Arrow")) e.preventDefault();
+      if (["Space", "Tab", "KeyT", "KeyF", "ControlLeft", "ControlRight", "AltLeft"].includes(e.code) || /^Digit/.test(e.code) || e.code.startsWith("Arrow")) e.preventDefault();
     }, true);
     addEventListener("keyup", (e) => { if (!this.active) return; this.keys.delete(e.code); this.up.add(e.code); });
     addEventListener("blur", () => { this.focused = false; this.clear(); });
@@ -125,7 +126,9 @@ export class HeroInput {
       swing: b(4) || (pad ? pad.rt > .35 : false), swingDown: bd(4) || (pad ? pad.rt > .35 && !(this.prevRT > .35) : false), swingUp: bu(4) || (!(pad?.rt > .35) && this.prevRT > .35),
       zip: this.pressed("KeyE") || pdn(4),
       crouch: this.held("ControlLeft", "ControlRight", "KeyC") || !!pb[1], crouchDown: this.pressed("ControlLeft", "ControlRight", "KeyC") || pdn(1),
-      trick: this.held("KeyF") || !!pb[5], trickDown: this.pressed("KeyF") || pdn(5),
+      trick: this.held("KeyT", "KeyF") || !!pb[5], trickDown: this.pressed("KeyT", "KeyF") || pdn(5),
+      trickX: ix, trickY: iy,
+      trickStyle: this.held("ControlLeft", "ControlRight", "KeyC") || !!pb[1] ? "pike" : this.held("ShiftLeft", "ShiftRight") || !!pb[10] ? "layout" : "base",
       attack: bd(1) || pdn(2), attackHeld: b(1) || !!pb[2], attackDown: bd(1) || pdn(2), attackUp: bu(1) || pup(2),
       dodge: this.pressed("KeyQ") || (pad ? pad.lt > .5 && !(this.prevLT > .5) : false),
       strike: this.pressed("KeyR") || pdn(3),

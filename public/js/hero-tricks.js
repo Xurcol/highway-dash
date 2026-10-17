@@ -1,8 +1,6 @@
-// Hero mode tricks and style. The player picks each trick: hold the trick key (F) and press a
-// direction - front flip, backflip, side flips, corkscrews, back twists - or press it alone for a
-// spin; dragging the mouse sideways while it is held twists the body freely. Pressing the same
-// direction again early in a trick doubles (then triples) it; a different direction queues the next
-// one so they chain. Every trick and every stylish movement (a perfect release, a wall run, a point
+// Hero mode tricks and style. Holding T (or F/RB) continuously rotates in the selected direction.
+// Direction and pose changes blend immediately without resetting the live orientation or waiting
+// for an animation to finish. Completed rotations and stylish movement (a perfect release, a wall run, a point
 // launch, skimming the street, swinging round a corner) feeds one running combo: points times a
 // multiplier that grows with variety, kept alive in the air and on walls, banked on a clean landing
 // and lost if you land halfway through a flip.
@@ -14,12 +12,30 @@ export const TRICKS = {
   spin: { name: "Spin", pts: 100, dur: .5, rot: [0, 1, 0], shape: "spread" },
   front: { name: "Front Flip", pts: 150, dur: .55, rot: [1, 0, 0], shape: "tuck" },
   back: { name: "Backflip", pts: 150, dur: .55, rot: [-1, 0, 0], shape: "tuck" },
-  sideL: { name: "Side Flip", pts: 175, dur: .6, rot: [0, 0, -1], shape: "layout" },
-  sideR: { name: "Side Flip", pts: 175, dur: .6, rot: [0, 0, 1], shape: "layout" },
-  corkL: { name: "Corkscrew", pts: 260, dur: .75, rot: [1, 1, 0], shape: "corkscrew" },
-  corkR: { name: "Corkscrew", pts: 260, dur: .75, rot: [1, -1, 0], shape: "corkscrew" },
-  twistL: { name: "Back Twist", pts: 260, dur: .75, rot: [-1, 1, 0], shape: "corkscrew" },
-  twistR: { name: "Back Twist", pts: 260, dur: .75, rot: [-1, -1, 0], shape: "corkscrew" },
+  sideL: { name: "Left Side Flip", pts: 175, dur: .68, rot: [0, 0, -1], shape: "layout" },
+  sideR: { name: "Right Side Flip", pts: 175, dur: .68, rot: [0, 0, 1], shape: "layout" },
+  corkL: { name: "Forward Left Corkscrew", pts: 260, dur: .78, rot: [1, .65, -.75], shape: "corkscrew" },
+  corkR: { name: "Forward Right Corkscrew", pts: 260, dur: .78, rot: [1, -.65, .75], shape: "corkscrew" },
+  twistL: { name: "Back Left Twist", pts: 260, dur: .8, rot: [-1, .65, -.75], shape: "corkscrew" },
+  twistR: { name: "Back Right Twist", pts: 260, dur: .8, rot: [-1, -.65, .75], shape: "corkscrew" },
+  supermanSpin: { name: "Superman Spin", pts: 190, dur: .75, rot: [0, 1, 0], shape: "superman" },
+  layoutFront: { name: "Front Layout", pts: 210, dur: .72, rot: [1, 0, 0], shape: "layout" },
+  layoutBack: { name: "Back Layout", pts: 210, dur: .74, rot: [-1, 0, 0], shape: "layout" },
+  barrelL: { name: "Left Barrel Roll", pts: 220, dur: .7, rot: [0, 0, -1], shape: "superman" },
+  barrelR: { name: "Right Barrel Roll", pts: 220, dur: .7, rot: [0, 0, 1], shape: "superman" },
+  rocketL: { name: "Left Rocket Corkscrew", pts: 300, dur: .86, rot: [1, 1.2, -.6], shape: "superman" },
+  rocketR: { name: "Right Rocket Corkscrew", pts: 300, dur: .86, rot: [1, -1.2, .6], shape: "superman" },
+  reverseL: { name: "Left Reverse Corkscrew", pts: 300, dur: .88, rot: [-1, 1.2, -.6], shape: "corkscrew" },
+  reverseR: { name: "Right Reverse Corkscrew", pts: 300, dur: .88, rot: [-1, -1.2, .6], shape: "corkscrew" },
+  splitSpin: { name: "Air Splits Spin", pts: 190, dur: .74, rot: [0, 1, 0], shape: "split" },
+  pikeFront: { name: "Front Pike", pts: 220, dur: .66, rot: [1, 0, 0], shape: "pike" },
+  pikeBack: { name: "Back Pike", pts: 220, dur: .68, rot: [-1, 0, 0], shape: "pike" },
+  scissorL: { name: "Left Scissor Roll", pts: 240, dur: .76, rot: [0, 0, -1], shape: "split" },
+  scissorR: { name: "Right Scissor Roll", pts: 240, dur: .76, rot: [0, 0, 1], shape: "split" },
+  tuckedCorkL: { name: "Left Tucked Corkscrew", pts: 290, dur: .8, rot: [1, .45, -.9], shape: "tuck" },
+  tuckedCorkR: { name: "Right Tucked Corkscrew", pts: 290, dur: .8, rot: [1, -.45, .9], shape: "tuck" },
+  mistyL: { name: "Left Misty Flip", pts: 310, dur: .86, rot: [-1, .8, -.9], shape: "pike" },
+  mistyR: { name: "Right Misty Flip", pts: 310, dur: .86, rot: [-1, -.8, .9], shape: "pike" },
   barrel: { name: "Barrel Roll", pts: 200, dur: .6, rot: [0, 0, 1], shape: "layout" },
   superman: { name: "Superman", pts: 140, dur: .9, rot: [0, 0, 0], shape: "superman" },
   split: { name: "Air Splits", pts: 140, dur: .7, rot: [0, 0, 0], shape: "split" },
@@ -31,6 +47,9 @@ export const TRICKS = {
   wallFlip: { name: "Wall Flip", pts: 220, dur: .6, rot: [-1, 0, 0], shape: "tuck" },
 };
 const MULTI = ["", "Double ", "Triple ", "Quad "];
+const DIRECTIONS = { "": "spin", F: "front", B: "back", L: "sideL", R: "sideR", FL: "corkL", FR: "corkR", BL: "twistL", BR: "twistR" };
+const LAYOUTS = { "": "supermanSpin", F: "layoutFront", B: "layoutBack", L: "barrelL", R: "barrelR", FL: "rocketL", FR: "rocketR", BL: "reverseL", BR: "reverseR" };
+const PIKES = { "": "splitSpin", F: "pikeFront", B: "pikeBack", L: "scissorL", R: "scissorR", FL: "tuckedCorkL", FR: "tuckedCorkR", BL: "mistyL", BR: "mistyR" };
 // little things worth points and a bit of multiplier
 export const LINKS = {
   release: ["Release", 50, .25], perfect: ["Perfect Release", 120, .5], swingjump: ["Swing Jump", 80, .25],
@@ -42,25 +61,41 @@ export const LINKS = {
   webstrike: ["Web Strike", 80, .25], finisher: ["Finisher", 250, .5], takedown: ["Takedown", 100, .25], throw: ["Web Throw", 90, .25], slam: ["Ground Slam", 120, .25], roll: ["Roll", 60, .1], pullup: ["Pull Up", 80, .25], ceiling: ["Ceiling Run", 60, .25], ledge: ["Ledge Grab", 20, .1],
 };
 
-const _q = new Q(), _q2 = new Q(), _x = new V(1, 0, 0), _y = new V(0, 1, 0), _z = new V(0, 0, 1);
-const ease = (k) => (k < .5 ? 2 * k * k : 1 - 2 * (1 - k) * (1 - k));
+const _q = new Q(), _axis = new V(), _up = new V(), IDENTITY = new Q();
+const TAU = Math.PI * 2;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const ease = (k) => { k = clamp(k, 0, 1); return k * k * (3 - 2 * k); };
 
 export class Tricks {
   constructor() {
-    this.cur = null; this.queue = null; this.free = 0; this.freeT = 0; this.freeShown = 0;
+    this.cur = null; this.queue = null; this.free = 0;
     this.combo = null; this.score = 0; this.best = 0; this.bestCombo = 0;
     this.feed = [];              // [{ text, pts, t, kind }] for the HUD
     this.events = [];            // banked / bail / trick for sounds and effects
     this.rot = new Q();          // the body rotation the rig adds
+    this.velocity = new V(); this.goal = new V(); this.axis = new V();
+    this.holding = false; this.heldIntent = false; this.allowed = false; this.poseWeight = 0; this.transitionT = .18;
+    this.previousPose = { shape: "spread", k: .5, side: 1, dirX: 0, dirY: 0, blend: 0 };
+    this.descriptor = { shape: "spread", k: 0, blend: 0, side: 1, dirX: 0, dirY: 0, turns: 0, previous: null, transition: 1 };
+    this.hasPrevious = false; this.lastDone = Infinity;
     this.groundT = 0;
+  }
+  clearMotion() {
+    this.cur = this.queue = null; this.free = 0; this.holding = false; this.heldIntent = false; this.allowed = false;
+    this.rot.identity(); this.velocity.set(0, 0, 0); this.goal.set(0, 0, 0);
+    this.poseWeight = 0; this.hasPrevious = false; this.transitionT = .18;
+  }
+  reset() {
+    this.clearMotion(); this.combo = null; this.feed.length = 0; this.events.length = 0;
+    this.groundT = 0; this.lastDone = Infinity; this.cleanLand = false; this.diveFrom = undefined;
   }
   ev(type, o = {}) { o.type = type; this.events.push(o); }
   // ---- the combo ----
   open() { if (!this.combo) this.combo = { pts: 0, mult: 1, n: 0, seen: new Map(), links: new Map(), t: 0, dist: 0, top: 0 }; return this.combo; }
-  add(text, pts, mult, kind = "trick") {
+  add(text, pts, mult, kind = "trick", key = text) {
     const c = this.open();
-    const seen = c.seen.get(text) || 0;
-    c.seen.set(text, seen + 1);
+    const seen = c.seen.get(key) || 0;
+    c.seen.set(key, seen + 1);
     // repeats are worth less each time; something new grows the multiplier
     const rep = seen === 0 ? 1 : seen === 1 ? .5 : seen === 2 ? .25 : .1;
     const p = Math.round(pts * rep * (this.styleK || 1));
@@ -93,69 +128,64 @@ export class Tricks {
     return total;
   }
   bail(why = "BAILED") {
-    if (!this.combo && !this.cur) return;
+    if (!this.combo && !this.cur) { this.clearMotion(); return; }
     const lost = this.combo ? Math.round(this.combo.pts * this.combo.mult) : 0;
-    this.combo = null; this.cur = null; this.queue = null; this.free = 0;
+    this.combo = null; this.clearMotion();
     this.feed.unshift({ text: why, pts: -lost, t: 0, kind: "bail" });
     this.ev("bail", { lost });
   }
 
   // ---- input -> tricks ----
   // H: the hero body; inp: the frame's input; air: can a trick start (airborne, swinging, zipping)
-  start(id, H) {
+  start(id, H, continuous = false, dirX = 0, dirY = 0) {
     const d = TRICKS[id];
     if (!d) return;
-    if (this.cur && this.cur.id === id && this.cur.k < .6 && this.cur.mult < 3) {
-      // same direction again, early: make it a double (or triple)
-      const c = this.cur;
-      c.mult++; c.dur = d.dur * (1 + .62 * (c.mult - 1)); c.turns = c.mult;
-      c.t = c.k * c.dur;
+    this.allowed = (H.state === "air" || H.state === "swing" || H.state === "zip") && !H.move;
+    if (this.cur?.id === id && continuous && !this.cur.releasing) {
+      this.cur.dirX = dirX; this.cur.dirY = dirY; this.cur.side = Math.sign(dirX) || 1;
+      this.cur.auto = false;
       return;
     }
-    if (this.cur) { if (!this.queue && this.cur.k > .25) this.queue = id; return; }
-    this.cur = { id, d, t: 0, k: 0, dur: d.dur, mult: 1, turns: 1, startT: H.clock || 0 };
+    if (this.cur && this.poseWeight > .01) {
+      const c = this.cur, p = this.previousPose;
+      p.shape = c.d.shape; p.k = c.k; p.side = c.side; p.dirX = c.dirX; p.dirY = c.dirY; p.blend = this.poseWeight;
+      this.hasPrevious = true; this.transitionT = 0;
+    } else { this.hasPrevious = false; this.transitionT = .18; }
+    // A new direction resets only its scoring progress. The orientation and angular velocity carry on.
+    this.cur = { id, d, t: 0, k: 0, dur: d.dur, mult: 1, turns: 0, angle: 0, settle: 0,
+      auto: !continuous, releasing: false, dirX, dirY, side: Math.sign(dirX) || 1, startT: H.clock || 0 };
+    this.axis.set(...d.rot).normalize();
+    this.goal.copy(this.axis).multiplyScalar(TAU / d.dur);
+    this.cleanLand = false;
     this.ev("trick", { id });
   }
   input(dt, H, inp, airborne) {
-    // the direction pressed, relative to the camera's view, as left/right/forward/back
-    const iy = inp.iy || 0, ix = inp.ix || 0;
-    const dir = Math.abs(iy) > .5 ? (iy > 0 ? "F" : "B") : "", side = Math.abs(ix) > .5 ? (ix > 0 ? "R" : "L") : "";
-    if (!inp.trick) { this.pending = 0; this.armed = false; }
-    if (!airborne) { this.pending = 0; return; }
-    if (inp.trickDown) { this.pending = .1; this.armed = true; this.lastDirKey = dir + side; }
-    if (this.armed && inp.trick) {
-      const key = dir + side;
-      // a direction pressed (or changed) while the trick key is held fires that trick at once
-      if (key && key !== this.lastDirKey) { this.fire(key, H); this.pending = 0; this.lastDirKey = key; }
-      else if (key && this.pending > 0) { this.fire(key, H); this.pending = 0; this.lastDirKey = key; }
-      else if (!key) this.lastDirKey = "";
-      if (this.pending > 0) { this.pending -= dt; if (this.pending <= 0 && !key) this.fire("", H); }
-      // mouse sideways while held: a free twist, scored per half turn
-      if (Math.abs(inp.mdx || 0) > 0) {
-        this.free += (inp.mdx || 0) * .006;
-        this.freeT = .5;
-      }
+    this.heldIntent = !!inp.trick; this.allowed = !!airborne;
+    this.holding = this.heldIntent && this.allowed;
+    if (!airborne) { this.goal.set(0, 0, 0); return; }
+    if (this.holding) {
+      const ix = clamp(Number.isFinite(inp.trickX) ? inp.trickX : inp.ix || 0, -1, 1);
+      const iy = clamp(Number.isFinite(inp.trickY) ? inp.trickY : inp.iy || 0, -1, 1);
+      const dir = Math.abs(iy) > .3 ? iy > 0 ? "F" : "B" : "";
+      const side = Math.abs(ix) > .3 ? ix > 0 ? "R" : "L" : "";
+      const style = inp.trickStyle || (inp.crouch ? "pike" : inp.sprint ? "layout" : "base");
+      this.fire(dir + side, H, style, ix, iy);
+    } else if (this.cur && !this.cur.auto) {
+      this.cur.releasing = true;
+      this.goal.set(0, 0, 0);
     }
   }
-  fire(key, H) {
-    const sw = H.state === "swing";
-    const dive = H.dive;
-    let id;
-    if (sw) id = key.includes("F") ? "swingFlip" : key.includes("L") ? "aroundL" : key.includes("R") ? "aroundR" : key.includes("B") ? "swingKick" : "aroundL";
-    else if (H.state === "wall") id = "wallFlip";
-    else if (dive) id = key.includes("B") ? "superman" : "barrel";
-    else switch (key) {
-      case "F": id = "front"; break;
-      case "B": id = "back"; break;
-      case "L": id = "sideL"; break;
-      case "R": id = "sideR"; break;
-      case "FL": id = "corkL"; break;
-      case "FR": id = "corkR"; break;
-      case "BL": id = "twistL"; break;
-      case "BR": id = "twistR"; break;
-      default: id = this.cur?.id === "spin" ? "split" : "spin";
-    }
-    this.start(id, H);
+  fire(key, H, style = "base", dirX = 0, dirY = 0) {
+    const map = style === "pike" ? PIKES : style === "layout" ? LAYOUTS : DIRECTIONS;
+    this.start(map[key] || map[""], H, true, dirX, dirY);
+  }
+  completed(c) {
+    c.turns++; c.mult = Math.min(4, c.turns);
+    const text = c.turns <= 4 ? MULTI[c.turns - 1] + c.d.name : c.turns + "x " + c.d.name;
+    // The same trick keeps its repetition key even when the HUD calls it a double or triple.
+    this.add(text, c.d.pts, .5, "trick", c.d.name);
+    this.ev("done", { id: c.id, mult: c.mult });
+    this.lastDone = 0;
   }
 
   // ---- per frame ----
@@ -174,40 +204,34 @@ export class Tricks {
       } else this.groundT = 0;
       if (this.combo) this.combo.grace = H.state === "ground" ? 1 - this.groundT / 1.4 : 1;
     }
-    this.rot.identity();
+    this.lastDone += dt;
+    if (!air || H.move || !this.allowed) { this.clearMotion(); return this.rot; }
     const c = this.cur;
-    if (c) {
-      c.t += dt;
-      c.k = Math.min(1, c.t / c.dur);
-      const e = ease(c.k), r = c.d.rot, T = Math.PI * 2 * c.turns * e;
-      if (r[1]) this.rot.multiply(_q.setFromAxisAngle(_y, r[1] * T));
-      if (r[0]) this.rot.multiply(_q.setFromAxisAngle(_x, r[0] * T));
-      if (r[2]) this.rot.multiply(_q.setFromAxisAngle(_z, r[2] * T));
-      if (c.k >= 1) {
-        // landed it in the air: score it
-        const name = MULTI[c.mult - 1] + c.d.name;
-        this.add(name, Math.round(c.d.pts * (c.mult === 1 ? 1 : c.mult === 2 ? 2.4 : 4)), c.mult > 1 ? 1 : .5);
-        this.ev("done", { id: c.id, mult: c.mult });
-        this.cur = null;
-        this.lastDone = 0;
-        if (this.queue && air) { const q = this.queue; this.queue = null; this.start(q, H); this.add("Chain", 50, .25, "link"); }
-        else this.queue = null;
+    if (!c || !(dt > 0)) return this.rot;
+    c.t += dt; c.settle += dt;
+    if (c.auto && this.axis.lengthSq() < .5 && c.t >= c.dur) { c.auto = false; c.releasing = true; this.goal.set(0, 0, 0); }
+    const running = this.holding || c.auto;
+    this.velocity.lerp(this.goal, 1 - Math.exp(-dt * 14));
+    const speed = this.velocity.length();
+    if (speed > .001) {
+      _axis.copy(this.velocity).multiplyScalar(1 / speed);
+      // Use the untricked body's axes, so switching to a backflip stays backward even while sideways.
+      this.rot.premultiply(_q.setFromAxisAngle(_axis, speed * dt)).normalize();
+      // A new axis must settle before it earns progress, so quick direction taps cannot farm points.
+      if (running && c.settle > .1 && _axis.dot(this.axis) > .94) {
+        c.angle += Math.max(0, this.velocity.dot(this.axis)) * dt;
+        while (c.angle >= TAU) {
+          c.angle -= TAU; this.completed(c);
+          if (c.auto) { c.auto = false; c.releasing = true; this.goal.set(0, 0, 0); break; }
+        }
       }
     }
-    this.lastDone = (this.lastDone ?? 9) + dt;
-    // the free twist eases back to square once the mouse stops, scoring each half turn on the way
-    if (Math.abs(this.free) > .01) {
-      const halves = Math.floor(Math.abs(this.free) / Math.PI);
-      if (halves > this.freeShown) { this.freeShown = halves; }
-      this.freeT -= dt;
-      if (this.freeT <= 0 || !air) {
-        const snapTo = Math.round(this.free / Math.PI) * Math.PI;
-        if (this.freeShown >= 1 && air) { const deg = this.freeShown * 180; this.add(deg + " Twist", 40 * this.freeShown + (deg >= 720 ? 200 : 0), .25); }
-        this.freeShown = 0;
-        this.free += (snapTo - this.free) * Math.min(1, dt * 10);
-        if (Math.abs(this.free - snapTo) < .02) this.free = 0;
-      }
-      this.rot.premultiply(_q2.setFromAxisAngle(_y, this.free));
+    c.k = clamp(c.angle / TAU, 0, 1);
+    this.transitionT = Math.min(.18, this.transitionT + dt);
+    this.poseWeight += ((running ? 1 : 0) - this.poseWeight) * (1 - Math.exp(-dt * 12));
+    if (!running) {
+      this.rot.slerp(IDENTITY, 1 - Math.exp(-dt * 10)).normalize();
+      if (this.poseWeight < .01 && this.rot.angleTo(IDENTITY) < .015) this.clearMotion();
     }
     return this.rot;
   }
@@ -217,7 +241,7 @@ export class Tricks {
       switch (e.type) {
         case "letgo": if (e.jump) this.link("swingjump"); else if (e.quality === 2) this.link("perfect"); else if (e.quality === 1) this.link("release"); break;
         case "attach": if (e.second) this.link("double"); else this.open(); break;
-        case "wall": if (e.mode === "run" && e.speed > 8) this.link("wallrun"); else this.open(); break;
+        case "wall": this.clearMotion(); if (e.mode === "run" && e.speed > 8) this.link("wallrun"); else this.open(); break;
         case "walljump": this.link("walljump"); break;
         case "corner": this.link("corner"); break;
         case "rooflaunch": this.link("rooflaunch"); break;
@@ -228,11 +252,14 @@ export class Tricks {
         case "glide": this.link("glide"); break;
         case "skim": this.link("skim"); break;
         case "wrap": this.link("wrap"); break;
-        case "vault": if (this.combo || H.speed > 9) this.link("vault"); break;
+        case "vault": this.clearMotion(); if (this.combo || H.speed > 9) this.link("vault"); break;
         case "slide": this.link("slide"); break;
         case "leap": this.link("leap"); break;
         case "airdash": this.link("airdash"); break;
-        case "ceiling": this.link("ceiling"); break;
+        case "ceiling": this.clearMotion(); this.link("ceiling"); break;
+        case "ledge": this.clearMotion(); this.link("ledge"); break;
+        case "perch": case "mantle": case "climb": this.clearMotion(); break;
+        case "respawn": this.reset(); break;
         case "jump": if (e.big) this.link("leap"); break;
         case "land": this.landed(H, e); break;
       }
@@ -241,14 +268,14 @@ export class Tricks {
   landed(H, e) {
     const c = this.cur;
     this.cleanLand = true;
-    if (c && c.k < .8) {
+    const upsideDown = _up.set(0, 1, 0).applyQuaternion(this.rot).y < -.2;
+    // Only an actual inverted hard landing bails. An unfinished rotation never awards partial points.
+    if (c && this.heldIntent && !c.releasing && upsideDown && e.kind === "hard") {
       this.bail("BAILED");
       this.cleanLand = false;
       return "bail";
     }
-    if (c) { this.cur = null; this.add(MULTI[c.mult - 1] + c.d.name, Math.round(c.d.pts * (c.mult === 1 ? 1 : c.mult === 2 ? 2.4 : 4)), .5); }
-    if (Math.abs(this.free) > .6 && Math.abs(this.free % Math.PI) > .6) { this.free = 0; this.bail("BAILED"); this.cleanLand = false; return "bail"; }
-    this.free = 0; this.queue = null;
+    this.clearMotion();
     if (!this.combo) return "none";
     if (e.kind === "roll") { this.link("roll"); return "roll"; }
     if (e.kind === "hard" && e.fall > 25) { this.bank("Superhero Landing", 250); return "hero"; }
@@ -262,6 +289,15 @@ export class Tricks {
     if (drop > 15) this.link("dive", Math.round(drop * 2));
     this.diveFrom = undefined;
   }
-  get active() { return !!this.cur || Math.abs(this.free) > .2; }
-  shape() { return this.cur ? { shape: this.cur.d.shape, k: this.cur.k } : Math.abs(this.free) > .3 ? { shape: "spread", k: .5 } : null; }
+  get active() { return !!this.cur && (!this.cur.releasing || this.poseWeight > .02); }
+  shape() {
+    const c = this.cur;
+    if (!c || this.poseWeight < .002) return null;
+    const pose = this.descriptor;
+    pose.shape = c.d.shape; pose.k = c.k; pose.blend = clamp(this.poseWeight, 0, 1);
+    pose.side = c.side; pose.dirX = c.dirX; pose.dirY = c.dirY; pose.turns = c.turns;
+    pose.transition = ease(this.transitionT / .18);
+    pose.previous = this.hasPrevious && pose.transition < 1 ? this.previousPose : null;
+    return pose;
+  }
 }

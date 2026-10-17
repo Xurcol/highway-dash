@@ -286,6 +286,8 @@ export class HeroRig {
     this.rest = this.bones.map((b) => b.position.clone());
     this.rootQ = new Q(); this.rootTarget = new Q(); this.trickQ = new Q(); this.rootPos = new V();
     this.poseOffset = new V(); this.posePosition = new V();
+    this.poseBase = this.bones.map(() => new Q()); this.posePrevious = this.bones.map(() => new Q());
+    this.poseBaseOffset = new V(); this.posePreviousOffset = new V();
     this.phase = 0; this.blendRate = 14;
     this.setLook(look);
   }
@@ -344,7 +346,7 @@ const hand = (rig, s, curl = 0, side = 0) => setB(rig, "hand" + (s > 0 ? "L" : "
 const torso = (rig, lean = 0, twist = 0, side = 0, chestLean = 0, chestTwist = 0) => { setB(rig, "spine", lean, twist, side); setB(rig, "chest", chestLean, chestTwist, side * .5); };
 const headP = (rig, nod = 0, turn = 0, tilt = 0) => { setB(rig, "neck", nod * .4, turn * .4, tilt * .4); setB(rig, "head", nod * .6, turn * .6, tilt * .6); };
 // Targets arrive in body space. Undo the posed torso so a bank or twist keeps the wrist on its line.
-const _from = new V(0, -1, 0), _dir = new V(), _qa = new Q(), _qc = new Q();
+const _from = new V(0, -1, 0), _dir = new V(), _qa = new Q();
 function aimArm(rig, s, dirBody, elbow = 6) {
   _qa.copy(rig.target[BI.hips]).multiply(rig.target[BI.spine]).multiply(rig.target[BI.chest]).invert();
   _dir.copy(dirBody).applyQuaternion(_qa);
@@ -358,6 +360,199 @@ export const POSE = { setB, arm, leg, hand, torso, headP, aimArm };
 
 const sin = Math.sin, cos = Math.cos, PI = Math.PI;
 const cl = (v, a, b) => (v < a ? a : v > b ? b : v);
+const smooth = (v) => { v = cl(v, 0, 1); return v * v * (3 - 2 * v); };
+const _contact = new V(), _pole = new V(), _joint = new V(), _ikDir = new V(), _bend = new V(), _elbow = new V(), _limb = new V(), _offset = new V();
+const _parentQ = new Q(), _upperQ = new Q(), _lowerQ = new Q(), _inverseQ = new Q(), _soleQ = new Q().setFromEuler(new E(-PI / 2, 0, 0));
+
+// Solve a surface contact in body space. The bend pole keeps elbows and knees clear of the wall.
+function plantLimb(rig, side, isArm, contact, pole) {
+  const L = side > 0 ? "L" : "R", upper = BI[(isArm ? "arm" : "thigh") + L];
+  const lower = BI[(isArm ? "fore" : "shin") + L], end = BI[(isArm ? "hand" : "foot") + L];
+  _parentQ.copy(rig.target[BI.hips]);
+  if (isArm) {
+    _joint.copy(rig.rest[BI.spine]).applyQuaternion(_parentQ);
+    _parentQ.multiply(rig.target[BI.spine]);
+    _joint.add(_offset.copy(rig.rest[BI.chest]).applyQuaternion(_parentQ));
+    _parentQ.multiply(rig.target[BI.chest]);
+    _joint.add(_offset.copy(rig.rest[upper]).applyQuaternion(_parentQ));
+    _ikDir.copy(contact); _ikDir.y += .07; _ikDir.z -= .015;
+  } else {
+    _joint.copy(rig.rest[upper]).applyQuaternion(_parentQ);
+    _ikDir.copy(contact); _ikDir.y -= .06; _ikDir.z -= .04;
+  }
+  _ikDir.sub(_joint);
+  const l1 = isArm ? .29 : .445, l2 = isArm ? .26 : .43;
+  const raw = _ikDir.length(), reach = cl(raw, Math.abs(l1 - l2) + .015, l1 + l2 - .008);
+  if (raw < 1e-6) _ikDir.set(0, -1, 0); else _ikDir.divideScalar(raw);
+  _bend.copy(pole).addScaledVector(_ikDir, -pole.dot(_ikDir));
+  if (_bend.lengthSq() < 1e-6) _bend.set(side, 0, 0).addScaledVector(_ikDir, -side * _ikDir.x);
+  _bend.normalize();
+  const along = (l1 * l1 - l2 * l2 + reach * reach) / (2 * reach);
+  _elbow.copy(_joint).addScaledVector(_ikDir, along).addScaledVector(_bend, Math.sqrt(Math.max(0, l1 * l1 - along * along)));
+  _upperQ.setFromUnitVectors(_from, _limb.subVectors(_elbow, _joint).normalize());
+  _lowerQ.setFromUnitVectors(_from, _limb.copy(_joint).addScaledVector(_ikDir, reach).sub(_elbow).normalize());
+  rig.target[upper].copy(_inverseQ.copy(_parentQ).invert()).multiply(_upperQ);
+  rig.target[lower].copy(_inverseQ.copy(_upperQ).invert()).multiply(_lowerQ);
+  // Palms face into the surface; soles turn so their toes point along the climb.
+  rig.target[end].copy(_inverseQ.copy(_lowerQ).invert());
+  if (!isArm) rig.target[end].multiply(_soleQ);
+}
+
+function saveBasePose(rig) {
+  for (let i = 1; i < rig.target.length; i++) rig.poseBase[i].copy(rig.target[i]);
+  rig.poseBaseOffset.copy(rig.poseOffset);
+}
+function blendBasePose(rig, strength) {
+  for (let i = 1; i < rig.target.length; i++) rig.target[i].slerp(rig.poseBase[i], 1 - strength);
+  rig.poseOffset.lerp(rig.poseBaseOffset, 1 - strength);
+}
+
+function poseWall(rig, a) {
+  const mv = a.wallMove, mx = mv?.x || 0, my = mv?.y || 0, speed = Math.hypot(mx, my);
+  const moving = smooth(speed / .6), dx = speed > .05 ? mx / speed : 0, dy = speed > .05 ? my / speed : 1;
+  const running = a.wallMode === "run" && speed > 3, phase = a.phase || 0;
+  const gap = cl(a.wallDistance ?? .44, .3, .65), sway = sin(phase) * moving;
+  torso(rig, running ? 10 : 18, sway * (running ? 7 : 4), -dx * 5, running ? 3 : 7, -sway * 3);
+  headP(rig, running ? -26 : -38, dx * 12, sway * 2);
+  rig.poseOffset.set(sway * (running ? .018 : .012), running ? -.015 : -.065, 0);
+  for (let s = -1; s <= 1; s += 2) {
+    const limbPhase = phase + (s > 0 ? 0 : PI), cycle = ((limbPhase / (PI * 2)) % 1 + 1) % 1;
+    const hold = running ? .4 : .64, reach = smooth((cycle - hold) / (1 - hold));
+    const travel = (cycle < hold ? .5 - cycle / hold : -.5 + reach) * moving;
+    const lift = cycle < hold ? 0 : sin(reach * PI) * moving;
+    if (running) {
+      arm(rig, s, 20 - sway * s * 38, 18, -sway * 9, 75 + sway * s * 15);
+      hand(rig, s, 20);
+      const brush = smooth((cos(limbPhase) - .15) / .65);
+      if (brush > 0) {
+        const upper = BI["arm" + (s > 0 ? "L" : "R")], lower = upper + 1, end = upper + 2;
+        rig.posePrevious[upper].copy(rig.target[upper]); rig.posePrevious[lower].copy(rig.target[lower]); rig.posePrevious[end].copy(rig.target[end]);
+        _contact.set(s * .32 + dx * travel * .24, .18 + dy * travel * .24, gap - .018);
+        plantLimb(rig, s, true, _contact, _pole.set(s * .7, -.2, -1));
+        rig.target[upper].slerp(rig.posePrevious[upper], 1 - brush); rig.target[lower].slerp(rig.posePrevious[lower], 1 - brush); rig.target[end].slerp(rig.posePrevious[end], 1 - brush);
+      }
+    } else {
+      _contact.set(s * (.36 + lift * .035) + dx * travel * .46, .56 + dy * travel * .46, gap - .018 - lift * .14);
+      plantLimb(rig, s, true, _contact, _pole.set(s * .8, -.1, -1));
+    }
+    // Each foot plants opposite its arm, giving the body two diagonal supports during a reach.
+    const footCycle = (cycle + .5) % 1, footReach = smooth((footCycle - hold) / (1 - hold));
+    const footTravel = (footCycle < hold ? .5 - footCycle / hold : -.5 + footReach) * moving;
+    const footLift = footCycle < hold ? 0 : sin(footReach * PI) * moving;
+    _contact.set(s * (running ? .18 : .3) + dx * footTravel * (running ? .6 : .46), (running ? -.43 : -.36) + dy * footTravel * (running ? .6 : .46), gap - .02 - footLift * (running ? .27 : .13));
+    plantLimb(rig, s, false, _contact, _pole.set(s * (running ? .3 : .9), .1, -1));
+  }
+  return a.stateT < .2 ? 28 : running ? 24 : 22;
+}
+
+function poseAir(rig, a) {
+  const t = a.t || 0, vy = a.vy || 0, hs = a.hs || 0, turn = cl(a.turn || 0, -1, 1);
+  const rise = smooth(vy / 16), fall = smooth((-vy - 2) / 34), apex = 1 - smooth(Math.abs(vy) / 7);
+  const fast = cl(hs / 48, 0, 1), brace = smooth((8 - (a.heightAbove ?? 100)) / 7) * fall;
+  const tumble = smooth((-vy - 38) / 30) * (1 - brace), drift = sin(t * 2.8) * (2 + tumble * 7);
+  const s = a.swingSide || 1;
+  if (a.dive) {
+    torso(rig, 6 + brace * 20, -turn * 5, -turn * 7, -6 + brace * 12); headP(rig, -42 + brace * 28, turn * 12);
+    leg(rig, s, -8 + brace * 65, 5 + brace * 8, 8 + brace * 80, 22 - brace * 35);
+    leg(rig, -s, -2 + brace * 42, 8 + brace * 6, 16 + brace * 65, 18 - brace * 24);
+    arm(rig, s, -24 + brace * 78, 16 + brace * 20, 0, 8 + brace * 36);
+    arm(rig, -s, -16 + brace * 65, 21 + brace * 14, 0, 15 + brace * 35);
+    hand(rig, s, 8); hand(rig, -s, 8);
+    return 14;
+  }
+  if (a.glide) {
+    const bank = cl(a.bank || turn, -1, 1);
+    torso(rig, -5, -bank * 8, bank * 12, -8); headP(rig, -35, bank * 15, -bank * 5);
+    leg(rig, 1, -8 + bank * 8, 20 - bank * 5, 9, 24); leg(rig, -1, -3 - bank * 8, 24 + bank * 5, 15, 20);
+    arm(rig, 1, -8 + bank * 8, 82 - bank * 8, 0, 8); arm(rig, -1, -8 - bank * 8, 82 + bank * 8, 0, 8);
+    hand(rig, 1, 0); hand(rig, -1, 0);
+    return 11;
+  }
+  // Rise, hang time and freefall share one pose so crossing the apex never snaps the limbs.
+  torso(rig, 5 + rise * 5 + fall * 15 + brace * 7, -turn * 12 + tumble * drift, -turn * (9 + fast * 7), -5 - rise * 3 + brace * 11);
+  headP(rig, -10 * rise + fall * 19 - brace * 15, turn * 20, tumble * drift * .4);
+  leg(rig, s, 18 + rise * 42 + fall * 12 + brace * 25, 10 + fall * 11, 32 + rise * 55 + brace * 38, -10 - brace * 12);
+  leg(rig, -s, -8 + rise * 12 + fall * 22 + brace * 22, 17 + fall * 12, 36 + rise * 15 + fall * 12 + brace * 30, 10 - brace * 24);
+  arm(rig, s, 18 + rise * 42 + apex * 14 - fall * 12 + brace * 42 + drift, 28 + apex * 20 + fall * 34 - brace * 20, 0, 30 + rise * 15 + brace * 20);
+  arm(rig, -s, 7 + rise * 20 + apex * 9 - fall * 8 + brace * 38 - drift, 39 + apex * 15 + fall * 24 - brace * 18, 0, 35 + rise * 12 + brace * 20);
+  hand(rig, s, 8 + brace * 25); hand(rig, -s, 8 + brace * 25);
+  if (a.releaseT >= 0 && a.releaseT < .54) {
+    saveBasePose(rig);
+    const k = cl(a.releaseT / .54, 0, 1), open = sin(k * PI), quality = cl(a.releaseQuality || 0, 0, 2);
+    torso(rig, -12 + open * 18, -s * open * 18, -turn * 12, -8); headP(rig, -18 + open * 11, turn * 20);
+    arm(rig, s, 150 - k * 110, 18 + open * 34, 0, 9 + k * 36);
+    arm(rig, -s, -20 + k * 45, 50 + open * 26, 0, 19 + open * 20);
+    leg(rig, s, 42 + open * (25 + quality * 6), 10, 64 + open * 37, -17);
+    leg(rig, -s, -23 + k * 42, 17, 22 + k * 24, 17);
+    hand(rig, s, 0); hand(rig, -s, 5);
+    blendBasePose(rig, 1 - smooth((a.releaseT - .14) / .4));
+  }
+  if (a.dash > 0) {
+    torso(rig, 32, -s * 9, -turn * 12, 11); headP(rig, -22, turn * 15);
+    leg(rig, s, 65, 8, 93, -10); leg(rig, -s, -12, 13, 35, 18);
+    arm(rig, s, -42, 24, 0, 22); arm(rig, -s, -28, 32, 0, 36);
+    return 24;
+  }
+  return 13 + brace * 7;
+}
+
+function trickStrength(trick) {
+  return cl(trick.blend ?? sin(cl((trick.k || 0) * 1.15, 0, 1) * PI), 0, 1);
+}
+function poseTrick(rig, tr) {
+  const sh = tr.shape, s = tr.side === -1 ? -1 : 1, dx = cl(tr.dirX || 0, -1, 1), dy = cl(tr.dirY || 0, -1, 1);
+  const breath = sin((tr.k || 0) * PI * 2) * 3;
+  if (sh === "tuck") {
+    torso(rig, 35 + dy * 6, -s * 6, -dx * 8, 17); headP(rig, 16 + dy * 6, dx * 8);
+    leg(rig, s, 120 + breath, 10, 142, 18); leg(rig, -s, 112 - breath, 14, 135, 24);
+    arm(rig, s, 72, 24, 0, 110); arm(rig, -s, 68, 30, 0, 104);
+    hand(rig, s, 18); hand(rig, -s, 18);
+  } else if (sh === "layout") {
+    torso(rig, -13, s * 9, s * 12, -8, -s * 6); headP(rig, -9, -s * 12);
+    leg(rig, s, -6, 8, 9, 22); leg(rig, -s, 2, 14, 24, 17);
+    arm(rig, s, 155, 26, 0, 12); arm(rig, -s, 14, 78, 0, 20);
+    hand(rig, s, 0); hand(rig, -s, 5);
+  } else if (sh === "pike") {
+    torso(rig, 53, -dx * 8, -dx * 6, 14); headP(rig, 10, dx * 12);
+    leg(rig, s, 105, 8, 8, 6); leg(rig, -s, 99, 12, 12, 10);
+    arm(rig, s, 108, 14, 0, 13); arm(rig, -s, 101, 20, 0, 20);
+    hand(rig, s, 0); hand(rig, -s, 0);
+  } else if (sh === "spread") {
+    torso(rig, -4, s * 7, dx * 8, -9); headP(rig, -12, dx * 14);
+    leg(rig, s, 13, 43, 14, 12); leg(rig, -s, -3, 49, 24, 18);
+    arm(rig, s, 8, 101, 0, 10); arm(rig, -s, -4, 92, 0, 18);
+    hand(rig, s, 0, -8); hand(rig, -s, 0, -8);
+  } else if (sh === "corkscrew") {
+    torso(rig, 10 + dy * 9, -s * 29, -s * 14, 4, s * 16); headP(rig, -5, s * 20, s * 5);
+    leg(rig, s, 70 + breath, 12, 105, -14); leg(rig, -s, -15, 16, 26, 24);
+    arm(rig, s, 65, 18, 0, 114); arm(rig, -s, -12, 68, 0, 24);
+    hand(rig, s, 16); hand(rig, -s, 0);
+  } else if (sh === "superman") {
+    torso(rig, -18, -dx * 8, -dx * 10, -9); headP(rig, -28, dx * 15);
+    arm(rig, s, 173, 11, 0, 4); arm(rig, -s, 149, 25, 0, 20);
+    leg(rig, s, -12, 7, 8, 22); leg(rig, -s, -3, 13, 30, 18);
+    hand(rig, s, 2); hand(rig, -s, 5);
+  } else if (sh === "split") {
+    torso(rig, 11, -s * 10, -dx * 8, -3); headP(rig, -12, s * 12);
+    leg(rig, s, 93, 12, 8, 5); leg(rig, -s, -67, 17, 13, 24);
+    arm(rig, s, 31, 87, 0, 12); arm(rig, -s, 8, 97, 0, 16);
+    hand(rig, s, 0); hand(rig, -s, 0);
+  }
+}
+function poseTricks(rig, tr) {
+  saveBasePose(rig);
+  const previous = tr.previous, transition = smooth(tr.transition ?? 1);
+  if (previous && transition < 1) {
+    poseTrick(rig, previous); blendBasePose(rig, trickStrength(previous));
+    for (let i = 1; i < rig.target.length; i++) { rig.posePrevious[i].copy(rig.target[i]); rig.target[i].copy(rig.poseBase[i]); }
+    rig.posePreviousOffset.copy(rig.poseOffset); rig.poseOffset.copy(rig.poseBaseOffset);
+  }
+  poseTrick(rig, tr); blendBasePose(rig, trickStrength(tr));
+  if (previous && transition < 1) {
+    for (let i = 1; i < rig.target.length; i++) { rig.posePrevious[i].slerp(rig.target[i], transition); rig.target[i].copy(rig.posePrevious[i]); }
+    rig.poseOffset.copy(rig.posePreviousOffset.lerp(rig.poseOffset, transition));
+  }
+}
 
 // The whole-body pose for a movement state. a = animation inputs prepared by the controller:
 //  { state, speed, hs (horizontal speed), vy, phase, grounded, sprint, slide, roll, hard, landT,
@@ -438,51 +633,7 @@ export function poseBody(rig, a) {
     if (hero) rig.poseOffset.y = -.62;
     rate = 12;
   } else if (st === "air") {
-    const vy = a.vy, hs = a.hs;
-    if (a.dive) {
-      // diving head first: straight as an arrow, arms swept back, head up to see
-      torso(rig, 6, 0, 0, -6); headP(rig, -45);
-      leg(rig, 1, -6, 3, 6, 30); leg(rig, -1, -4, 3, 8, 30);
-      arm(rig, 1, -22, 14, 0, 6); arm(rig, -1, -22, 14, 0, 6);
-      rate = 8;
-    } else if (a.glide) {
-      // web wings: spread wide, legs apart
-      torso(rig, -6, 0, cl(a.bank || 0, -1, 1) * 10, -8); headP(rig, -40);
-      leg(rig, 1, -8, 22, 6, 25); leg(rig, -1, -8, 22, 6, 25);
-      arm(rig, 1, -8, 82, 0, 4); arm(rig, -1, -8, 82, 0, 4);
-      hand(rig, 1, 5); hand(rig, -1, 5);
-      rate = 7;
-    } else if (a.releaseT >= 0 && a.releaseT < .42) {
-      // A clean release opens from the line into a stretched, asymmetric leap.
-      const k = a.releaseT / .42, open = Math.sin(k * PI), s = a.swingSide || 1;
-      const quality = cl(a.releaseQuality || 0, 0, 2);
-      torso(rig, -10 + open * 16, -s * open * 16, -turn * 10, -7);
-      headP(rig, -16 + open * 8, turn * 18);
-      arm(rig, s, 145 - k * 100, 20 + open * 28, 0, 10 + k * 35);
-      arm(rig, -s, -18 + k * 40, 55 + open * 20, 0, 20 + open * 20);
-      leg(rig, s, 45 + open * (20 + quality * 6), 10, 70 + open * 30, -18);
-      leg(rig, -s, -18 + k * 35, 14, 20 + k * 25, 16);
-      hand(rig, s, 8); hand(rig, -s, 14);
-      rate = 16;
-    } else if (vy > 2) {
-      // Rising keeps one knee driving forward and the trailing leg open for a readable silhouette.
-      const k = cl(vy / 12, 0, 1);
-      torso(rig, 8 * k, -turn * 12, -turn * 12, -4); headP(rig, -10, turn * 18);
-      leg(rig, 1, 45 * k + 12, 10, 75 * k + 15, -10); leg(rig, -1, -12 + 12 * k, 12, 22 + 18 * k, 10);
-      arm(rig, 1, 50 * k, 28, 0, 40); arm(rig, -1, 15 * k, 42, 0, 50);
-      rate = 12;
-    } else {
-      // Fast freefall spreads for control instead of flailing; the knees prepare for impact.
-      const k = cl(-vy / 32, 0, 1), fast = cl(hs / 42, 0, 1), drift = sin(t * 2.8) * 3;
-      torso(rig, 3 + k * 12, -turn * 12, -turn * 14, -5); headP(rig, 8 + k * 18, turn * 18);
-      leg(rig, 1, 18 + k * 16, 12 + k * 10, 32 + k * 20, -8);
-      leg(rig, -1, 2 + k * 10, 16 + k * 9, 45 + k * 16, 8);
-      arm(rig, 1, 12 + drift, 38 + k * 22 + fast * 12, 0, 20 + k * 12);
-      arm(rig, -1, 3 - drift, 46 + k * 18 + fast * 12, 0, 26 + k * 10);
-      hand(rig, 1, 10); hand(rig, -1, 10);
-      rate = 10;
-    }
-    if (a.dash > 0) { torso(rig, 30, 0, 0, 10); leg(rig, 1, 60, 6, 90); leg(rig, -1, 10, 6, 40); arm(rig, 1, -40, 20, 0, 20); arm(rig, -1, -40, 20, 0, 20); rate = 20; }
+    rate = poseAir(rig, a);
   } else if (st === "swing") {
     // one arm (both on a double line) holds the line straight up to the anchor; the body hangs below
     // it and the legs swing through - tucked under at the bottom, kicked out ahead on the way up
@@ -506,27 +657,7 @@ export function poseBody(rig, a) {
     arm(rig, -(a.swingSide || 1), -36, 35, 0, 24);
     rate = 18;
   } else if (st === "wall") {
-    // The chest faces the surface and the head points along it, so limbs reach forward to plant on the wall.
-    const mv = a.wallMove || { x: 0, y: 0 }, spd = Math.hypot(mv.x, mv.y);
-    if (a.wallMode === "run" && spd > 5) {
-      const ph = a.phase, s1 = sin(ph);
-      torso(rig, 14, s1 * 8, 0, 4); headP(rig, -18);
-      for (const s of [1, -1]) {
-        const p = s > 0 ? ph : ph + PI, sp = sin(p);
-        leg(rig, s, sp * 45 + 15, 6, 25 + 70 * Math.max(0, sin(p + 1.4)), -10);
-        arm(rig, s, -sp * 50, 12, 0, 70);
-      }
-      rate = 18;
-    } else {
-      const ph = a.phase, cyc = spd > .3 ? 1 : 0;
-      torso(rig, 6, 0, 0, 2); headP(rig, -35, a.lookSide || 0);
-      for (const s of [1, -1]) {
-        const p = s > 0 ? ph : ph + PI, sp = sin(p) * cyc;
-        arm(rig, s, 100 + sp * 15, 42, 0, 20 - sp * 10); hand(rig, s, 10, -15);
-        leg(rig, s, 75 - sp * 12, 42, 75 - sp * 12, -20);
-      }
-      rate = 12;
-    }
+    rate = poseWall(rig, a);
   } else if (st === "ledge") {
     torso(rig, -2, 0, 0, -4); headP(rig, -25);
     arm(rig, 1, 172, 14, 0, 18); arm(rig, -1, 172, 14, 0, 18); hand(rig, 1, 60); hand(rig, -1, 60);
@@ -557,46 +688,11 @@ export function poseBody(rig, a) {
       rate = 24;
     }
   }
-  // tricks: a shape for the body while it rotates (the rotation itself is the root's)
-  if (a.trick) {
-    const sh = a.trick.shape, k = a.trick.k;
-    const env = Math.sin(Math.min(1, k * 1.15) * PI);
-    if (sh === "tuck") {
-      torso(rig, 35 * env, 0, 0, 20 * env); headP(rig, 20 * env);
-      leg(rig, 1, 120 * env, 8, 140 * env, 20); leg(rig, -1, 120 * env, 8, 140 * env, 20);
-      arm(rig, 1, 70 * env, 20, 0, 90 * env); arm(rig, -1, 70 * env, 20, 0, 90 * env);
-      rate = 20;
-    } else if (sh === "layout") {
-      torso(rig, -15 * env, 0, 0, -10 * env); headP(rig, -10 * env);
-      leg(rig, 1, -5, 3, 5); leg(rig, -1, -5, 3, 5);
-      arm(rig, 1, 10, 80 * env, 0, 5); arm(rig, -1, 10, 80 * env, 0, 5);
-      rate = 18;
-    } else if (sh === "pike") {
-      torso(rig, 60 * env, 0, 0, 20 * env); headP(rig, 15 * env);
-      leg(rig, 1, 95 * env, 4, 5); leg(rig, -1, 95 * env, 4, 5);
-      arm(rig, 1, 100 * env, 10, 0, 10); arm(rig, -1, 100 * env, 10, 0, 10);
-      rate = 18;
-    } else if (sh === "spread") {
-      torso(rig, 0, 0, 0, -8 * env); headP(rig, -10 * env);
-      leg(rig, 1, 5, 45 * env, 10); leg(rig, -1, 5, 45 * env, 10);
-      arm(rig, 1, 0, 95 * env, 0, 5); arm(rig, -1, 0, 95 * env, 0, 5);
-      rate = 18;
-    } else if (sh === "corkscrew") {
-      torso(rig, 10 * env, 0, 0, 0); headP(rig, 5);
-      leg(rig, 1, 20 * env, 2, 40 * env); leg(rig, -1, 5, 2, 10);
-      arm(rig, 1, 30, 10, 0, 120 * env); arm(rig, -1, 30, 10, 0, 120 * env);
-      rate = 20;
-    } else if (sh === "superman") {
-      torso(rig, -20 * env, 0, 0, -10 * env); headP(rig, -30 * env);
-      arm(rig, 1, 170 * env, 10, 0, 0); arm(rig, -1, 160 * env, 20, 0, 10);
-      leg(rig, 1, -15 * env, 4, 5); leg(rig, -1, -10 * env, 6, 30 * env);
-      rate = 16;
-    } else if (sh === "split") {
-      torso(rig, 10 * env, 0, 0, 0); headP(rig, -10);
-      leg(rig, 1, 80 * env, 10, 0); leg(rig, -1, -60 * env, 10, 0);
-      arm(rig, 1, 20, 90 * env, 0, 5); arm(rig, -1, 20, 90 * env, 0, 5);
-      rate = 18;
-    }
+  // Pose strength follows the held trick, with a separate crossfade when its family changes.
+  if (a.trick && (st === "air" || st === "swing" || st === "zip")) {
+    poseTricks(rig, a.trick); rate = Math.max(rate, 22);
+    if ((st === "swing" || st === "zip") && a.anchorLocal) aimArm(rig, a.swingSide || 1, a.anchorLocal, 7);
+    if (st === "swing" && a.anchor2Local) aimArm(rig, -(a.swingSide || 1), a.anchor2Local, 7);
   }
   // combat moves override arms/legs/torso for their duration
   if (a.attack) rate = Math.max(rate, poseAttack(rig, a.attack));
@@ -735,3 +831,5 @@ function poseEmote(rig, at) {
   return 12;
 }
 export const EMOTES = ["Wave", "Salute", "Flex", "Dance", "Cheer", "Point", "Sit", "Bow"];
+
+
