@@ -619,6 +619,12 @@ export class HeroMode {
     if (inp.emote && !this.inCombat) this.emote = { id: inp.emote - 1, t: 0 };
     if (this.emote) { this.emote.t += dt; if (H.speed > 1.5 || H.state !== "ground" || this.emote.t > 8) this.emote = null; }
     const r = poseBody(rig, a);
+    // the mask's lenses: narrowed in a fight or when pulling a slingshot, and a quick blink every few seconds
+    const Um = rig.mat.userData.u;
+    this.blinkT = (this.blinkT ?? 3) - dt;
+    if (this.blinkT < -.13) this.blinkT = 2.5 + Math.random() * 4;
+    const squint = this.blinkT < 0 ? 1 : (this.inCombat || this.combat.action ? .5 : 0) + (H.sling ? .35 : 0) + (H.dive ? .3 : 0);
+    Um.uSquint.value += (Math.min(1, squint) - Um.uSquint.value) * Math.min(1, dt * (this.blinkT < 0 ? 40 : 10));
     // overcharged: the whole suit runs hot
     if (this.combat.overT > 0) rig.mat.userData.u.uGlowAmt.value += .9 + Math.sin(a.t * 18) * .15;
     rig.apply(this.combat.stopT > 0 ? dt * .1 : dt, this.firstFrames > 0 ? 1000 : r);

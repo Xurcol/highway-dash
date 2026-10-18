@@ -170,7 +170,7 @@ function suitMaterial() {
   const U = m.userData.u = {
     uBase: { value: new THREE.Color() }, uAccent: { value: new THREE.Color() }, uDark: { value: new THREE.Color() },
     uGlow: { value: new THREE.Color() }, uLens: { value: new THREE.Color() }, uStyle: { value: 0 }, uGlowAmt: { value: 1 },
-    uShoot: { value: new THREE.Vector2() }, uHit: { value: 0 }, uTime: { value: 0 },
+    uShoot: { value: new THREE.Vector2() }, uHit: { value: 0 }, uTime: { value: 0 }, uSquint: { value: 0 },
   };
   const extra = (shader) => {
     Object.assign(shader.uniforms, U);
@@ -180,7 +180,7 @@ function suitMaterial() {
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>
         varying vec4 vSuit; varying vec3 vLocal;
-        uniform vec3 uBase, uAccent, uDark, uGlow, uLens; uniform float uStyle, uGlowAmt, uHit, uTime; uniform vec2 uShoot;
+        uniform vec3 uBase, uAccent, uDark, uGlow, uLens; uniform float uStyle, uGlowAmt, uHit, uTime, uSquint; uniform vec2 uShoot;
         float gEm; float gRough; float gMetal; float gHero; float gBump;
         float band(float x, float c, float w) { return 1. - smoothstep(w * .5, w * .5 + .012, abs(x - c)); }`)
       .replace("#include <color_fragment>", `#include <color_fragment>
@@ -203,6 +203,8 @@ function suitMaterial() {
             if (limb) {
               float s = band(sideU, 0., st == 1. ? .17 : .11);
               col = mix(col, uAccent, s);
+              // the stripes are a slicker, raised material than the woven base
+              gRough = mix(gRough, .3, s); gMetal = mix(gMetal, .28, s);
               float flow = .85 + .15 * sin(v * 16. - uTime * 5.);
               gEm += band(sideU, 0., .022) * (st == 2. ? 1.2 : .8) * flow;
             }
@@ -256,7 +258,9 @@ function suitMaterial() {
           }
           // head: big angular lenses
           if (part == 3. && st < 2.5) {
+            // the lenses narrow when the hero squints into a fight (and for a blink now and then)
             float du = (u - .5) * 6.2, ex = abs(du) - .5, ey = (v - .56) * 4.6;
+            ey *= 1. + uSquint * (ey > 0. ? 1.6 : .7);
             float lens = step(ex * ex * 1.1 + ey * ey * (ey > 0. ? 2.6 : 1.3) - ex * ey * .9, .16) * step(.08, abs(du));
             float rim = step(ex * ex * 1.1 + ey * ey * (ey > 0. ? 2.6 : 1.3) - ex * ey * .9, .24) * step(.06, abs(du)) - lens;
             col = mix(col, uDark, clamp(rim, 0., 1.));
@@ -264,6 +268,12 @@ function suitMaterial() {
             // a ridge line over the crown
             col = mix(col, uAccent, band(abs(u - .5), 0., .03) * smoothstep(.62, .7, v) * (st == 2. ? .3 : 1.));
           }
+          // soft occlusion in the creases: where limbs meet the body, under the chest and the jaw
+          float crease = 1.;
+          if (part > 3.5 && part < 9.5) crease = mix(.7, 1., smoothstep(0., .14, v) * smoothstep(1., .9, v));
+          if (part < 2.5) crease = mix(.78, 1., smoothstep(0., .12, v));
+          if (part == 3.) crease = mix(.8, 1., smoothstep(.05, .25, v));
+          col *= crease;
           diffuseColor.rgb = col * mix(vec3(1.), vec3(1., .35, .3), uHit);
         }`)
       .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
@@ -279,7 +289,7 @@ function suitMaterial() {
       .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;")
       .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\nfloat gFres = pow(1. - clamp(abs(dot(normal, normalize(vViewPosition))), 0., 1.), 3.);\ntotalEmissiveRadiance += uGlow * gEm * uGlowAmt * 1.6 + vec3(1., .2, .1) * uHit * .6 + uGlow * gFres * gHero * .22;");
   };
-  extra.key = "herosuit5";
+  extra.key = "herosuit6";
   return patchLit(m, extra);
 }
 
@@ -615,6 +625,13 @@ export function poseBody(rig, a) {
       leg(rig, 1, 4 + crouch * 70, 7, 6 + crouch * 110, -2 - crouch * 30, 6); leg(rig, -1, -2 + crouch * 60, 8, 4 + crouch * 105, 2 - crouch * 35, 8);
       arm(rig, 1, 6 + crouch * 30, 9 + br * .3, 10, 14 + crouch * 30); arm(rig, -1, 4 + crouch * 30, 9 + br * .3, 10, 12 + crouch * 30);
       if (hero) rig.poseOffset.y = -.38 * crouch + br * .002;
+      // left standing, the hero glances round the street every few seconds and shifts their weight
+      if (hero && !crouch && !a.combat && a.landT >= .25) {
+        const cyc = (t % 9) / 9, look = smooth((cyc - .55) / .08) * (1 - smooth((cyc - .82) / .08)), side = sin(t * .11) > 0 ? 1 : -1;
+        headP(rig, -4 + look * 6, sin(t * .37) * 6 + look * 46 * side, look * 5 * side);
+        torso(rig, 4 + br * .3, look * 10 * side, sin(t * .5) * 2, -2 + br * .4, look * 6 * side);
+        leg(rig, 1, 4, 7 + sin(t * .5) * 2, 6 + Math.max(0, sin(t * .5)) * 8, -2, 6);
+      }
       if (a.landT < .25) { const k = 1 - a.landT / .25; torso(rig, 14 * k, 0, 0, 6 * k); leg(rig, 1, 30 * k, 7, 55 * k, -18 * k); leg(rig, -1, 26 * k, 8, 50 * k, -15 * k); if (hero) rig.poseOffset.y = -.12 * k; }
       if (hero && a.combat && !crouch && a.landT >= .25) {
         torso(rig, 8 + br * .2, -14, 0, 3); headP(rig, -7, 14);
