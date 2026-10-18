@@ -9,11 +9,36 @@ import { HeroMode } from "./hero.js";
 import { P, save, signOut } from "./arcline-profile.js";
 import { signIn } from "./auth.js";
 import { ArclineUI } from "./arcline-ui.js";
+import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
+import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js";
+import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
+import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 const QUALITY = {
   low: { dpr: .85, lamps: 8, traffic: 20, shadows: false, shadowSize: 512, reflections: 32, view: .8 },
   medium: { dpr: 1.25, lamps: 12, traffic: 32, shadows: false, shadowSize: 1024, reflections: 48, view: 1 },
-  high: { dpr: 1.5, lamps: 20, traffic: 48, shadows: true, shadowSize: 1024, reflections: 80, view: 1.35 },
+  high: { dpr: 1.5, lamps: 20, traffic: 48, shadows: true, shadowSize: 1024, reflections: 80, view: 1.35, post: true },
+  ultra: { dpr: 2, lamps: 24, traffic: 56, shadows: true, shadowSize: 2048, reflections: 96, view: 1.6, post: true, city: "high" },
+};
+// Speed: the frame smears outwards from the middle and the very edges fringe, only once the hero is
+// really moving (uRush comes from the hero's speed).
+const RUSH = {
+  uniforms: { tDiffuse: { value: null }, uRush: { value: 0 } },
+  vertexShader: "varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.); }",
+  fragmentShader: `uniform sampler2D tDiffuse; uniform float uRush; varying vec2 vUv;
+    void main() {
+      vec2 d = vUv - .5; float k = uRush * smoothstep(.1, .72, length(d));
+      vec4 c = texture2D(tDiffuse, vUv);
+      if (k > .002) {
+        vec4 acc = c;
+        for (int i = 1; i < 6; i++) acc += texture2D(tDiffuse, vUv - d * k * .03 * float(i));
+        c = acc / 6.;
+        c.r = mix(c.r, texture2D(tDiffuse, vUv - d * k * .014).r, .7);
+        c.b = mix(c.b, texture2D(tDiffuse, vUv + d * k * .014).b, .7);
+      }
+      gl_FragColor = c;
+    }`,
 };
 const unit = (value, fallback) => Number.isFinite(Number(value)) ? Math.max(0, Math.min(1, Number(value))) : fallback;
 
@@ -26,18 +51,43 @@ export async function bootArcline() {
   const sky = new SkySystem(renderer, scene), city = new City(renderer, scene), glows = new Glows(scene, 1200);
   const audio = new AudioManager(), net = await createNet(); net.sendRate = 15;
   let ui, active = false, online = false, paused = true, entering = false, wantsOnline = false, pendingPractice = false, roomCode = null, soloTime = 0;
+  let composer = null, bloom = null, rush = null;
   let scale = 1, slowT = 0, quality = QUALITY.medium, sendT = 0, mapT = 0, envT = 0, lifeT = 0, adaptiveT = 0, avgDt = 1 / 60;
   const lights = [], ambience = { night: 0, height: 0, rain: 0, traffic: .6, wind: 0, enabled: false };
   const hero = new HeroMode({ renderer, scene, camera, sky, city, audio, net, P, save, get ui() { return ui; } });
   function resize() {
     renderer.setPixelRatio(Math.min(devicePixelRatio || 1, quality.dpr) * scale);
     renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / Math.max(1, innerHeight); camera.updateProjectionMatrix();
+    if (composer) { composer.setPixelRatio(renderer.getPixelRatio()); composer.setSize(innerWidth, innerHeight); }
   }
+  // Bloom and the speed smear: a post-processing chain on High and Ultra (the plain render otherwise)
+  function setPost(on) {
+    if (on && !composer) {
+      try {
+        composer = new EffectComposer(renderer);
+        composer.addPass(new RenderPass(scene, camera));
+        bloom = new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), .42, .5, .92);
+        composer.addPass(bloom);
+        rush = new ShaderPass(RUSH); composer.addPass(rush);
+        composer.addPass(new OutputPass());
+      } catch (error) { console.warn("Post-processing unavailable", error); composer?.dispose(); composer = null; }
+    } else if (!on && composer) { composer.dispose(); composer = bloom = rush = null; }
+  }
+  function renderFrame() {
+    if (composer) {
+      const night = sky.night || 0;
+      bloom.strength = .32 + night * .3; bloom.threshold = .95 - night * .12;
+      rush.uniforms.uRush.value = active && !hero.photo?.on ? Math.max(0, Math.min(1, (hero.speed - 26) / 34)) : 0;
+      composer.render();
+    } else renderer.render(scene, camera);
+  }
+  hero.ctx.renderFrame = renderFrame;
   function applySettings(key) {
     const settings = P.settings;
-    if (!key || key === "graphics") {
+    if (!key || key === "graphics" || key === "noPost") {
       quality = QUALITY[settings.graphics] || QUALITY.medium;
-      city.setDetail(settings.graphics || "medium"); setLampBudget(quality.lamps);
+      city.setDetail(quality.city || settings.graphics || "medium"); setLampBudget(quality.lamps);
+      setPost(!!quality.post && !settings.noPost);
       renderer.shadowMap.enabled = quality.shadows; sky.setShadowSize(quality.shadowSize); sky.viewDist = quality.view; slowT = 0;
       sky.setReflQuality(quality.reflections, 4); sky.envKey = null;
       // Let traffic replenish at the new budget without deleting cars involved in an active mission.
@@ -54,7 +104,7 @@ export async function bootArcline() {
   }
   function pause(on) {
     paused = on;
-    if (on) { hero.activities?.closeMenu(); hero.input.unlock(); audio.cityAmbience(0); audio.update(0, 0, false, 0); }
+    if (on) { hero.activities?.closeMenu(); hero.worldMap?.close(); hero.photo?.close(); hero.input.unlock(); audio.cityAmbience(0); audio.update(0, 0, false, 0); }
     hero.input.wantLock = active && !on;
   }
   async function enter(asOnline) {
@@ -144,7 +194,6 @@ export async function bootArcline() {
     if (event.code === "Enter") { event.preventDefault(); ui.openChat(); }
     if (event.code === "Tab") { event.preventDefault(); ui.togglePlayers(); }
     if (event.code === "KeyP") { event.preventDefault(); ui.menuOpen ? ui.close() : ui.open(); }
-    if (event.code === "KeyM") { event.preventDefault(); if (city.mapEl) city.mapEl.classList.toggle("large"); }
     startAudio();
   });
   document.addEventListener("visibilitychange", () => {
@@ -169,16 +218,19 @@ export async function bootArcline() {
       ambience.enabled = hear; ambience.night = sky.night || 0; ambience.height = Math.max(0, hero.focus.y - .98);
       ambience.rain = sky.w.rain; ambience.wind = unit(hero.speed / 65, 0);
       audio.cityAmbience(hear ? unit(P.settings.ambience, .65) : 0, ambience);
-      hero.update(simDt, dt, T);
-      const focus = hero.focus; sky.update(simDt, camera, focus, hero.speed, audio);
-      const honks = city.update(simDt, T, focus, camera, sky, glows, lights, hero.trafficPlayers());
+      // photo mode freezes this hero (and, playing alone, the street) under a free camera
+      // photo mode freezes this hero under a free camera; alone, the map and photo mode stop the street too
+      const photo = hero.photo?.on, still = (photo || hero.worldMap?.on) && !online, worldDt = still ? 0 : simDt;
+      if (photo) hero.photo.update(dt); else hero.update(still ? 0 : simDt, dt, T);
+      const focus = hero.focus; sky.update(worldDt, camera, focus, hero.speed, audio);
+      const honks = city.update(worldDt, T, focus, camera, sky, glows, lights, hero.trafficPlayers());
       if (hear) for (const honk of honks) {
         const distance = Math.hypot(honk.c.x - focus.x, honk.c.y - focus.y, honk.c.z - focus.z);
         if (distance < 48) audio.honk(0, honk.heavy, (1 - distance / 48) ** 2 * .35);
       }
-      hero.afterCity(simDt, T, glows, lights);
+      hero.afterCity(worldDt, T, glows, lights);
       mapT -= dt; envT -= dt; lifeT += dt;
-      if (mapT <= 0) { mapT = .1; city.drawMinimap(focus.x, focus.z, hero.cam.yaw, hero.mapDots(), false); }
+      if (mapT <= 0) { mapT = .1; city.drawMinimap(focus.x, focus.z, hero.cam.yaw, hero.mapDots(), false); if (hero.worldMap.on) hero.worldMap.draw(); }
       if (envT <= 0) {
         envT = .2; const env = city.envAt(focus.x, focus.y - 1, focus.z);
         audio.setTunnel(env.tunnel * .35); audio.setEnv(env.env, env.boost); audio.setReverb(env.reverb * .7);
@@ -196,13 +248,15 @@ export async function bootArcline() {
       if (adaptiveT > 2 && !paused) {
         adaptiveT = 0; const next = avgDt > .03 ? Math.max(.6, scale - .14) : avgDt > .024 ? Math.max(.6, scale - .08) : avgDt < .018 ? Math.min(1, scale + .025) : scale;
         if (next !== scale) { scale = next; resize(); }
-        // Resolution alone could not hold 40 FPS: shadows are the next most expensive pass, so drop them for this session.
+        // Resolution alone could not hold 40 FPS: bloom, then shadows, are the next most expensive passes,
+        // so they are dropped for this session.
         slowT = scale <= .6 && avgDt > .025 ? slowT + 1 : 0;
-        if (slowT >= 3 && renderer.shadowMap.enabled) { renderer.shadowMap.enabled = false; ui.toast("Shadows turned off to keep the game smooth."); }
+        if (slowT >= 3 && composer) { slowT = 0; setPost(false); ui.toast("Bloom turned off to keep the game smooth."); }
+        else if (slowT >= 3 && renderer.shadowMap.enabled) { renderer.shadowMap.enabled = false; ui.toast("Shadows turned off to keep the game smooth."); }
       }
     } else sky.update(dt, camera, camera.position, 0, audio);
     camera.updateMatrixWorld(); uploadLights(lights, camera); glows.end(renderer.domElement.height);
-    renderer.render(scene, camera);
+    renderFrame();
   }
   requestAnimationFrame(frame);
   ui.loading("ARCLINE ONLINE", "Sign in to join New Meridian.");

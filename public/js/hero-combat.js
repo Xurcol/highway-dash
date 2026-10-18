@@ -23,6 +23,13 @@ export const GADGETS = [
   { id: "trap", name: "Web Trap", key: "5", cool: 8 },
   { id: "impact", name: "Impact Web", key: "6", cool: 6 },
 ];
+// The arc abilities: big moves on long cooldowns, for when a fight turns against the hero.
+export const ABILITIES = [
+  null,
+  { id: "burst", name: "Arc Burst", key: "7", cool: 18, note: "A shockwave that throws everyone nearby into the air" },
+  { id: "tether", name: "Tether Storm", key: "8", cool: 22, note: "Lines to every enemy in reach, yanked together and webbed" },
+  { id: "overcharge", name: "Overcharge", key: "9", cool: 28, note: "Nine seconds of heavy, guard-breaking hits" },
+];
 
 export class HeroCombat {
   constructor(hero) {
@@ -42,6 +49,7 @@ export class HeroCombat {
     this.chain = 0; this.attackHeldT = 0; this.launchQueued = false;
     this.dodgeCool = 0; this.hurtGrace = 0; this.perfectDodge = false;
     this.pendingHits = [];
+    this.acool = [0, 0, 0, 0]; this.overT = 0; this.parryT = 0; this.parryCool = 0;
   }
   get H() { return this.hero.H; }
   reset() {
@@ -53,6 +61,7 @@ export class HeroCombat {
     this.regenT = this.downT = this.healT = this.stopT = this.slowT = this.attackHeldT = 0;
     this.dodgeStart = -9; this.perfectDodge = this.launchQueued = false;
     this.shots.length = this.bombs.length = this.traps.length = this.senses.length = this.pendingHits.length = 0;
+    this.acool.fill(0); this.overT = this.parryT = this.parryCool = 0;
     this.H.combatLock = 0;
   }
   // the enemies as they are drawn here (sim on this machine, else the host's snapshots)
@@ -104,6 +113,8 @@ export class HeroCombat {
     const H = this.H;
     this.comboT -= dt; if (this.comboT <= 0) { this.bestCombo = Math.max(this.bestCombo, this.combo); this.combo = 0; this.chain = 0; }
     for (let i = 1; i < 7; i++) this.cool[i] = Math.max(0, this.cool[i] - dt);
+    for (let i = 1; i < 4; i++) this.acool[i] = Math.max(0, this.acool[i] - dt);
+    this.overT = Math.max(0, this.overT - dt); this.parryT = Math.max(0, this.parryT - dt); this.parryCool = Math.max(0, this.parryCool - dt);
     this.ammo = Math.min(10, this.ammo + dt * 1.1);
     this.dodgeT = Math.max(0, this.dodgeT - dt); this.iframes = Math.max(0, this.iframes - dt); this.counterT = Math.max(0, this.counterT - dt);
     this.dodgeCool = Math.max(0, this.dodgeCool - dt); this.hurtGrace = Math.max(0, this.hurtGrace - dt);
@@ -122,12 +133,14 @@ export class HeroCombat {
     if (inp.attackHeld) this.attackHeldT += dt;
     // A press in the middle of a move isn't lost: it's held for a moment and happens when the move
     // ends (that's what lets combos flow). A dodge cancels anything but another dodge.
-    const press = inp.dodge ? "dodge" : inp.strike ? "strike" : inp.finisher ? "finisher" : inp.throwObj ? "throw" : inp.gadget ? "g" + inp.gadget
+    // the pad's B is also crouch: it only parries when there is a fight to parry in
+    const parry = inp.parry && (inp.parryKey || this.inCombat || this.senses.length);
+    const press = inp.dodge ? "dodge" : parry ? "parry" : inp.ability ? "a" + inp.ability : inp.strike ? "strike" : inp.finisher ? "finisher" : inp.throwObj ? "throw" : inp.gadget ? "g" + inp.gadget
       : inp.attackDown ? "attack" : null;
     if (press && (press !== "dodge" || this.dodgeCool <= 0)) this.buf = { cmd: press, t: .42, inp: { mx: inp.mx, mz: inp.mz, look: inp.look.clone(), camPos: inp.camPos.clone(), crouch: inp.crouch, ix: inp.ix, iy: inp.iy } };
     if (this.buf && (this.buf.t -= dt) <= 0) this.buf = null;
     const a = this.action;
-    const cancel = a && (this.buf?.cmd === "dodge" && a.kind !== "dodge" && a.kind !== "finisher"
+    const cancel = a && ((this.buf?.cmd === "dodge" || this.buf?.cmd === "parry") && a.kind !== "dodge" && a.kind !== "parry" && a.kind !== "finisher"
       || this.buf && a.done && a.t >= a.dur * .7 && ["jab", "cross", "hook", "kick", "roundhouse", "air", "launch"].includes(a.kind));
     if (this.action && !cancel) return;
     if (cancel) { this.action = null; H.combatLock = 0; }
@@ -150,7 +163,8 @@ export class HeroCombat {
       } else this.hero.onCombat("deny"); break;
       case "throw": this.grab(I, tgt); break;
       case "attack": this.attack(I, tgt, air); break;
-      default: this.gadget(+b.cmd.slice(1), I, tgt);
+      case "parry": if (this.parryCool <= 0) this.parry(); break;
+      default: if (b.cmd[0] === "a") this.ability(+b.cmd.slice(1), I, tgt); else this.gadget(+b.cmd.slice(1), I, tgt);
     }
   }
   attack(inp, tgt, air) {
@@ -210,6 +224,53 @@ export class HeroCombat {
     // Reward the timing even when moving clear makes the warned attack miss completely.
     if (this.senses.some((s) => s.t >= -.04 && s.t <= .22 && this.threatening(s))) this.perfect("sense");
   }
+  // Parry: a guard raised for a moment. A blow that lands inside it is turned aside, the attacker is
+  // staggered, and the next attack is a counter.
+  parry() {
+    this.parryT = .3; this.parryCool = .55;
+    this.action = { kind: "parry", t: 0, dur: .42, hitAt: 99 };
+    this.H.combatLock = .26;
+    this.hero.onCombat("guard");
+  }
+  parried(kx, kz, fromId) {
+    const H = this.H;
+    let e = fromId != null ? this.byId(fromId) : null;
+    if (!this.alive(e)) {
+      // the attacker stands where the blow came from
+      let bd = 30;
+      e = null;
+      for (const q of this.list) { if (!this.alive(q)) continue; const d = (q.x - H.p.x) ** 2 + (q.z - H.p.z) ** 2; if (d < bd) { bd = d; e = q; } }
+    }
+    this.parryT = 0; this.counterT = 1.8; this.slowT = .3; this.comboT = Math.max(this.comboT, 3);
+    this.focus = Math.min(3, this.focus + .4 * (this.focusK || 1));
+    if (this.action?.kind === "parry") this.action.riposte = true;
+    if (e) {
+      const dx = e.x - H.p.x, dz = e.z - H.p.z, d = Math.hypot(dx, dz) || 1;
+      H.face.set(dx / d, 0, dz / d);
+      this.applyHit(e, { dmg: 7, kind: "hook", kx: dx / d, kz: dz / d, heavy: true, knock: 5 });
+    }
+    this.hero.onCombat("parry", { e });
+  }
+  // the arc abilities (7 / 8 / 9)
+  ability(n, inp, tgt) {
+    const A = ABILITIES[n], H = this.H;
+    if (!A || this.acool[n] > 0) return this.hero.onCombat("deny");
+    if (A.id === "burst") this.start({ kind: "burst", dur: .6, hitAt: .24 });
+    else if (A.id === "tether") {
+      const list = this.near(26).filter((e) => this.visible(e)).sort((a, b) => this.dist(a) - this.dist(b)).slice(0, 6);
+      if (!list.length) return this.hero.onCombat("deny");
+      const fx = H.p.x + H.face.x * 2.2, fz = H.p.z + H.face.z * 2.2;
+      list.forEach((e, i) => {
+        const dx = fx - e.x, dz = fz - e.z, d = Math.hypot(dx, dz) || 1;
+        this.applyHit(e, { dmg: 9, kind: "pull", pull: 1, web: .6, x: fx, z: fz, kx: dx / d, kz: dz / d });
+        this.hero.onCombat("line", { to: new V(e.x, e.y + .3, e.z), side: i % 2 ? 1 : -1, yank: true });
+      });
+      this.start({ kind: "web", dur: .55, hitAt: 99 });
+      this.combo += list.length; this.comboT = 3;
+    } else if (A.id === "overcharge") this.overT = 9;
+    this.acool[n] = A.cool * (this.coolK || 1);
+    this.hero.onCombat("ability", { id: A.id, name: A.name });
+  }
   perfect(kind) {
     if (this.perfectDodge) return;
     this.perfectDodge = true;
@@ -260,9 +321,16 @@ export class HeroCombat {
   // the moment a blow lands
   land(a, tg) {
     const H = this.H, f = H.face;
+    if (a.kind === "burst") {
+      this.impact(H.p.x, H.p.y, H.p.z, 9.5, 24 * (this.dmgK || 1), { launch: 10, knock: 9 });
+      this.combo += 1; this.comboT = 3; this.stopT = .1;
+      this.hero.onCombat("burst");
+      return;
+    }
     const base = { jab: 9, cross: 11, hook: 13, uppercut: 15, kick: 14, roundhouse: 18, spin: 20, air: 11, launch: 10, slam: 20, finisher: 999 }[a.kind] || 10;
-    const dmg = base * (a.counter ? 2 : 1) * (1 + Math.min(1, this.combo / 30) * .5) * (this.dmgK || 1);
-    const opts = { heavy: ["roundhouse", "spin"].includes(a.kind) || a.counter || a.kind === "finisher", launch: a.kind === "launch" ? 12 : a.kind === "uppercut" ? 9 : 0, slam: false, knock: ["kick", "spin"].includes(a.kind) ? 6 : undefined };
+    const over = this.overT > 0;
+    const dmg = base * (a.counter ? 2 : 1) * (1 + Math.min(1, this.combo / 30) * .5) * (this.dmgK || 1) * (over ? 1.7 : 1);
+    const opts = { heavy: over || ["roundhouse", "spin"].includes(a.kind) || a.counter || a.kind === "finisher", launch: a.kind === "launch" ? 12 : a.kind === "uppercut" ? 9 : 0, slam: false, knock: ["kick", "spin"].includes(a.kind) ? 6 : undefined };
     if (a.kind === "air" && this.combo % 5 === 4) opts.slam = true;            // the last hit of an air string sends them down
     const hits = [];
     const reach = ["roundhouse", "spin"].includes(a.kind) ? 2.8 : 2.3;
@@ -480,6 +548,7 @@ export class HeroCombat {
     const H = this.H;
     if (this.downT > 0) return "down";
     if (this.hurtGrace > 0 || this.action?.kind === "finisher") return "dodged";
+    if (this.parryT > 0 && kind !== "shot") { this.parried(kx, kz, fromId); return "dodged"; }
     // dodging through it
     if (this.iframes > 0) {
       const perfect = this.hero.clock - this.dodgeStart < .18;
@@ -508,6 +577,8 @@ export class HeroCombat {
     const a = this.action;
     if (!a) return null;
     if (a.kind === "webstrike") return { kind: "kick", k: .5, side: 1 };
+    if (a.kind === "parry") return { kind: "parry", k: clamp(a.t / a.dur, 0, 1), riposte: !!a.riposte, side: a.side || 1 };
+    if (a.kind === "burst") return { kind: "burst", k: clamp(a.t / a.dur, 0, 1), impact: a.hitAt / a.dur };
     if (a.kind === "slam" && a.slamDown) return { kind: "slam", k: .4 };
     const k = clamp(a.t / a.dur, 0, 1);
     const impact = a.hitAt < a.dur ? clamp(a.hitAt / a.dur, .15, .85) : undefined;

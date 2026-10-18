@@ -181,12 +181,12 @@ function suitMaterial() {
       .replace("#include <common>", `#include <common>
         varying vec4 vSuit; varying vec3 vLocal;
         uniform vec3 uBase, uAccent, uDark, uGlow, uLens; uniform float uStyle, uGlowAmt, uHit, uTime; uniform vec2 uShoot;
-        float gEm; float gRough; float gMetal; float gHero;
+        float gEm; float gRough; float gMetal; float gHero; float gBump;
         float band(float x, float c, float w) { return 1. - smoothstep(w * .5, w * .5 + .012, abs(x - c)); }`)
       .replace("#include <color_fragment>", `#include <color_fragment>
         {
           float part = floor(vSuit.x + .5), u = vSuit.y, v = vSuit.z, side = vSuit.w;
-          vec3 col = uBase; gEm = 0.; gRough = .48; gMetal = .12; gHero = 0.;
+          vec3 col = uBase; gEm = 0.; gRough = .48; gMetal = .12; gHero = 0.; gBump = 0.;
           float st = uStyle;
           // distance round the limb from its outside line (u .25 on the left limbs, .75 on the right)
           float sideU = side > 0. ? abs(u - .25) : abs(u - .75);
@@ -194,9 +194,11 @@ function suitMaterial() {
           if (st < 2.5) {
             gHero = 1.;
             // a fine raised triangular weave over the base fabric (bind-pose metres, so it rides the limbs)
-            vec3 wq = vLocal * 34.;
-            float weave = max(max(band(fract(wq.y), .5, .07), band(fract(wq.x * .87 + wq.y * .5), .5, .07)), band(fract(-wq.x * .87 + wq.y * .5 + wq.z * .3), .5, .07));
-            if (part != 3.) { col = mix(col, col * .62, weave * .55); gRough += weave * .14 - .04; }
+            vec3 wq = vLocal * 18.;
+            float weave = max(max(band(fract(wq.y), .5, .1), band(fract(wq.x * .87 + wq.y * .5), .5, .1)), band(fract(-wq.x * .87 + wq.y * .5 + wq.z * .3), .5, .1));
+            // fades out once a cell is smaller than a couple of pixels, so distant suits don't shimmer
+            weave *= 1. - smoothstep(.12, .4, length(fwidth(wq)));
+            if (part != 3.) { col = mix(col, col * .62, weave * .55); gRough += weave * .14 - .04; gBump = weave; }
             // stripes down the outside of every limb, with a glowing seam in the middle
             if (limb) {
               float s = band(sideU, 0., st == 1. ? .17 : .11);
@@ -264,11 +266,20 @@ function suitMaterial() {
           }
           diffuseColor.rgb = col * mix(vec3(1.), vec3(1., .35, .3), uHit);
         }`)
+      .replace("#include <normal_fragment_maps>", `#include <normal_fragment_maps>
+        {
+          // the weave as a real raised texture: a bump from the screen-space slope of its height
+          vec3 dpx = dFdx(-vViewPosition), dpy = dFdy(-vViewPosition);
+          vec3 r1 = cross(dpy, normal), r2 = cross(normal, dpx);
+          float det = dot(dpx, r1);
+          vec3 grad = sign(det) * (dFdx(gBump) * r1 + dFdy(gBump) * r2) * .0016;
+          normal = normalize(abs(det) * normal - grad);
+        }`)
       .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = gRough;")
       .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = gMetal;")
       .replace("#include <emissivemap_fragment>", "#include <emissivemap_fragment>\nfloat gFres = pow(1. - clamp(abs(dot(normal, normalize(vViewPosition))), 0., 1.), 3.);\ntotalEmissiveRadiance += uGlow * gEm * uGlowAmt * 1.6 + vec3(1., .2, .1) * uHit * .6 + uGlow * gFres * gHero * .22;");
   };
-  extra.key = "herosuit4";
+  extra.key = "herosuit5";
   return patchLit(m, extra);
 }
 
@@ -649,11 +660,26 @@ export function poseBody(rig, a) {
     const flutter = sin(t * 11) * fast * 4, whip = load * load * s * 10;
     torso(rig, -8 - kick * 19, s * (8 + load * 8), -bank, -8 - kick * 7, -s * 6 + whip);
     headP(rig, -12 + kick * 10, turn * 22 - whip * .5, bank * .4);
-    leg(rig, s, 30 + kick * 50 + flutter, 8 + turn * s * 4, 30 + load * (45 + fast * 12), -18 + flutter);
-    leg(rig, -s, 8 + kick * 34 - flutter, 15 - turn * s * 4, 48 + load * 34 - flutter * 1.5, -7);
+    // three ways through a swing, picked per line so a long run never repeats one silhouette
+    const style = a.swingStyle || 0;
+    if (style === 1) {
+      // legs together and long, the free arm thrown wide
+      leg(rig, s, 18 + kick * 58 + flutter, 6, 10 + load * 22, -8 + flutter);
+      leg(rig, -s, 14 + kick * 52 - flutter, 9, 16 + load * 26, -6);
+    } else if (style === 2) {
+      // a running scissor through the bottom of the arc
+      const sc = sin((a.swingPhase || 0) * PI) * 26;
+      leg(rig, s, 36 + kick * 46 + sc, 9, 64 + load * 34, -14);
+      leg(rig, -s, -6 + kick * 30 - sc, 15, 26 + load * 40, 4);
+    } else {
+      leg(rig, s, 30 + kick * 50 + flutter, 8 + turn * s * 4, 30 + load * (45 + fast * 12), -18 + flutter);
+      leg(rig, -s, 8 + kick * 34 - flutter, 15 - turn * s * 4, 48 + load * 34 - flutter * 1.5, -7);
+    }
     if (a.anchorLocal) aimArm(rig, s, a.anchorLocal, 5 + load * 5);
     else arm(rig, s, 160, 20, 0, 10);
     if (a.anchor2Local) aimArm(rig, -s, a.anchor2Local, 8);
+    else if (style === 1) { arm(rig, -s, -6 + kick * 20, 84 + fast * 8, 0, 12); hand(rig, -s, 0, -10); }
+    else if (style === 2) { arm(rig, -s, 30 + kick * 40, 30, 0, 40 + load * 30); hand(rig, -s, 30); }
     else { arm(rig, -s, -24 + kick * 35, 45 + fast * 16 - turn * s * 12, 0, 28 + load * 20); hand(rig, -s, 12); }
     rate = 13;
   } else if (st === "zip") {
@@ -676,6 +702,16 @@ export function poseBody(rig, a) {
     arm(rig, 1, 120 + sin(ph) * 40, 30 + cos(ph) * 25, 0, 40); arm(rig, -1, 120 + sin(ph) * 40, 30 + cos(ph) * 25, 0, 40);
     leg(rig, 1, -10 + sin(ph * 1.5) * 20, 10, 20); leg(rig, -1, -10 - sin(ph * 1.5) * 20, 10, 20);
     rate = 8;
+  }
+  // the slingshot: crouched, leaning back against two lines held out in front
+  if (a.sling != null && (st === "ground" || st === "perch")) {
+    const c = a.sling, q = sin(t * 40) * c * 1.5;
+    torso(rig, -8 - c * 20, 0, q, -8 - c * 8); headP(rig, -12 + c * 8);
+    leg(rig, 1, 46 + c * 30, 14, 66 + c * 44, -16); leg(rig, -1, -12 - c * 16, 15, 28 + c * 22, 12);
+    arm(rig, 1, 78 - c * 8, 24, 0, 22 + c * 40); arm(rig, -1, 78 - c * 8, 24, 0, 22 + c * 40);
+    hand(rig, 1, 75); hand(rig, -1, 75);
+    if (hero) rig.poseOffset.y = -.16 - c * .22;
+    rate = 14;
   }
   // scripted moves override the state's pose
   if (a.move) {
@@ -817,6 +853,27 @@ function poseAttack(rig, at) {
       arm(rig, -1, 90, 0, 0, 5); arm(rig, 1, 80, -20, 0, 40);
       leg(rig, 1, 10, 10, 10); leg(rig, -1, -10, 10, 10);
       return 16;
+    }
+    case "parry": {
+      // forearms crossed up in a guard; a parried blow is shoved aside with the lead arm
+      const up = ease(k / .25), shove = at.riposte ? sin(cl((k - .2) / .6, 0, 1) * PI) : 0;
+      torso(rig, 8 - shove * 14, -s * (10 + shove * 30), 0, 6, -s * shove * 18); headP(rig, -8, s * 10);
+      arm(rig, s, 70 * up + shove * 30, 30 + shove * 40, 0, 120 * up - shove * 70); hand(rig, s, 70);
+      arm(rig, -s, 78 * up, 26, 0, 125 * up); hand(rig, -s, 80);
+      leg(rig, s, 28, 12, 42, -10); leg(rig, -s, -16, 14, 26, 6);
+      if (rig.look.style < 2.5) rig.poseOffset.y = -.1 * up;
+      return 32;
+    }
+    case "burst": {
+      // gathered low, then everything thrown outwards at once
+      const gather = ease(k / contact), out = k < contact ? 0 : 1 - ease((k - contact) / (1 - contact)) * .6;
+      torso(rig, 30 * gather * (1 - out) - 12 * out, 0, 0, 12 * gather - 14 * out); headP(rig, 18 * gather - 22 * out);
+      for (const q of [1, -1]) {
+        arm(rig, q, 40 * gather * (1 - out) + 30 * out, 20 + 70 * out, 0, 120 * gather * (1 - out) + 10 * out); hand(rig, q, 60 * (1 - out));
+        leg(rig, q, 70 * gather * (1 - out) + 10 * out, 14 + 20 * out, 100 * gather * (1 - out) + 10 * out, -20 * gather);
+      }
+      if (rig.look.style < 2.5) rig.poseOffset.y = -.4 * gather * (1 - out);
+      return 30;
     }
     case "emote": return poseEmote(rig, at);
   }

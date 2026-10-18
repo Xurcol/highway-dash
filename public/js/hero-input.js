@@ -13,13 +13,17 @@ export const HERO_KEYS = [
   ["T + Shift / Ctrl", "Layout / barrel variations, or pike / scissor variations (F also works)", "RB + L3 / B"],
   ["Left mouse", "Attack chain (hold = launcher, in the air = air combo)", "X"],
   ["Q", "Dodge / air dash · perfect dodge opens a counter", "LT"],
+  ["V", "Parry - block just before a blow lands, then counter", "B (in a fight)"],
+  ["Hold X", "Slingshot - pull back on two lines and fling yourself where you look", "Hold LB + RB"],
+  ["7 · 8 · 9", "Arc abilities: Arc Burst · Tether Storm · Overcharge", "RB + X / Y / R3"],
   ["R", "Web strike - zip-kick the target", "Y"],
   ["1 - 6", "Web shot · pull/disarm · launch · bomb · trap · impact web", "D-pad"],
   ["G", "Web throw - hurl an object or a stunned enemy", "R3"],
   ["Z", "Finisher (tap) · heal (hold)", "-"],
   ["Wheel / middle mouse", "Next target / lock target", "-"],
   ["B (hold) + 1-8", "Emotes", "-"],
-  ["M", "City map", "View"],
+  ["M", "World map · click a spot to fast travel", "View"],
+  ["O", "Photo mode", "-"],
   ["K", "Activities: races, trick attack, crimes", "-"],
   ["H", "Show / hide these controls", "-"],
 ];
@@ -115,7 +119,9 @@ export class HeroInput {
     const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw), rx = -fz, rz = fx;
     const b = (bit) => !!(this.mb & bit), bd = (bit) => !!(this.mDown & bit), bu = (bit) => !!(this.mUp & bit);
     const pb = pad?.b || [], pp = this.padPrev, pdn = (i) => !!pb[i] && !pp[i], pup = (i) => !pb[i] && !!pp[i];
-    const digit = [1, 2, 3, 4, 5, 6, 7, 8].find((n) => this.pressed("Digit" + n, "Numpad" + n));
+    const digit = [1, 2, 3, 4, 5, 6, 7, 8, 9].find((n) => this.pressed("Digit" + n, "Numpad" + n));
+    // RB held turns the face buttons into the arc abilities
+    const rb = !!pb[5], padAbility = rb ? (pdn(2) ? 1 : pdn(3) ? 2 : pdn(11) ? 3 : 0) : 0;
     const dpad = pdn(12) ? 1 : pdn(15) ? 2 : pdn(14) ? 3 : pdn(13) ? 4 : 0;
     const emoteHeld = this.held("KeyB");
     const inp = {
@@ -124,20 +130,23 @@ export class HeroInput {
       jump: this.pressed("Space") || pdn(0), jumpHeld: this.held("Space") || !!pb[0],
       sprint: this.held("ShiftLeft", "ShiftRight") || !!pb[10],
       swing: b(4) || (pad ? pad.rt > .35 : false), swingDown: bd(4) || (pad ? pad.rt > .35 && !(this.prevRT > .35) : false), swingUp: bu(4) || (!(pad?.rt > .35) && this.prevRT > .35),
-      zip: this.pressed("KeyE") || pdn(4),
+      zip: this.pressed("KeyE") || pdn(4) && !rb,
+      sling: this.held("KeyX") || !!pb[4] && rb,
+      parry: this.pressed("KeyV") || pdn(1), parryKey: this.pressed("KeyV"),
+      ability: emoteHeld ? 0 : digit && digit >= 7 ? digit - 6 : padAbility,
       crouch: this.held("ControlLeft", "ControlRight", "KeyC") || !!pb[1], crouchDown: this.pressed("ControlLeft", "ControlRight", "KeyC") || pdn(1),
       trick: this.held("KeyT", "KeyF") || !!pb[5], trickDown: this.pressed("KeyT", "KeyF") || pdn(5),
       trickX: ix, trickY: iy,
       trickStyle: this.held("ControlLeft", "ControlRight", "KeyC") || !!pb[1] ? "pike" : this.held("ShiftLeft", "ShiftRight") || !!pb[10] ? "layout" : "base",
-      attack: bd(1) || pdn(2), attackHeld: b(1) || !!pb[2], attackDown: bd(1) || pdn(2), attackUp: bu(1) || pup(2),
+      attack: bd(1) || pdn(2) && !rb, attackHeld: b(1) || !!pb[2] && !rb, attackDown: bd(1) || pdn(2) && !rb, attackUp: bu(1) || pup(2),
       dodge: this.pressed("KeyQ") || (pad ? pad.lt > .5 && !(this.prevLT > .5) : false),
-      strike: this.pressed("KeyR") || pdn(3),
+      strike: this.pressed("KeyR") || pdn(3) && !rb,
       gadget: emoteHeld ? 0 : digit && digit <= 6 ? digit : dpad,
-      emote: emoteHeld && digit ? digit : 0, emoteMenu: emoteHeld,
-      throwObj: this.pressed("KeyG") || pdn(11),
+      emote: emoteHeld && digit && digit <= 8 ? digit : 0, emoteMenu: emoteHeld,
+      throwObj: this.pressed("KeyG") || pdn(11) && !rb,
       finisher: this.pressed("KeyZ"), finisherHeld: this.held("KeyZ"),
       cycle: this.wheel ? Math.sign(this.wheel) : 0, lockTarget: bd(2),
-      map: this.pressed("KeyM") || pdn(8), activities: this.pressed("KeyK"), help: this.pressed("KeyH"),
+      map: this.pressed("KeyM") || pdn(8), activities: this.pressed("KeyK"), help: this.pressed("KeyH"), photo: this.pressed("KeyO"),
       mdx: this.dx, mdy: this.dy,
       pad: !!pad,
     };

@@ -59,6 +59,7 @@ export const LINKS = {
   airdash: ["Air Dash", 20, .1], double: ["Double Web", 50, .25], under: ["Under Pass", 160, .5], close: ["Close Call", 70, .25],
   freefall: ["Freefall", 0, .25], aircombo: ["Air Combo", 60, .25], wallpin: ["Wall Pin", 150, .5], perfectdodge: ["Perfect Dodge", 120, .5],
   webstrike: ["Web Strike", 80, .25], finisher: ["Finisher", 250, .5], takedown: ["Takedown", 100, .25], throw: ["Web Throw", 90, .25], slam: ["Ground Slam", 120, .25], roll: ["Roll", 60, .1], pullup: ["Pull Up", 80, .25], ceiling: ["Ceiling Run", 60, .25], ledge: ["Ledge Grab", 20, .1],
+  slingshot: ["Slingshot", 120, .5], wind: ["Wind Tunnel", 80, .25], updraft: ["Updraft", 60, .25], parry: ["Parry", 140, .5], ability: ["Arc Ability", 100, .25], cache: ["Signal Cache", 200, .5],
 };
 
 const _q = new Q(), _axis = new V(), _up = new V(), IDENTITY = new Q();

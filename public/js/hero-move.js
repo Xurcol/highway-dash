@@ -6,6 +6,7 @@
 // and the player's steering do the rest. Pure logic (three.js only for its vector maths), so it runs
 // headless under Node for the movement tests.
 import * as THREE from "three";
+import { WIND } from "./hero-wind.js";
 
 const V = THREE.Vector3;
 export const TUNE = {
@@ -63,6 +64,7 @@ export class HeroBody {
     this.turnRate = 0; this.impactVy = 0; this.cor = null; this.corT = 0;
     this.clearanceT = 0; this.swingFloor = 0; this.swingDrive = 0; this.swingTension = 0;
     this.wallSolid = null; this.wallGap = TUNE.r + .02;
+    this.sling = null; this.inWind = null;
   }
   ev(type, o = {}) { o.type = type; this.events.push(o); return o; }
   setState(s) { if (s !== this.state) { this.prevState = this.state; this.state = s; this.stateT = 0; } }
@@ -87,6 +89,7 @@ export class HeroBody {
     this.landT += dt; this.hardT = Math.max(0, this.hardT - dt); this.rollT = Math.max(0, this.rollT - dt);
     this.launchWindow = Math.max(0, this.launchWindow - dt);
     this.updateShots(dt, inp);
+    if (this.sling && this.state !== "ground" && this.state !== "perch") this.sling = null;
     if (this.move) this.stepMove(dt, inp);
     else switch (this.state) {
       case "ground": this.ground(dt, inp); break;
@@ -98,6 +101,7 @@ export class HeroBody {
       case "perch": this.perchStep(dt, inp); break;
       case "water": this.water(dt, inp); break;
     }
+    if (this.state !== "air") this.inWind = null;
     this.keepInBounds();
     this.speed = this.v.length();
     const turning = wasMoving && Math.hypot(this.v.x, this.v.z) > 3 ? clamp(wrapA(Math.atan2(this.v.x, this.v.z) - heading) / dt, -5, 5) : 0;
@@ -171,6 +175,7 @@ export class HeroBody {
     this.sprintT = sprinting ? this.sprintT + dt : Math.max(0, this.sprintT - dt * 3);
     this.crouchT = inp.crouch ? this.crouchT + dt : 0;
     this.dashUsed = false; this.dashN = 0; this.glide = false; this.dive = false;
+    if (this.combatLock <= 0 && this.slingStep(dt, inp)) return;
     if (this.combatLock > 0) {
       // a punch, a lunge, a dodge: the fight moves the body; it slows on the ground by itself
       const k = Math.exp(-dt * 4);
@@ -308,7 +313,13 @@ export class HeroBody {
     if (this.dive) this.diveT += dt;
     // web wings: hold jump while falling
     if (!this.glide && !inp.trick && !inp.crouch && inp.jumpHeld && this.v.y < -4 && this.airT > .3 && hAbove > 6 && this.jumpBuf <= 0) { this.glide = true; this.ev("glide"); }
-    if (this.glide && (!inp.jumpHeld || hAbove < 1.5)) this.glide = false;
+    // flying into a current or an updraft opens the wings by itself, and the air holds them open
+    const wind = this.winds && !inp.crouch && !inp.trick && this.airT > .2 ? this.winds.at(this.p) : null;
+    const wasWind = this.inWind;
+    this.inWind = wind ? wind.kind : null;
+    if (wind && !this.glide && !this.dive) { this.glide = true; this.ev("glide"); }
+    if (this.inWind && this.inWind !== wasWind) this.ev("windin", { kind: this.inWind });
+    if (this.glide && (!inp.jumpHeld && !wind || hAbove < 1.5)) this.glide = false;
     // air dash
     if (inp.dodge && (this.dashN || 0) < (this.dashes || 1) && this.combatLock <= 0) {
       this.dashN = (this.dashN || 0) + 1; this.dashUsed = this.dashN >= (this.dashes || 1);
@@ -316,7 +327,7 @@ export class HeroBody {
       this.v.x += dx / L * T.dash; this.v.z += dz / L * T.dash; this.v.y = Math.max(this.v.y, 0) + 3;
       this.ev("airdash");
     }
-    if (this.glide) this.glideStep(dt, inp, md);
+    if (this.glide) this.glideStep(dt, inp, md, wind);
     else {
       // steering: accelerate towards the stick and swing the heading round to it
       const hs = Math.hypot(this.v.x, this.v.z);
@@ -351,16 +362,27 @@ export class HeroBody {
     this.checkLedge(inp);
     this.checkWater();
   }
-  glideStep(dt, inp, md) {
+  glideStep(dt, inp, md, wind) {
     const T = TUNE, hs = Math.max(.1, Math.hypot(this.v.x, this.v.z));
+    const tunnel = wind?.kind === "tunnel" ? wind.w : null, vmax = tunnel ? WIND.speed + 8 : T.glideMax;
     let hx = this.v.x / hs, hz = this.v.z / hs;
     // bank towards the stick
     const side = md.x * hz - md.z * hx;   // + is to the left
-    const a = Math.atan2(hx, hz) + clamp(side, -1, 1) * 1.6 * dt;
+    let a = Math.atan2(hx, hz) + clamp(side, -1, 1) * 1.6 * dt;
+    // a current turns the wings down its length (steering hard still breaks out of it)
+    if (tunnel && Math.abs(side) < .6) a += clamp(wrapA(Math.atan2(tunnel.dx, tunnel.dz) - a), -1, 1) * 2.4 * dt;
     hx = Math.sin(a); hz = Math.cos(a);
     const pitch = -(md.x * hx + md.z * hz);   // pulling back climbs (and bleeds speed)
-    let s = clamp(hs + (-pitch * 9 - 1.5) * dt, T.glideMin * .7, T.glideMax);
+    let s = clamp(hs + (-pitch * 9 - 1.5) * dt, T.glideMin * .7, vmax);
+    if (tunnel) s += (WIND.speed - s) * Math.min(1, dt * 1.4);
     this.v.x = hx * s; this.v.z = hz * s;
+    if (tunnel) {
+      // drawn in towards the middle of the current, and held at its height
+      this.v.x += (wind.cx - this.p.x) * WIND.pull * dt * 2; this.v.z += (wind.cz - this.p.z) * WIND.pull * dt * 2;
+      this.v.y += ((wind.cy - this.p.y) * WIND.hold - this.v.y) * Math.min(1, dt * 3);
+      return;
+    }
+    if (wind?.kind === "draft") { this.v.y += (WIND.lift - this.v.y) * Math.min(1, dt * 1.8); return; }
     const sink = T.glideG * (1.2 - Math.min(1, s / T.glideMax) * .6) + Math.max(0, -pitch) * -5;
     this.v.y += (-sink - this.v.y) * Math.min(1, dt * 2.5) + (pitch > 0 ? pitch * 6 * dt * Math.min(1, s / 20) : 0);
     if (s < T.glideMin * .75) this.v.y -= T.g * .5 * dt;
@@ -827,8 +849,36 @@ export class HeroBody {
     this.toAir(); this.dashUsed = false; this.dashN = 0;
     this.ev("launch");
   }
+  // The slingshot: hold to pull back on two lines, let go to be flung where the camera looks - harder
+  // the longer it was held. Works from the street and from a perch.
+  slingStep(dt, inp) {
+    const s = this.sling;
+    if (!s) {
+      if (!inp.sling) return false;
+      this.sling = { t: 0, charge: 0 };
+      this.ev("slingstart");
+      return true;
+    }
+    s.t += dt; s.charge = clamp((s.t - .1) / 1.1, 0, 1);
+    const k = Math.exp(-dt * 10);
+    this.v.x *= k; this.v.z *= k; this.v.y = 0;
+    this.turnFace(inp.look.x, inp.look.z, 9, dt);
+    if (inp.sling) return true;
+    this.sling = null;
+    if (s.charge < .12) { this.ev("slingcancel"); return false; }
+    const L = inp.look, hx = L.x, hz = L.z, hl = Math.hypot(hx, hz) || 1;
+    // aim where the camera looks, but never flatter than a climbing arc
+    const up = clamp(L.y + .45, .32, .95), across = Math.sqrt(1 - up * up);
+    const sp = 30 + s.charge * 34;
+    this.v.set(hx / hl * across * sp, up * sp, hz / hl * across * sp);
+    this.perchAt = null; this.jumpBuf = 0;
+    this.toAir(); this.dashUsed = false; this.dashN = 0;
+    this.ev("slingshot", { charge: s.charge });
+    return true;
+  }
   perchStep(dt, inp) {
     const md = this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
+    if (this.slingStep(dt, inp)) { if (this.state === "perch") this.v.set(0, 0, 0); return; }
     this.v.set(0, 0, 0);
     if (m > .1) this.turnFace(md.x, md.z, 6, dt);
     else this.turnFace(inp.look.x, inp.look.z, 3, dt);

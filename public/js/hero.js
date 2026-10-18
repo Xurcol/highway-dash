@@ -12,7 +12,7 @@ import { HeroInput } from "./hero-input.js";
 import { Tricks } from "./hero-tricks.js";
 import { WebLines, Particles, SpeedLines, Trails, Rings, Tracers } from "./hero-fx.js";
 import { EnemySim, EnemyView, KINDS } from "./hero-enemies.js";
-import { HeroCombat, GADGETS } from "./hero-combat.js";
+import { HeroCombat, GADGETS, ABILITIES } from "./hero-combat.js";
 import { Crowd, Trains, Emergency, trafficSolids, WeatherClock, heroDistrict } from "./hero-life.js";
 import { Events, EVENT_TYPES } from "./hero-events.js";
 import { HeroNet } from "./hero-net.js";
@@ -20,6 +20,11 @@ import { Activities } from "./hero-activities.js";
 import { Progress } from "./hero-progress.js";
 import { earn } from "./arcline-profile.js";
 import { HeroHud } from "./hero-hud.js";
+import { Winds, WindView } from "./hero-wind.js";
+import { Caches } from "./hero-caches.js";
+import { PhotoMode } from "./hero-photo.js";
+import { WorldMap } from "./hero-map.js";
+import { SkyLife } from "./hero-skylife.js";
 
 const V = THREE.Vector3, Q = THREE.Quaternion;
 const UP = new V(0, 1, 0);
@@ -28,7 +33,7 @@ const STATE_LABEL = { ground: "ON FOOT", air: "AIRBORNE", swing: "SWINGING", zip
 const TRAIL_BONES = ["handL", "handR", "footL", "footR"];
 const WHITE = [1, 1, 1];
 const EMPTY = [];
-const IDLE_INPUT = { mx: 0, mz: 0, ix: 0, iy: 0, jump: false, jumpHeld: false, sprint: false, swing: false, swingDown: false, zip: false, crouch: false, crouchDown: false, trick: false, trickDown: false, attack: false, attackHeld: false, attackDown: false, attackUp: false, dodge: false, strike: false, gadget: 0, throwObj: false, finisher: false, finisherHeld: false };
+const IDLE_INPUT = { mx: 0, mz: 0, ix: 0, iy: 0, jump: false, jumpHeld: false, sprint: false, swing: false, swingDown: false, zip: false, crouch: false, crouchDown: false, trick: false, trickDown: false, attack: false, attackHeld: false, attackDown: false, attackUp: false, dodge: false, strike: false, gadget: 0, throwObj: false, finisher: false, finisherHeld: false, sling: false, parry: false, parryKey: false, ability: 0 };
 
 export class HeroMode {
   constructor(ctx) {
@@ -65,6 +70,10 @@ export class HeroMode {
     this.netx = new HeroNet(this);
     this.activities = new Activities(this);
     this.progress = new Progress(this);
+    this.caches = new Caches(this);
+    this.photo = new PhotoMode(this);
+    this.worldMap = new WorldMap(this);
+    this.slingPts = [new V(), new V()]; this.swingStyle = 0; this.overFxT = 0;
     this.lines = [];      // short-lived combat lines: { side, to, t, life, follow }
     this.frameEvents = []; this.stepInput = {}; this.idleInput = {};
     this.webPoints = []; this.webPair = [new V(), new V()];
@@ -120,6 +129,7 @@ export class HeroMode {
   setVisible(on) {
     if (!this.H) return;
     this.rig.group.visible = on;
+    this.windView?.setVisible(on); this.caches?.setVisible(on); this.skyLife?.setVisible(on);
     for (const S of this.parts.sets) S.pts.visible = on;
     this.trails.mesh.visible = on;
     if (!on) { this.speedLines.lines.visible = false; this.webs.begin(this.ctx.camera.position); this.webs.end(0); }
@@ -135,6 +145,15 @@ export class HeroMode {
       this.life = { W, crowd: new Crowd(sc, W), trains: new Trains(sc), emergency: new Emergency(sc), weather: new WeatherClock() };
     }
     this.life.crowd.setVisible(true); this.life.trains.setVisible(true);
+    // the air currents, the caches and the life in the sky belong to this city
+    const sc = this.ctx.scene;
+    if (!this.winds || this.winds.W !== W) {
+      if (this.windView) sc.remove(this.windView.mesh);
+      this.winds = new Winds(W); this.windView = new WindView(sc, this.winds);
+    }
+    this.H.winds = this.winds;
+    this.caches.build(W, sc); this.caches.refresh();
+    if (!this.skyLife || this.skyLife.W !== W) { if (this.skyLife) this.skyLife.setVisible(false); this.skyLife = new SkyLife(sc, W); }
     this.events ||= new Events(this);
     this.carry = null;
     this.online = !!opt.online;
@@ -158,11 +177,12 @@ export class HeroMode {
     this.rig.place(this.H.p, UP, this.H.face, null, 0, 0);
     this.tricks.score = this.profile().score || 0;
     this.tricks.best = this.profile().best || 0;
-    this.hud.center("NEW MERIDIAN", "Right mouse swings · T + WASD does air tricks · K opens activities", 4);
+    this.hud.center("NEW MERIDIAN", "Right mouse swings · glide into the wind currents · M world map · O photo mode", 4);
     this.firstFrames = 3;
   }
   exit() {
     if (!this.on) return;
+    this.photo?.close(); this.worldMap?.close();
     this.on = false;
     this.input.activate(false);
     this.hud.show(false);
@@ -215,6 +235,8 @@ export class HeroMode {
     if (dt <= 0) { inp.mdx = inp.mdy = 0; }
     if (inp.help) this.hud.toggleKeys();
     if (inp.activities) this.activities.toggleMenu();
+    if (inp.photo) { this.photo.open(); return; }
+    if (inp.map) { this.worldMap.open(); return; }
     this.hud.emotes(inp.emoteMenu, EMOTES);
     // ---- the body ----
     if (dt > 0) {
@@ -254,6 +276,7 @@ export class HeroMode {
         this.events.direct(dt, pl); this.events.step(dt, pl);
       }
       this.updateCarry(dt);
+      this.caches.update(dt, this.clock, H, this.parts);
       this.activities.update(dt);
       if (this.online) this.netx.tick(dt, T);
       this.updateCombatFrame();
@@ -283,6 +306,11 @@ export class HeroMode {
     this.parts.update(dt, this.ctx.renderer.domElement.height);
     this.speedLines.update(real, camera.position, H.v);
     this.rings.update(dt);
+    this.windView.update(this.clock, this.ctx.sky.night || 0);
+    if (this.combat.overT > 0 && (this.overFxT -= real) <= 0) {
+      this.overFxT = .05;
+      for (const s of [1, -1]) { const p = this.rig.handPos(s, _h1); this.parts.energy(p.x, p.y, p.z, 1, this.glowRGB()); }
+    }
     // ---- HUD ----
     this.updateHud(real, inp);
     this.trickEvents.length = 0;
@@ -368,6 +396,7 @@ export class HeroMode {
     const hero = this.crowdHero;
     hero.x = H.p.x; hero.y = H.p.y - HIP_H; hero.z = H.p.z; hero.show = show;
     L.crowd.update(dt, cam, hero, threats, glows, sky.night > .5);
+    this.skyLife?.update(dt, T, cam, hero, sky.night || 0, glows);
     this.events.draw(dt, T, glows, this.parts);
     for (const t of this.tracerQueue || []) this.tracers.add(...t);
     this.tracerQueue.length = 0;
@@ -382,8 +411,13 @@ export class HeroMode {
     threat.x = x; threat.z = z; threat.r = r;
     this.crowdThreats.push(threat);
   }
+  eventColor(e) { return EVENT_TYPES[e.kind]?.crime ? "#ff5a3c" : "#7fe9ff"; }
   mapDots() {
-    const out = [];
+    const out = [], H = this.H;
+    if (H) {
+      this.caches.near(H.p.x, H.p.z, 330, out);
+      for (const w of this.winds?.tunnels || []) for (const t of [.15, .5, .85]) { const x = w.ax + (w.bx - w.ax) * t, z = w.az + (w.bz - w.az) * t; if ((x - H.p.x) ** 2 + (z - H.p.z) ** 2 < 330 * 330) out.push({ x, z, color: "#bfe9ff" }); }
+    }
     for (const e of this.events?.list || []) if (e.state !== "done" && e.state !== "failed") out.push({ x: e.x, z: e.z, color: EVENT_TYPES[e.kind].crime ? "#ff5a3c" : "#7fe9ff" });
     for (const r of this.remoteHeroes?.() || []) out.push({ x: r.x, z: r.z, color: r.color || "#ffffff" });
     return out;
@@ -560,6 +594,7 @@ export class HeroMode {
     a.state = H.state; a.speed = H.speed; a.hs = hs; a.vy = H.v.y; a.slide = H.slideT; a.roll = H.rollT; a.hard = H.hardT; a.landT = H.landT;
     a.crouch = inp.crouch && H.state === "ground" && hs < 5; a.dive = H.dive; a.glide = H.glide; a.dash = H.dashUsed && H.state === "air" && this.dashT > 0 ? 1 : 0;
     a.move = H.move; a.wallMode = H.wallMode; a.trick = airborne ? this.tricks.shape() : null;
+    a.sling = H.sling ? H.sling.charge : null; a.swingStyle = this.swingStyle;
     a.turn = clamp(H.turnRate || 0, -1, 1);
     a.combat = this.inCombat;
     a.releaseT = H.releaseT; a.releaseQuality = H.releaseQuality;
@@ -584,6 +619,8 @@ export class HeroMode {
     if (inp.emote && !this.inCombat) this.emote = { id: inp.emote - 1, t: 0 };
     if (this.emote) { this.emote.t += dt; if (H.speed > 1.5 || H.state !== "ground" || this.emote.t > 8) this.emote = null; }
     const r = poseBody(rig, a);
+    // overcharged: the whole suit runs hot
+    if (this.combat.overT > 0) rig.mat.userData.u.uGlowAmt.value += .9 + Math.sin(a.t * 18) * .15;
     rig.apply(this.combat.stopT > 0 ? dt * .1 : dt, this.firstFrames > 0 ? 1000 : r);
     const Uh = rig.mat.userData.u;
     Uh.uHit.value = Math.max(0, Uh.uHit.value - dt * 4);
@@ -592,6 +629,7 @@ export class HeroMode {
     const U = rig.mat.userData.u;
     U.uShoot.value.x *= Math.exp(-dt * 6); U.uShoot.value.y *= Math.exp(-dt * 6);
     for (const w of H.webs) if (w.side > 0) U.uShoot.value.x = Math.max(U.uShoot.value.x, .5); else U.uShoot.value.y = Math.max(U.uShoot.value.y, .5);
+    if (H.sling || this.combat.overT > 0) U.uShoot.value.set(1, 1);
   }
   // a world point as a direction from the shoulder, in the rig's own frame
   toBody(pt, side, out = new V()) {
@@ -614,6 +652,11 @@ export class HeroMode {
       const slack = Math.max(0, w.L - d);
       this.webs.line(pts, this.webCol, 1, Math.max(0, .25 - w.t) * 3, Math.min(3, slack * .4), this.clock);
       w.t += dt;
+    }
+    // the slingshot's two lines, drawn tighter the harder it is pulled
+    if (H.sling) for (let i = 0; i < 2; i++) {
+      rig.handPos(i ? -1 : 1, pair[0]); pair[1].copy(this.slingPts[i]);
+      this.webs.line(pair, this.webCol, 1, Math.max(0, .2 - H.sling.t) * 4, Math.max(0, .6 - H.sling.charge) * 1.5, this.clock);
     }
     for (const s of H.shots) {
       rig.handPos(s.side, pair[0]);
@@ -660,7 +703,17 @@ export class HeroMode {
     for (const e of list) {
       switch (e.type) {
         case "shoot": this.thwip(e.second ? .7 : 1); this.shootAt = new V(e.x, e.y, e.z); this.shootSide = e.side; this.shootFlash = .18; break;
-        case "attach": { const w = H.webs[H.webs.length - 1]; if (w) fx.puff(w.a.x, w.a.y, w.a.z, 8, w.n.x, w.n.y, w.n.z); this.sfx("attach"); break; }
+        case "slingstart": this.slingAnchors(); this.thwip(1); this.thwip(.8); break;
+        case "slingcancel": this.sfx("release"); break;
+        case "slingshot": {
+          fx.energy(H.p.x, H.p.y, H.p.z, 24, this.glowRGB()); fx.dust(H.p.x, H.p.y - HIP_H, H.p.z, 18, 1.2);
+          this.rings.spawn(H.p.x, H.p.y - HIP_H + .05, H.p.z, 5, 0xffffff, .45);
+          this.sfx("launch", 1.4 + e.charge); this.cam.shake(.25 + e.charge * .2); this.tricks.link("slingshot", Math.round(e.charge * 100));
+          for (const p of this.slingPts) this.webs.drop(this.rig.handPos(1, _h1), p, this.webCol);
+          break;
+        }
+        case "windin": this.sfx("glide"); this.tricks.link(e.kind === "tunnel" ? "wind" : "updraft"); break;
+        case "attach": { this.swingStyle = (this.swingStyle + 1 + (Math.random() < .4 ? 1 : 0)) % 3; const w = H.webs[H.webs.length - 1]; if (w) fx.puff(w.a.x, w.a.y, w.a.z, 8, w.n.x, w.n.y, w.n.z); this.sfx("attach"); break; }
         case "letgo": case "release": if (e.type === "letgo") { this.sfx(e.jump ? "launch" : "release", e.jump ? 1 : e.quality + 1); if (e.quality === 2) this.hud.center("PERFECT RELEASE", "", .9, "small"); } this.dropWebs(); break;
         case "snap": this.sfx("snap"); this.dropWebs(); break;
         case "land": {
@@ -688,6 +741,16 @@ export class HeroMode {
       }
     }
     this.dashT = Math.max(0, (this.dashT || 0) - (this.frameDt || 0));
+  }
+  // the slingshot's anchors: whatever is ahead and to each side, or a point in the air if nothing is
+  slingAnchors() {
+    const H = this.H, W = this.W, f = H.face, hit = this.slingHit || (this.slingHit = {});
+    for (let i = 0; i < 2; i++) {
+      const s = i ? -1 : 1, a = Math.atan2(f.x, f.z) + s * .6, dx = Math.sin(a), dz = Math.cos(a);
+      const r = W.raycast(H.p.x, H.p.y + .6, H.p.z, dx, .12, dz, 26, 1, hit);
+      if (r) this.slingPts[i].set(r.x, r.y, r.z);
+      else this.slingPts[i].set(H.p.x + dx * 9, H.p.y + 1.6, H.p.z + dz * 9);
+    }
   }
   dropWebs() {
     const rig = this.rig;
@@ -738,7 +801,7 @@ export class HeroMode {
       }
     } else { this.zipPreview = null; this.zipPreviewT = 0; }
     if ((this.gadgetT -= dt) <= 0) {
-      this.gadgetT = .1; this.gadgetHtml = this.gadgetBar();
+      this.gadgetT = .1; this.gadgetHtml = this.gadgetBar(); this.abilityHtml = this.abilityBar();
     }
     const W = innerWidth, Hh = innerHeight;
     const proj = this.projectHud;
@@ -749,12 +812,12 @@ export class HeroMode {
     const alt = H.p.y - HIP_H;
     const state = this.hudState, releaseReady = this.releaseReady();
     state.speed = H.speed; state.alt = alt;
-    state.stateLabel = H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "";
+    state.stateLabel = H.sling ? `SLINGSHOT ${Math.round(H.sling.charge * 100)}%` : H.inWind === "tunnel" ? "WIND TUNNEL" : H.inWind === "draft" ? "UPDRAFT" : H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "";
     if ((H.state === "air" || H.state === "swing") && this.tricks.active) state.stateLabel = this.tricks.cur?.d?.name?.toUpperCase() || "AIR TRICK";
     state.level = this.profile().level || 1; state.suit = SUITS[this.suitId].name;
     state.traversal = this.traversalHint(inp, releaseReady); state.releaseReady = releaseReady; state.anchorReady = !!this.anchorPreview;
     state.tricks = this.tricks; state.trickEvents = this.trickEvents; state.hp = this.combat.hp; state.focus = this.combat.focus; state.noWeb = H.noWebT;
-    state.gadgets = this.gadgetHtml; state.hits = this.combat.combo; state.sense = this.senseHud(); state.mission = hud.missionHtml || ""; state.race = this.activities.raceHtml || "";
+    state.gadgets = this.gadgetHtml; state.abilities = this.abilityHtml; state.over = this.combat.overT; state.hits = this.combat.combo; state.sense = this.senseHud(); state.mission = hud.missionHtml || ""; state.race = this.activities.raceHtml || "";
     hud.update(dt, state);
     // the nearest event: the panel, and an arrow to it
     const near = this.activities.target ? { e: { ...this.activities.target, kind: "race" }, d: H.p.distanceTo(_t2.set(this.activities.target.x, this.activities.target.y, this.activities.target.z)) } : this.events?.nearest(H.p);
@@ -807,7 +870,8 @@ export class HeroMode {
     const H = this.H, cb = this.combat, pad = inp.pad;
     const jump = pad ? "A" : "Space", swing = pad ? "RT" : "Right mouse", zip = pad ? "LB" : "E";
     if (cb.downT > 0) return "Recovering";
-    if (cb.senses.length) return `${pad ? "LT" : "Q"} · Dodge the incoming attack`;
+    if (H.sling) return `${pad ? "Release LB + RB" : "Release X"} · Launch (${Math.round(H.sling.charge * 100)}%)`;
+    if (cb.senses.length) return `${pad ? "LT" : "Q"} · Dodge   ${pad ? "B" : "V"} · Parry`;
     if (this.inCombat) return cb.focus >= 1 ? `${pad ? "X" : "Left mouse"} · Combo   ${pad ? "Y" : "R"} · Web strike` : `${pad ? "X" : "Left mouse"} · Attack   ${pad ? "LT" : "Q"} · Dodge`;
     if (inp.trick && (H.state === "air" || H.state === "swing")) return `${pad ? "RB + stick" : "T + WASD / arrows"} · Change trick direction   ${pad ? "Release RB" : "Release T"} · Recover`;
     if (H.state === "swing") return releaseReady ? `${jump} · Perfect launch now` : `${jump} · Launch   WASD / stick · Steer`;
@@ -815,9 +879,11 @@ export class HeroMode {
     if (H.state === "wall") return `${pad ? "L3" : "Shift"} · Run up   ${jump} · Wall jump`;
     if (H.state === "water") return `${jump} · Jump out   ${swing} · Swing away`;
     if (H.dive) return `${swing} · Catch a line and carry your speed`;
+    if (H.inWind) return `Steer to ride the ${H.inWind === "tunnel" ? "current" : "updraft"}   ${swing} · Swing out`;
     if (H.glide) return `${pad ? "B" : "Ctrl"} · Dive   ${swing} · Swing`;
     if (H.state === "air") return `${swing} · Swing   ${zip} · Zip   ${pad ? "B" : "Ctrl"} · Dive`;
-    return `${swing} · Swing   ${jump} · Jump   ${pad ? "L3" : "Shift"} · Parkour`;
+    if (H.state === "perch") return `${jump} · Point launch   ${pad ? "Hold LB + RB" : "Hold X"} · Slingshot`;
+    return `${swing} · Swing   ${jump} · Jump   ${pad ? "Hold LB + RB" : "Hold X"} · Slingshot`;
   }
 
   // ------------------------------------------------------------------ sound
@@ -970,6 +1036,14 @@ export class HeroMode {
     return out;
   }
   // back on your feet after being knocked out: a rooftop near where it happened
+  // after a fast travel: the same clean slate as a respawn, without moving the hero again
+  afterTeleport() {
+    this.tricks.reset(); this.poseClearT = 0; this.anim.state = null;
+    this.prevV = null; this.prevHeading = undefined; this.emote = null;
+    this.lastWebs.length = 0; this.lines.length = 0; this.shootFlash = 0; this.dashT = 0;
+    this.anchorPreview = null; this.zipPreview = null; this.previewT = 0; this.firstFrames = 3;
+    this.zipPreviewT = 0; this.anchorAge = 1; this.threatT = 0; this.tpN = (this.tpN | 0) + 1;
+  }
   respawn() {
     const H = this.H, W = this.W;
     let best = null, bd = 1e9;
@@ -993,7 +1067,7 @@ export class HeroMode {
     for (const e of list) {
       switch (e.type) {
         case "windup": if (e.target === me) { const en = this.sim.byId.get(e.e); if (en) cb.sense(en, e.t, e.kind); } else this.relay?.(e); break;
-        case "strike": if (e.target === me) { const r = cb.takeHit(e.dmg, e.kx, e.kz, e.heavy, e.kind); if (r === "hit" || r === "down") fx.sparks(this.H.p.x, this.H.p.y + .3, this.H.p.z, 10, [1, .4, .2]); } else this.relay?.(e); break;
+        case "strike": if (e.target === me) { const r = cb.takeHit(e.dmg, e.kx, e.kz, e.heavy, e.kind, e.e); if (r === "hit" || r === "down") fx.sparks(this.H.p.x, this.H.p.y + .3, this.H.p.z, 10, [1, .4, .2]); } else this.relay?.(e); break;
         case "shot": if (e.target === me) cb.takeHit(e.dmg, e.kx / 100, e.kz / 100, false, "shot"); else this.relay?.(e); break;
         default: this.enemyFx(e); this.relay?.(e);
       }
@@ -1028,6 +1102,22 @@ export class HeroMode {
       case "whiff": break;
       case "hit": this.cam.shake(d.heavy ? .22 : .08); this.cam.punch(H.face.x * .12, 0, H.face.z * .12); if (H.state === "air") this.tricks.link("aircombo"); if (d.a?.kind === "finisher") this.tricks.link("finisher"); break;
       case "dodge": this.sfx("dash"); break;
+      case "guard": this.sfx("whoosh", .6); break;
+      case "parry": {
+        const p = d.e ? _h2.set(d.e.x, d.e.y + .4, d.e.z).lerp(H.p, .5) : _h2.copy(H.p);
+        fx.sparks(p.x, p.y, p.z, 22, [1, .9, .55], 1.3); this.rings.spawn(p.x, p.y, p.z, 2.5, 0xffffff, .3);
+        this.hud.center("PARRY", "Counter now", .9, "small"); this.tricks.link("parry");
+        this.sfx("punch", 1.3); this.sfx("perfect"); this.cam.shake(.2);
+        break;
+      }
+      case "ability": this.hud.center(d.name.toUpperCase(), "", 1, "small"); this.tricks.link("ability"); if (d.id === "overcharge") { fx.energy(H.p.x, H.p.y, H.p.z, 40, this.glowRGB()); this.sfx("launch", 1.2); } if (d.id === "tether") this.cam.shake(.2); break;
+      case "burst": {
+        const y = H.p.y - HIP_H + .1;
+        this.rings.spawn(H.p.x, y, H.p.z, 14, SUITS[this.suitId].glow, .7); this.rings.spawn(H.p.x, y + .6, H.p.z, 9, 0xffffff, .5);
+        fx.energy(H.p.x, H.p.y, H.p.z, 60, this.glowRGB()); fx.dust(H.p.x, y, H.p.z, 40, 2.2);
+        this.cam.shake(.6); this.sfx("boom", .8); this.sfx("launch", 1.4);
+        break;
+      }
       case "perfect": this.hud.center("PERFECT DODGE", "Counter now", .9, "small"); this.tricks.link("perfectdodge"); this.sfx("perfect"); break;
       case "dodged": break;
       case "hurt": this.rig.mat.userData.u.uHit.value = 1; this.cam.shake(d.heavy ? .45 : .2); this.sfx("hurt", d.heavy ? 1.3 : 1); break;
@@ -1055,6 +1145,14 @@ export class HeroMode {
       return `<span class="${ready ? "ready" : ""}">${G.key} ${G.name.replace("Web ", "")}<i style="width:${Math.round(fill * 100)}%"></i></span>`;
     }).join("");
     return k;
+  }
+  abilityBar() {
+    const cb = this.combat;
+    return ABILITIES.slice(1).map((A, i) => {
+      const n = i + 1, c = cb.acool[n], fill = 1 - c / (A.cool * (cb.coolK || 1));
+      const live = A.id === "overcharge" && cb.overT > 0;
+      return `<span class="${c <= 0 ? "ready" : ""}${live ? " live" : ""}"><kbd>${A.key}</kbd><b>${A.name}</b><i style="--f:${Math.max(0, Math.min(1, fill)).toFixed(3)}"></i></span>`;
+    }).join("");
   }
   senseHud() {
     const s = this.combat.senses[0];

@@ -14,6 +14,7 @@ export class HeroHud {
     el.id = "heroHud"; el.hidden = true;
     el.innerHTML = `
       <div class="hh-identity"><small>NEW MERIDIAN / PATROL ACTIVE</small><strong>ARCLINE</strong><span id="hhSuit"></span><b id="hhLevel">LEVEL 1</b></div>
+      <div class="hh-speedfx"></div>
       <div class="hh-reticle" id="hhRet"><i></i></div>
       <div class="hh-mark zip" id="hhZip" hidden><i></i></div>
       <div class="hh-mark anchor" id="hhAnchor" hidden></div>
@@ -35,6 +36,7 @@ export class HeroHud {
         <div class="hh-vitals-label"><span id="hhFocusLabel">BUILD FOCUS WITH COMBOS</span></div>
         <div class="hh-focus" id="hhFocus"><i></i><i></i><i></i></div>
         <div class="hh-gadgets" id="hhGadgets"></div>
+        <div class="hh-abilities" id="hhAbilities"></div>
       </div>
       <div class="hh-speed"><b id="hhSpd">0</b><small>KM/H</small><span id="hhAlt">0 m</span><em id="hhState"></em></div>
       <div class="hh-traversal" id="hhTraversal"></div>
@@ -119,6 +121,11 @@ export class HeroHud {
     const fe = this.$("hhFocus").children;
     for (let i = 0; i < 3; i++) fe[i].style.setProperty("--f", Math.max(0, Math.min(1, s.focus - i)).toFixed(3));
     if (s.gadgets) this.set("hhGadgets", s.gadgets, "innerHTML");
+    if (s.abilities) this.set("hhAbilities", s.abilities, "innerHTML");
+    this.el.classList.toggle("overcharged", s.over > 0);
+    // the faster the hero goes, the more the edges of the screen close in (see .hh-speedfx)
+    const rush = Math.max(0, Math.min(1, (s.speed - 24) / 36));
+    if (Math.abs(rush - (this.rush || 0)) > .01) { this.rush = rush; this.el.style.setProperty("--rush", rush.toFixed(2)); }
     if (this.centerT > 0 && (this.centerT -= dt) <= 0) this.$("hhCenter").hidden = true;
     // the sense: chevrons pointing at whoever is about to hit (screen-relative angle, radians)
     const se = this.$("hhSense");
