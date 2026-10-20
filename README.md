@@ -21,13 +21,13 @@ Open http://localhost:3000. Multiplayer uses public MQTT relays by default, incl
 | Mouse / right stick | Look |
 | Right mouse / RT | Hold to swing |
 | Space / A | Jump, launch from a swing, or launch from a perch |
-| Shift / left stick click | Sprint and parkour |
-| E / LB | Web zip; rescue someone nearby |
+| Shift / R2 / L3 | Sprint and parkour; L3 dives/perches |
+| E / L2 + R2 | Web zip; rescue someone nearby |
 | Ctrl / B | Crouch, dive, or slide |
-| Hold T + W A S D / arrows, or RB + left stick | Directional air tricks; change direction while holding to blend into another trick |
+| Hold T + W A S D / arrows, or Square + left stick in the air | Directional air tricks; change direction while holding to blend into another trick |
 | Shift / Ctrl while holding T | Layout/barrel or pike/scissor trick variants; F also works as the trick key |
-| Left mouse / X | Seven-hit attack chain; hold for a launcher, then continue in the air |
-| Q / LT | Dodge / air dash; perfect timing opens a counter window |
+| Left mouse / Square / X | Seven-hit attack chain; hold for a launcher, then continue in the air |
+| Q / Circle / B | Dodge / air dash; perfect timing opens a counter window |
 | R / Y | Web strike |
 | 1-6 / D-pad | Web gadgets; pull can zip you into distant or airborne targets |
 | G | Throw an object or stunned enemy |

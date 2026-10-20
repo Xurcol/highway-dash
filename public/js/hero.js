@@ -232,6 +232,11 @@ export class HeroMode {
     H.clock = this.clock;
     // ---- input ----
     const look = cam.look, inp = this.input.read(cam.yaw, look, camera.position, real);
+    // Spider-Man 2 uses Square + a direction for air tricks.  Keep the keyboard T/F shortcut,
+    // but let a standard controller use the same face button without starting an air punch.
+    const padAirTrick = inp.pad && inp.attackHeld && (H.state === "air" || H.state === "swing" || H.state === "zip")
+      && Math.hypot(inp.ix, inp.iy) > .2;
+    if (padAirTrick) { inp.trick = true; inp.trickX = inp.ix; inp.trickY = inp.iy; inp.attack = inp.attackDown = false; }
     if (dt <= 0) { inp.mdx = inp.mdy = 0; }
     if (inp.help) this.hud.toggleKeys();
     if (inp.activities) this.activities.toggleMenu();
