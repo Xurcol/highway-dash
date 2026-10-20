@@ -408,6 +408,13 @@ export class HeroCombat {
         if (!tgt || this.dist(tgt) > 30) return this.hero.onCombat("deny");
         this.cool[n] = G.cool * (this.coolK || 1);
         this.hero.onCombat("line", { to: new V(tgt.x, tgt.y + .3, tgt.z), side, yank: true });
+        // A distant or airborne pull becomes a web-zip strike.  This preserves the close-range
+        // yank for grounded enemies while letting the player cross a fight quickly and keep a combo
+        // moving instead of stopping at the end of the line.
+        if (G.id === "pull" && (this.dist(tgt) > 11 || tgt.air || ["down", "webbed"].includes(tgt.st))) {
+          this.start({ kind: "webstrike", dur: 1.45, target: tgt.id, fly: true });
+          return;
+        }
         const hit = G.id === "pull" ? tgt.weapon ? { disarm: true, kind: "pull", dmg: 2 } : { pull: true, x: H.p.x, z: H.p.z, kind: "pull", dmg: 4 }
           : { launch: 12, dmg: 6, kind: "launch", kx: 0, kz: 0 };
         this.pendingHits.push({ id: tgt.id, t: .12, hit });

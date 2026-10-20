@@ -29,7 +29,7 @@ Open http://localhost:3000. Multiplayer uses public MQTT relays by default, incl
 | Left mouse / X | Seven-hit attack chain; hold for a launcher, then continue in the air |
 | Q / LT | Dodge / air dash; perfect timing opens a counter window |
 | R / Y | Web strike |
-| 1-6 / D-pad | Web gadgets |
+| 1-6 / D-pad | Web gadgets; pull can zip you into distant or airborne targets |
 | G | Throw an object or stunned enemy |
 | Z | Finisher; hold to heal with focus |
 | Middle mouse / mouse wheel | Lock on / change target |

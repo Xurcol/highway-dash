@@ -17,7 +17,7 @@ export const HERO_KEYS = [
   ["Hold X", "Slingshot - pull back on two lines and fling yourself where you look", "Hold LB + RB"],
   ["7 · 8 · 9", "Arc abilities: Arc Burst · Tether Storm · Overcharge", "RB + X / Y / R3"],
   ["R", "Web strike - zip-kick the target", "Y"],
-  ["1 - 6", "Web shot · pull/disarm · launch · bomb · trap · impact web", "D-pad"],
+  ["1 - 6", "Web shot · pull/zip strike · launch · bomb · trap · impact web", "D-pad"],
   ["G", "Web throw - hurl an object or a stunned enemy", "R3"],
   ["Z", "Finisher (tap) · heal (hold)", "-"],
   ["Wheel / middle mouse", "Next target / lock target", "-"],
