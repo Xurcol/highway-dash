@@ -45,7 +45,9 @@ export class HeroCam {
     this.pitch -= mdy * this.sens * (this.invertY ? -1 : 1);
     // ---- following on its own when left alone: swing round behind the direction of travel ----
     const moving = (H.state === "swing" || H.state === "air" || H.state === "zip") && hs > 9 || H.state === "ground" && hs > 12 || H.state === "wall" && sp > 3;
-    if (this.autoFollow && this.idle > 1.1 && moving && !this.combat && !o.aim && !o.tricking) {
+    // A wall is a deliberate camera state: never auto-orbit while attached, because that makes
+    // the surface feel like it is dragging the player's view around.
+    if (this.autoFollow && H.state !== "wall" && this.idle > 1.1 && moving && !this.combat && !o.aim && !o.tricking) {
       // on a wall: look along the run from a little way out; elsewhere: behind the direction of travel
       let wx = v.x, wz = v.z;
       if (H.state === "wall" && !H.ceiling) { const al = v.x * -H.n.z + v.z * H.n.x; wx = -H.n.z * al - H.n.x * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; wz = H.n.x * al - H.n.z * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; if (Math.hypot(wx, wz) < .5) { wx = -H.n.x; wz = -H.n.z; } }
@@ -64,7 +66,7 @@ export class HeroCam {
     let dist = 4.7 + clamp((this.speed - 8) / 46, 0, 1) * 2.9, fov = 65 + clamp((this.speed - 10) / 52, 0, 1) * 17, up = .65, side = .35;
     if (H.state === "swing") { dist += .45; up = .8; }
     if (H.state === "zip") { dist += .25; up = .7; }
-    if (H.state === "wall") { dist = 5.6; up = .6; side = 0; }
+    if (H.state === "wall") { dist = 5.15; up = .45; side = 0; }
     if (H.state === "perch") { dist = 4.6; up = .9; }
     if (H.state === "ledge") { dist = 4.2; up = .7; }
     if (H.dive) { fov += 8; dist += .6; }
@@ -83,7 +85,7 @@ export class HeroCam {
     let tx = p.x + v.x * lead, ty = p.y + up + clamp(v.y * .025, -.7, .65), tz = p.z + v.z * lead;
     // on a wall the camera stands off it, so it looks at the hero rather than along the bricks
     const wall = H.state === "wall" && !H.ceiling ? 1 : 0;
-    const wallK = this.wallK = snap ? wall : this.wallK + (wall - this.wallK) * ease(dt, 5);
+    const wallK = this.wallK = snap ? wall : wall ? this.wallK + (1 - this.wallK) * ease(dt, 11) : this.wallK * (1 - ease(dt, 9));
     if (wallK > .01) { tx += H.n.x * 1.1 * wallK; tz += H.n.z * 1.1 * wallK; }
     // in combat, the pivot slides towards the middle of the fight
     if (this.combat) { const c = this.combat; tx += (c.x - p.x) * .25; tz += (c.z - p.z) * .25; }

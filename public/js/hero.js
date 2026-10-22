@@ -761,7 +761,7 @@ export class HeroMode {
           else { this.cam.shake(.12 * power); this.sfx("land", power); }
           break;
         }
-        case "walljump": fx.puff(H.p.x - H.n.x * .5, H.p.y, H.p.z - H.n.z * .5, 6); this.sfx("jump"); break;
+        case "walljump": fx.puff(H.p.x - H.n.x * .5, H.p.y, H.p.z - H.n.z * .5, 10); fx.sparks(H.p.x - H.n.x * .4, H.p.y, H.p.z - H.n.z * .4, 12, [1, .65, 1], .7); this.cam.shake(.14); this.cam.punch(0, .12, 0); this.sfx("jump"); break;
         case "jump": this.sfx("jump", e.big ? 1.5 : 1); if (e.big) fx.dust(H.p.x, H.p.y - HIP_H, H.p.z, 16, 1.2); break;
         case "launch": case "rooflaunch": fx.energy(H.p.x, H.p.y, H.p.z, 16, this.glowRGB()); this.sfx("launch", 1.3); this.cam.shake(.15); break;
         case "zipgo": this.sfx("zip"); break;
@@ -914,7 +914,7 @@ export class HeroMode {
     if (inp.trick && (H.state === "air" || H.state === "swing")) return `${pad ? "RB + stick" : "T + WASD / arrows"} · Change trick direction   ${pad ? "Release RB" : "Release T"} · Recover`;
     if (H.state === "swing") return releaseReady ? `${jump} · Perfect launch now` : `${jump} · Launch   WASD / stick · Steer`;
     if (H.state === "zip") return `${jump} · Time a point launch on arrival`;
-    if (H.state === "wall") return `${pad ? "L3" : "Alt"} · Run up   ${jump} · Wall jump`;
+    if (H.state === "wall") return `${pad ? "L3" : "Shift / Alt"} · Run   release to crawl   ${jump} · Leap off`;
     if (H.state === "water") return `${jump} · Jump out   ${swing} · Swing away`;
     if (H.dive) return `${swing} · Catch a line and carry your speed`;
     if (H.inWind) return `Steer to ride the ${H.inWind === "tunnel" ? "current" : "updraft"}   ${swing} · Swing out`;

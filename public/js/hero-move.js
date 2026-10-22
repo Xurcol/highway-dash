@@ -959,12 +959,12 @@ export class HeroBody {
     // a run with no stick bleeds into a slow slide down; a crawl just holds on
     if (run && il < .05 && !this.ceiling) this.v.y -= 6 * dt;
     this.v.addScaledVector(n, -this.v.dot(n));
-    // jump off: away from the wall, up, and towards where the camera points
+    // jump off: launch clearly away from the wall, then blend in the camera-facing tangent.
     if (this.jumpBuf > 0) {
       this.jumpBuf = 0;
       if (this.ceiling) { this.v.set(this.v.x, -4, this.v.z); this.ceiling = false; this.toAir(); this.wallCool = .3; this.ev("drop"); return; }
       const lx = inp.look.x - n.x * (inp.look.x * n.x + inp.look.z * n.z), lz = inp.look.z - n.z * (inp.look.x * n.x + inp.look.z * n.z);
-      this.v.set(n.x * 10.5 + lx * 7 + this.v.x * .4, 9.5 + Math.max(0, this.v.y * .45), n.z * 10.5 + lz * 7 + this.v.z * .4);
+      this.v.set(n.x * 14 + lx * 9 + this.v.x * .4, 12.5 + Math.max(0, this.v.y * .45), n.z * 14 + lz * 9 + this.v.z * .4);
       this.toAir(); this.wallCool = .28; this.lastWall = this.wallSolid;
       this.face.set(this.v.x, 0, this.v.z).normalize();
       this.ev("walljump");
