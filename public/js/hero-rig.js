@@ -436,7 +436,7 @@ function blendBasePose(rig, strength) {
 function poseWall(rig, a) {
   const mv = a.wallMove, mx = mv?.x || 0, my = mv?.y || 0, speed = Math.hypot(mx, my);
   const moving = smooth(speed / .6), dx = speed > .05 ? mx / speed : 0, dy = speed > .05 ? my / speed : 1;
-  const running = a.wallMode === "run", phase = a.phase || 0;
+  const running = a.wallMode === "run", runDrive = running ? cl((speed - 3) / 14, 0, 1) : 0, phase = a.phase || 0;
   const gap = cl(a.wallDistance ?? .44, .3, .65), sway = sin(phase) * moving;
   // Wall run is an upright sprint with the chest open; crawl stays low with four points of contact.
   torso(rig, running ? 3 : 28, sway * (running ? 10 : 4), -dx * (running ? 10 : 5), running ? 2 : 9, -sway * 3);
@@ -449,7 +449,7 @@ function poseWall(rig, a) {
     const lift = cycle < hold ? 0 : sin(reach * PI) * moving;
     if (running) {
       // Do not plant hands while running: the arms pump like a sprint instead of falling into crawl IK.
-      arm(rig, s, -18 - sway * s * 48, 12, -sway * 9, 22 + sway * s * 16);
+      arm(rig, s, -18 - sway * s * 48 - runDrive * s * 12, 12 + runDrive * 18, -sway * 9, 22 + sway * s * 16 + runDrive * 18);
       hand(rig, s, 20);
     } else {
       // Crawl hands reach and plant in alternating rhythm, keeping the body low and close to the wall.
@@ -460,7 +460,7 @@ function poseWall(rig, a) {
     const footCycle = (cycle + .5) % 1, footReach = smooth((footCycle - hold) / (1 - hold));
     const footTravel = (footCycle < hold ? .5 - footCycle / hold : -.5 + footReach) * moving;
     const footLift = footCycle < hold ? 0 : sin(footReach * PI) * moving;
-    _contact.set(s * (running ? .18 : .3) + dx * footTravel * (running ? .6 : .46), (running ? -.43 : -.36) + dy * footTravel * (running ? .6 : .46), gap - .02 - footLift * (running ? .27 : .13));
+    _contact.set(s * (running ? .18 : .3) + dx * footTravel * (running ? .6 : .46), (running ? -.43 : -.36) + dy * footTravel * (running ? .6 : .46), gap - .02 - footLift * (running ? .27 + runDrive * .12 : .13));
     plantLimb(rig, s, false, _contact, _pole.set(s * (running ? .3 : .9), .1, -1));
   }
   return a.stateT < .2 ? 28 : running ? 24 : 22;
