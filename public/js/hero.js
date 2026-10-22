@@ -882,7 +882,7 @@ export class HeroMode {
     const state = this.hudState, releaseReady = this.releaseReady();
     state.speed = H.speed; state.alt = alt;
     state.stateLabel = H.sling ? `SLINGSHOT ${Math.round(H.sling.charge * 100)}%` : H.inWind === "tunnel" ? "WIND TUNNEL" : H.inWind === "draft" ? "UPDRAFT" : H.dive ? "DIVE" : H.glide ? "WEB WINGS" : H.state === "wall" ? (H.ceiling ? "CEILING" : H.wallMode === "run" ? "WALL RUN" : "WALL CRAWL") : STATE_LABEL[H.state] || "";
-    if ((H.state === "air" || H.state === "swing") && this.tricks.active) state.stateLabel = this.tricks.cur?.d?.name?.toUpperCase() || "AIR TRICK";
+    if ((H.state === "air" || H.state === "swing" || H.state === "zip") && this.tricks.active) state.stateLabel = this.tricks.cur?.d?.name?.toUpperCase() || "AIR TRICK";
     state.level = this.profile().level || 1; state.suit = SUITS[this.suitId].name;
     state.traversal = this.traversalHint(inp, releaseReady); state.releaseReady = releaseReady; state.anchorReady = !!this.anchorPreview;
     state.tricks = this.tricks; state.trickEvents = this.trickEvents; state.hp = this.combat.hp; state.focus = this.combat.focus; state.noWeb = H.noWebT;
