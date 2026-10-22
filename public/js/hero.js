@@ -300,6 +300,7 @@ export class HeroMode {
     }
     // ---- camera ----
     this.cameraOptions.tricking = this.tricks.active && (H.state === "air" || H.state === "swing" || H.state === "zip") && !H.move && this.combat.downT <= 0 && H.combatLock <= 0;
+    this.cameraOptions.dashing = this.dashT > 0;
     cam.update(real, H, inp, this.cameraOptions);
     // ---- the character ----
     this.animate(dt > 0 ? dt : 0, inp);

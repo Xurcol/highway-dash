@@ -67,11 +67,13 @@ export class HeroCam {
     if (H.state === "swing") { dist += .45; up = .8; }
     if (H.state === "zip") { dist += .25; up = .7; }
     if (H.state === "wall") { dist = 5.15; up = .45; side = 0; }
+    if (H.state === "wall" && H.wallMode === "run") { dist += .35; fov += 4; }
     if (H.state === "perch") { dist = 4.6; up = .9; }
     if (H.state === "ledge") { dist = 4.2; up = .7; }
     if (H.dive) { fov += 8; dist += .6; }
     if (H.state === "air" && H.v.y < -18) { fov += 5; dist += .45; up = .5; }
     if (H.glide) { dist += 1.2; fov += 4; }
+    if (o.dashing) { dist += .35; fov += 5; }
     // Keep the whole flip readable without orbiting the camera with the hero's rotation.
     if (o.tricking) { dist += 1.1; up = .55; side = .15; fov += 3; }
     if (H.state === "ground" && H.slideT > 0) { up = .2; dist = 3.8; }
