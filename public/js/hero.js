@@ -781,18 +781,26 @@ export class HeroMode {
         case "walljump": fx.puff(H.p.x - H.n.x * .5, H.p.y, H.p.z - H.n.z * .5, 10); fx.sparks(H.p.x - H.n.x * .4, H.p.y, H.p.z - H.n.z * .4, 12, [1, .65, 1], .7); this.cam.shake(.14); this.cam.punch(0, .12, 0); this.sfx("jump"); break;
         case "jump": this.sfx("jump", e.big ? 1.5 : 1); if (e.big) fx.dust(H.p.x, H.p.y - HIP_H, H.p.z, 16, 1.2); break;
         case "launch": case "rooflaunch": fx.energy(H.p.x, H.p.y, H.p.z, 16, this.glowRGB()); this.sfx("launch", 1.3); this.cam.shake(.15); break;
-        case "zipgo": this.sfx("zip"); break;
+        case "zipgo":
+          fx.energy(H.p.x, H.p.y, H.p.z, 8, this.glowRGB());
+          fx.sparks(H.p.x, H.p.y, H.p.z, 8, [1, .65, 1], .5);
+          this.rings.spawn(H.p.x, H.p.y, H.p.z, 1.6, 0xffffff, .22);
+          this.sfx("zip"); break;
         case "perch": this.sfx("land", .4); break;
         case "wall":
           if (e.mode === "run") { fx.sparks(H.p.x - H.n.x * .35, H.p.y, H.p.z - H.n.z * .35, 6, [1, .55, .2], .45); fx.puff(H.p.x - H.n.x * .25, H.p.y, H.p.z - H.n.z * .25, 4); }
           else fx.puff(H.p.x - H.n.x * .3, H.p.y, H.p.z - H.n.z * .3, 5);
           this.sfx("land", .3); break;
         case "corner": fx.sparks(H.p.x, H.p.y, H.p.z, 5, [1, .65, 1], .4); this.sfx("whoosh", .35); break;
-        case "vault": case "mantle": case "climb": this.sfx("vault"); break;
+        case "vault": case "mantle": case "climb":
+          fx.dust(H.p.x, H.p.y - HIP_H, H.p.z, e.type === "vault" ? 8 : 12, .65);
+          fx.sparks(H.p.x, H.p.y - .25, H.p.z, 5, [1, .55, .2], .35);
+          this.rings.spawn(H.p.x, H.p.y - HIP_H + .03, H.p.z, e.type === "vault" ? 1.4 : 1.9, 0xffffff, .2);
+          this.sfx("vault"); break;
         case "slide": this.sfx("slide"); break;
-        case "dive": this.sfx("dive"); break;
+        case "dive": fx.energy(H.p.x, H.p.y, H.p.z, 6, this.glowRGB()); this.sfx("dive"); break;
         case "glide": this.sfx("glide"); break;
-        case "airdash": this.dashT = .25; fx.energy(H.p.x, H.p.y, H.p.z, 10, this.glowRGB()); this.sfx("dash"); break;
+        case "airdash": this.dashT = .25; fx.energy(H.p.x, H.p.y, H.p.z, 10, this.glowRGB()); this.rings.spawn(H.p.x, H.p.y, H.p.z, 1.7, SUITS[this.suitId].glow, .22); this.sfx("dash"); break;
         case "splash": fx.splash(H.p.x, e.y, H.p.z, 40); this.sfx("splash"); break;
         case "noweb": case "nozip": this.sfx("deny"); break;
         case "skim": fx.dust(H.p.x, H.p.y - HIP_H, H.p.z, 10, .8); break;
