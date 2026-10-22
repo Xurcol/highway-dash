@@ -62,9 +62,10 @@
 .arc-save-note .ic{width:14px;height:14px;margin-top:2px;color:var(--ink-3)}
 
 /* The menu is scrollable at any viewport size while the game canvas stays fixed behind it. */
-.arc-menu{position:fixed;inset:0;z-index:80;overflow:auto;background:rgba(8,14,18,.97);padding:28px max(24px,env(safe-area-inset-right)) 24px max(24px,env(safe-area-inset-left));overscroll-behavior:contain}
+.arc-menu{position:fixed;inset:0;z-index:80;overflow:auto;background:radial-gradient(ellipse 80% 55% at 72% 0%,rgba(41,101,111,.18),transparent 70%),#080e12;padding:28px max(24px,env(safe-area-inset-right)) 24px max(24px,env(safe-area-inset-left));overscroll-behavior:contain}
+.arc-menu::before{content:"";position:fixed;inset:0;pointer-events:none;opacity:.16;background-image:linear-gradient(rgba(116,230,238,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(116,230,238,.12) 1px,transparent 1px);background-size:72px 72px;mask-image:linear-gradient(180deg,#000,transparent 88%)}
 .arc-menu-wrap{width:min(1200px,100%);min-height:min(760px,calc(100dvh - 56px));margin:0 auto;display:flex;flex-direction:column}
-.arc-menu-head{display:flex;align-items:center;gap:24px;padding:4px 0 24px;border-bottom:1px solid var(--line)}
+.arc-menu-head{display:flex;align-items:center;gap:24px;padding:4px 0 24px;border-bottom:1px solid var(--line);position:relative;z-index:1}
 .arc-menu-head>div:first-child>.arc-kicker{margin:10px 0 0 48px;font-size:8px}
 .arc-account{margin-left:auto;display:grid;grid-template-columns:auto auto;gap:1px 14px;text-align:right;font-size:12px}
 .arc-account>span{grid-column:1/-1;color:var(--ink-3);font-size:8px;letter-spacing:.13em;font-weight:700}
@@ -73,18 +74,18 @@
 .arc-account strong{font-weight:650;color:var(--ink-2);letter-spacing:.08em;margin-left:6px;user-select:text}
 .arc-shell{display:grid;grid-template-columns:180px minmax(0,1fr);flex:1;min-height:0}
 .arc-nav{padding:26px 20px 26px 0;display:flex;flex-direction:column;gap:6px;border-right:1px solid var(--line)}
-.arc-nav>button{display:flex;align-items:center;gap:12px;min-height:46px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--ink-3);padding:10px 12px;text-align:left;font-size:12px;font-weight:650}
-.arc-nav>button:hover{color:var(--ink);background:rgba(255,255,255,.025)}
-.arc-nav>button.on{background:#172b32;border-color:#2d4b55;color:var(--accent)}
+.arc-nav>button{display:flex;align-items:center;gap:12px;min-height:46px;border:1px solid transparent;border-radius:5px;background:transparent;color:var(--ink-3);padding:10px 12px;text-align:left;font-size:12px;font-weight:650;transition:background .18s ease,border-color .18s ease,color .18s ease,transform .18s ease}
+.arc-nav>button:hover{color:var(--ink);background:rgba(255,255,255,.04);transform:translateX(2px)}
+.arc-nav>button.on{background:linear-gradient(90deg,rgba(116,230,238,.18),rgba(116,230,238,.05));border-color:#35616a;color:var(--accent);box-shadow:inset 3px 0 var(--accent)}
 .arc-nav .ic{width:17px;height:17px}
 .arc-nav-arrow{margin-left:auto;width:13px!important}
 .arc-nav-foot{margin-top:auto;padding:60px 12px 22px}
 .arc-nav-foot>span{font:750 17px/1.2 var(--display);letter-spacing:.015em;color:var(--ink-2)}
 .arc-nav-foot>p{font-size:11px;line-height:1.7;color:var(--ink-3);margin:10px 0 0}
 .arc-nav>.arc-signout{font-size:11px;min-height:36px}
-.arc-content{min-width:0;padding:28px 0 28px 28px}
+.arc-content{min-width:0;padding:28px 0 28px 28px;position:relative;z-index:1}
 .arc-lobby-grid{display:grid;grid-template-columns:minmax(0,1.42fr) minmax(260px,1fr);gap:20px}
-.arc-feature{position:relative;isolation:isolate;overflow:hidden;border:1px solid #304851;border-radius:7px;background:linear-gradient(150deg,#19343b,#101e25 70%);padding:28px;display:flex;flex-direction:column;align-items:flex-start;min-height:420px}
+.arc-feature{position:relative;isolation:isolate;overflow:hidden;border:1px solid #3b626b;border-radius:9px;background:linear-gradient(150deg,#193f47,#0d1a20 72%);padding:28px;display:flex;flex-direction:column;align-items:flex-start;min-height:420px;box-shadow:0 18px 60px rgba(0,0,0,.2)}
 .arc-feature>.arc-kicker{font-size:8px;color:#9abfc7;position:relative;z-index:2}
 .arc-feature>h1{font-size:clamp(35px,4vw,56px);line-height:1.02;margin:22px 0 16px;position:relative;z-index:2;letter-spacing:-.035em;color:#f0f7f5}
 .arc-feature>p:not(.arc-network-status){max-width:285px;font-size:12px;line-height:1.75;color:#b6cbd0;position:relative;z-index:2;margin:0 0 28px}
@@ -97,7 +98,8 @@
 .arc-play-actions>.gray{min-height:47px;background:rgba(11,22,27,.8);border-color:#41606a;color:#d2e5e7}
 .arc-feature>.arc-network-status{position:relative;z-index:2;font-size:9px;letter-spacing:.025em;color:#96b7bf;margin:12px 0 0;min-height:14px}
 .arc-lobby-side{display:flex;flex-direction:column;gap:16px;min-width:0}
-.arc-card{background:#111c22;border:1px solid var(--line);border-radius:6px;padding:20px}
+.arc-card{background:linear-gradient(145deg,#132128,#0f191e);border:1px solid var(--line);border-radius:7px;padding:20px;box-shadow:0 12px 32px rgba(0,0,0,.14);transition:border-color .18s ease,transform .18s ease,box-shadow .18s ease}
+.arc-card:focus-within,.arc-card:hover{border-color:#3b626b;box-shadow:0 16px 38px rgba(0,0,0,.22)}
 .arc-card>.arc-kicker{font-size:8px;margin-bottom:9px}
 .arc-card>h2{margin:0 0 16px}
 .arc-field{display:block;margin:10px 0 6px;font-size:10px;font-weight:650;letter-spacing:.015em;color:var(--ink-2)}
@@ -118,7 +120,8 @@
 .arc-section-head>.btn{font-size:10px;min-height:34px;padding:7px 12px}
 .arc-section-head>.ic{color:var(--ink-3)}
 .arc-list{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:#10191e}
-.arc-server{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 18px;border-bottom:1px solid var(--line);min-width:0}
+.arc-server{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 18px;border-bottom:1px solid var(--line);min-width:0;transition:background .16s ease}
+.arc-server:hover{background:rgba(116,230,238,.05)}
 .arc-server:last-child{border-bottom:0}
 .arc-server>div{min-width:0}
 .arc-server b{display:block;font-size:12px;font-weight:650;overflow-wrap:anywhere}
