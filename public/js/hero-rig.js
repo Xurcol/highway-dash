@@ -475,6 +475,7 @@ function poseAir(rig, a) {
   const t = a.t || 0, vy = a.vy || 0, hs = a.hs || 0, turn = cl(a.turn || 0, -1, 1);
   const rise = smooth(vy / 16), fall = smooth((-vy - 2) / 34), apex = 1 - smooth(Math.abs(vy) / 7);
   const fast = cl(hs / 48, 0, 1), brace = smooth((8 - (a.heightAbove ?? 100)) / 7) * fall;
+  const freefall = smooth((-vy - 18) / 28) * (1 - brace);
   const tumble = smooth((-vy - 38) / 30) * (1 - brace), drift = sin(t * 2.8) * (2 + tumble * 7) + sin(t * 13) * fall * fast * 3;
   const s = a.swingSide || 1;
   if (a.dive) {
@@ -495,13 +496,13 @@ function poseAir(rig, a) {
     return 11;
   }
   // Rise, hang time and freefall share one pose so crossing the apex never snaps the limbs.
-  torso(rig, 5 + rise * 5 + fall * 15 + brace * 7, -turn * 12 + tumble * drift, -turn * (9 + fast * 7), -5 - rise * 3 + brace * 11);
-  headP(rig, -10 * rise + fall * 19 - brace * 15, turn * 20, tumble * drift * .4);
-  leg(rig, s, 18 + rise * 42 + fall * 12 + brace * 25, 10 + fall * 11, 32 + rise * 55 + brace * 38, -10 - brace * 12);
-  leg(rig, -s, -8 + rise * 12 + fall * 22 + brace * 22, 17 + fall * 12, 36 + rise * 15 + fall * 12 + brace * 30, 10 - brace * 24);
-  arm(rig, s, 18 + rise * 42 + apex * 14 - fall * 12 + brace * 42 + drift, 28 + apex * 20 + fall * 34 - brace * 20, 0, 30 + rise * 15 + brace * 20);
-  arm(rig, -s, 7 + rise * 20 + apex * 9 - fall * 8 + brace * 38 - drift, 39 + apex * 15 + fall * 24 - brace * 18, 0, 35 + rise * 12 + brace * 20);
-  hand(rig, s, 8 + brace * 25); hand(rig, -s, 8 + brace * 25);
+  torso(rig, 5 + rise * 5 + fall * 15 + brace * 7 - freefall * 9, -turn * 12 + tumble * drift + sin(t * 4.5) * freefall * 13, -turn * (9 + fast * 7) + sin(t * 3.2) * freefall * 8, -5 - rise * 3 + brace * 11);
+  headP(rig, -10 * rise + fall * 19 - brace * 15 - freefall * 5, turn * 20 + sin(t * 3.2) * freefall * 12, tumble * drift * .4);
+  leg(rig, s, 18 + rise * 42 + fall * 12 + brace * 25 + freefall * 18, 10 + fall * 11 + freefall * 16, 32 + rise * 55 + brace * 38 + freefall * 38, -10 - brace * 12 - freefall * 16);
+  leg(rig, -s, -8 + rise * 12 + fall * 22 + brace * 22 + freefall * 12, 17 + fall * 12 + freefall * 18, 36 + rise * 15 + fall * 12 + brace * 30 + freefall * 28, 10 - brace * 24 + freefall * 14);
+  arm(rig, s, 18 + rise * 42 + apex * 14 - fall * 12 + brace * 42 + drift - freefall * 28, 28 + apex * 20 + fall * 34 - brace * 20 + freefall * 58, 0, 30 + rise * 15 + brace * 20 + freefall * 18);
+  arm(rig, -s, 7 + rise * 20 + apex * 9 - fall * 8 + brace * 38 - drift - freefall * 20, 39 + apex * 15 + fall * 24 - brace * 18 + freefall * 50, 0, 35 + rise * 12 + brace * 20 - freefall * 14);
+  hand(rig, s, 8 + brace * 25 + freefall * 12); hand(rig, -s, 8 + brace * 25 + freefall * 12);
   if (a.releaseT >= 0 && a.releaseT < .54) {
     saveBasePose(rig);
     const k = cl(a.releaseT / .54, 0, 1), open = sin(k * PI), quality = cl(a.releaseQuality || 0, 0, 2);
@@ -912,5 +913,4 @@ function poseEmote(rig, at) {
   return 12;
 }
 export const EMOTES = ["Wave", "Salute", "Flex", "Dance", "Cheer", "Point", "Sit", "Bow"];
-
 

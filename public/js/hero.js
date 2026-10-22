@@ -74,6 +74,7 @@ export class HeroMode {
     this.photo = new PhotoMode(this);
     this.worldMap = new WorldMap(this);
     this.slingPts = [new V(), new V()]; this.swingStyle = 0; this.overFxT = 0;
+    this.fallFxT = 0;
     this.lines = [];      // short-lived combat lines: { side, to, t, life, follow }
     this.frameEvents = []; this.stepInput = {}; this.idleInput = {};
     this.webPoints = []; this.webPair = [new V(), new V()];
@@ -310,6 +311,16 @@ export class HeroMode {
     this.trailsUpdate(dt);
     this.parts.update(dt, this.ctx.renderer.domElement.height);
     this.speedLines.update(real, camera.position, H.v);
+    // A fast fall gets its own readable visual beat instead of looking like a normal jump.
+    if (H.state === "air" && H.v.y < -18 && !H.glide && !this.tricks.active) {
+      this.fallFxT -= real;
+      if (this.fallFxT <= 0) {
+        const power = clamp((-H.v.y - 18) / 45, .2, 1);
+        this.fallFxT = .075;
+        this.parts.energy(H.p.x, H.p.y - HIP_H * .25, H.p.z, 2 + Math.round(power * 3), this.glowRGB());
+        this.parts.sparks(H.p.x, H.p.y - HIP_H * .2, H.p.z, 2 + Math.round(power * 3), [1, .35, .9], .45 + power * .35);
+      }
+    } else this.fallFxT = 0;
     this.rings.update(dt);
     this.windView.update(this.clock, this.ctx.sky.night || 0);
     if (this.combat.overT > 0 && (this.overFxT -= real) <= 0) {
