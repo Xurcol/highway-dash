@@ -650,6 +650,7 @@ export class HeroMode {
     Um.uSquint.value += (Math.min(1, squint) - Um.uSquint.value) * Math.min(1, dt * (this.blinkT < 0 ? 40 : 10));
     // overcharged: the whole suit runs hot
     if (this.combat.overT > 0) rig.mat.userData.u.uGlowAmt.value += .9 + Math.sin(a.t * 18) * .15;
+    if (this.combat.hp < .3 && this.combat.downT <= 0) rig.mat.userData.u.uGlowAmt.value += .2 + Math.sin(a.t * 12) * .12;
     rig.apply(this.combat.stopT > 0 ? dt * .1 : dt, this.firstFrames > 0 ? 1000 : r);
     const Uh = rig.mat.userData.u;
     Uh.uHit.value = Math.max(0, Uh.uHit.value - dt * 4);
@@ -1128,7 +1129,7 @@ export class HeroMode {
     const fx = this.parts, en = e.e !== undefined ? this.enemyList().find((q) => q.id === e.e) : null;
     switch (e.type) {
       case "hurt": fx.sparks(e.x, e.y + .3, e.z, e.heavy ? 14 : 7, [1, .85, .5], e.heavy ? 1.3 : .8); if (en) en.flash = 1; this.sfx("punch", e.heavy ? 1.4 : 1); break;
-      case "ko": fx.sparks(e.x, e.y + .3, e.z, 18, [1, 1, 1]); if (e.from === this.meId()) { this.tricks.link(e.boss ? "finisher" : "takedown"); this.combat.focus = Math.min(3, this.combat.focus + .15); this.combat.kills++; this.onKo?.(e); } this.sfx("ko"); break;
+      case "ko": fx.sparks(e.x, e.y + .3, e.z, 18, [1, 1, 1]); this.rings.spawn(e.x, e.y, e.z, e.boss ? 5 : 2.5, e.boss ? 0xffa040 : 0xffffff, e.boss ? .5 : .25); if (e.from === this.meId()) { this.tricks.link(e.boss ? "finisher" : "takedown"); this.combat.focus = Math.min(3, this.combat.focus + .15); this.combat.kills++; this.onKo?.(e); } this.sfx("ko"); break;
       case "webbed": if (en) fx.puff(en.x, en.y, en.z, 14); this.sfx("webhit"); break;
       case "pinned": fx.puff(e.x, e.y, e.z, 20); this.tricks.link("wallpin"); this.sfx("webhit", 1.4); this.cam.shake(.15); break;
       case "wallslam": case "bodyhit": fx.dust(e.x, e.y - .6, e.z, 12, 1); fx.debris(e.x, e.y, e.z, 8); this.cam.shake(.12); this.sfx("thud"); break;
@@ -1149,8 +1150,8 @@ export class HeroMode {
     switch (type) {
       case "swing": this.sfx("whoosh", d.kind === "roundhouse" || d.kind === "launch" ? 1.3 : .8); break;
       case "whiff": break;
-      case "hit": this.cam.shake(d.heavy ? .22 : .08); this.cam.punch(H.face.x * .12, 0, H.face.z * .12); if (H.state === "air") this.tricks.link("aircombo"); if (d.a?.kind === "finisher") this.tricks.link("finisher"); break;
-      case "dodge": this.sfx("dash"); break;
+      case "hit": fx.sparks(H.p.x + H.face.x * .5, H.p.y + .6, H.p.z + H.face.z * .5, d.heavy ? 12 : 5, d.heavy ? [1, .55, .2] : [1, .85, .55], d.heavy ? 1.1 : .55); if (d.a?.kind === "finisher") { this.rings.spawn(H.p.x, H.p.y - HIP_H + .1, H.p.z, 3.5, SUITS[this.suitId].glow, .3); fx.energy(H.p.x, H.p.y, H.p.z, 12, this.glowRGB()); } this.cam.shake(d.heavy ? .22 : .08); this.cam.punch(H.face.x * .12, 0, H.face.z * .12); if (H.state === "air") this.tricks.link("aircombo"); if (d.a?.kind === "finisher") this.tricks.link("finisher"); break;
+      case "dodge": fx.energy(H.p.x, H.p.y, H.p.z, 6, this.glowRGB()); fx.puff(H.p.x, H.p.y - HIP_H * .5, H.p.z, 5); this.sfx("dash"); break;
       case "guard": this.sfx("whoosh", .6); break;
       case "parry": {
         const p = d.e ? _h2.set(d.e.x, d.e.y + .4, d.e.z).lerp(H.p, .5) : _h2.copy(H.p);
@@ -1169,7 +1170,7 @@ export class HeroMode {
       }
       case "perfect": this.hud.center("PERFECT DODGE", "Counter now", .9, "small"); this.tricks.link("perfectdodge"); this.sfx("perfect"); break;
       case "dodged": break;
-      case "hurt": this.rig.mat.userData.u.uHit.value = 1; this.cam.shake(d.heavy ? .45 : .2); this.sfx("hurt", d.heavy ? 1.3 : 1); break;
+      case "hurt": this.rig.mat.userData.u.uHit.value = 1; fx.sparks(H.p.x, H.p.y + .5, H.p.z, d.heavy ? 16 : 8, [1, .2, .12], d.heavy ? 1.2 : .7); this.cam.shake(d.heavy ? .45 : .2); this.sfx("hurt", d.heavy ? 1.3 : 1); break;
       case "down": this.hud.center("DOWN", "Getting back up...", 3, "bail"); this.tricks.bail("KNOCKED DOWN"); this.sfx("hardland", 1); break;
       case "sense": this.sfx("sense", d.kind === "heavy" || d.kind === "slam" ? 1.4 : 1); break;
       case "line": this.lines.push({ side: d.side || 1, to: d.to, t: 0, life: d.yank ? .3 : .25 }); this.thwip(.8); break;
