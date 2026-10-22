@@ -906,7 +906,7 @@ export class HeroMode {
   }
   traversalHint(inp, releaseReady = this.releaseReady()) {
     const H = this.H, cb = this.combat, pad = inp.pad;
-    const jump = pad ? "A" : "Space", swing = pad ? "RT" : "Right mouse", zip = pad ? "LB" : "E";
+    const jump = pad ? "A" : "Space", swing = pad ? "RT" : "Shift", zip = pad ? "LB" : "E";
     if (cb.downT > 0) return "Recovering";
     if (H.sling) return `${pad ? "Release LB + RB" : "Release X"} · Launch (${Math.round(H.sling.charge * 100)}%)`;
     if (cb.senses.length) return `${pad ? "LT" : "Q"} · Dodge   ${pad ? "B" : "V"} · Parry`;
@@ -914,7 +914,7 @@ export class HeroMode {
     if (inp.trick && (H.state === "air" || H.state === "swing")) return `${pad ? "RB + stick" : "T + WASD / arrows"} · Change trick direction   ${pad ? "Release RB" : "Release T"} · Recover`;
     if (H.state === "swing") return releaseReady ? `${jump} · Perfect launch now` : `${jump} · Launch   WASD / stick · Steer`;
     if (H.state === "zip") return `${jump} · Time a point launch on arrival`;
-    if (H.state === "wall") return `${pad ? "L3" : "Shift"} · Run up   ${jump} · Wall jump`;
+    if (H.state === "wall") return `${pad ? "L3" : "Alt"} · Run up   ${jump} · Wall jump`;
     if (H.state === "water") return `${jump} · Jump out   ${swing} · Swing away`;
     if (H.dive) return `${swing} · Catch a line and carry your speed`;
     if (H.inWind) return `Steer to ride the ${H.inWind === "tunnel" ? "current" : "updraft"}   ${swing} · Swing out`;

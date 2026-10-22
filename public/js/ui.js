@@ -26,7 +26,7 @@ const fmtK = (n) => (n >= 1000 ? (n / 1000).toFixed(n % 1000 ? 1 : 0).replace(/\
 
 // one line of plain English per solo mode, shown under the picker
 const SOLO_BLURB = {
-  hero: "Be ARCLINE: swing through New Meridian on energy lines, run up towers, flip, fight crime. Right mouse swings, Space jumps, Shift runs walls, E zips, F + direction for tricks. H in game shows every control.",
+  hero: "Be ARCLINE: swing through New Meridian on energy lines, run up towers, flip, fight crime. Shift swings, Space jumps, Alt sprints, E zips, R web-strikes, and F + direction performs tricks. H in game shows every control.",
   classic: "One life. One crash ends the run.",
   freedrive: "No timer and no run to lose — crash and you just respawn.",
   city: "Free roam in 3D: downtown, traffic lights, and the ring expressway with its on and off ramps. Shift is the handbrake; hold S to reverse.",
