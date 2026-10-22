@@ -75,6 +75,7 @@ export class HeroMode {
     this.worldMap = new WorldMap(this);
     this.slingPts = [new V(), new V()]; this.swingStyle = 0; this.overFxT = 0;
     this.fallFxT = 0;
+    this.fxFrame = 0; this.fxStride = 1; this.enemyFrame = 0;
     this.lines = [];      // short-lived combat lines: { side, to, t, life, follow }
     this.frameEvents = []; this.stepInput = {}; this.idleInput = {};
     this.webPoints = []; this.webPair = [new V(), new V()];
@@ -304,12 +305,16 @@ export class HeroMode {
     // ---- the other heroes ----
     if (this.online) this.netx.update(real, T);
     // ---- enemies and props, as this machine sees them ----
-    this.drawEnemies(real);
-    this.tracers.update(dt);
+    // Keep gameplay at full rate, but let cosmetic work step down on slower machines.
+    this.fxStride = real > .024 ? 2 : 1;
+    this.fxFrame = (this.fxFrame + 1) % this.fxStride;
+    if (this.fxStride === 1 || this.enemyFrame++ % 2 === 0) this.drawEnemies(real);
+    const fxDt = this.fxStride === 1 || this.fxFrame === 0 ? dt * this.fxStride : 0;
+    if (fxDt > 0) this.tracers.update(fxDt);
     // ---- effects ----
     this.drawWebs(real);
-    this.trailsUpdate(dt);
-    this.parts.update(dt, this.ctx.renderer.domElement.height);
+    if (fxDt > 0) this.trailsUpdate(fxDt);
+    if (fxDt > 0) this.parts.update(fxDt, this.ctx.renderer.domElement.height);
     this.speedLines.update(real, camera.position, H.v);
     // A fast fall gets its own readable visual beat instead of looking like a normal jump.
     if (H.state === "air" && H.v.y < -18 && !H.glide && !this.tricks.active) {
@@ -321,7 +326,7 @@ export class HeroMode {
         this.parts.sparks(H.p.x, H.p.y - HIP_H * .2, H.p.z, 2 + Math.round(power * 3), [1, .35, .9], .45 + power * .35);
       }
     } else this.fallFxT = 0;
-    this.rings.update(dt);
+    if (fxDt > 0) this.rings.update(fxDt);
     this.windView.update(this.clock, this.ctx.sky.night || 0);
     if (this.combat.overT > 0 && (this.overFxT -= real) <= 0) {
       this.overFxT = .05;
@@ -768,7 +773,11 @@ export class HeroMode {
         case "launch": case "rooflaunch": fx.energy(H.p.x, H.p.y, H.p.z, 16, this.glowRGB()); this.sfx("launch", 1.3); this.cam.shake(.15); break;
         case "zipgo": this.sfx("zip"); break;
         case "perch": this.sfx("land", .4); break;
-        case "wall": this.sfx("land", .3); break;
+        case "wall":
+          if (e.mode === "run") { fx.sparks(H.p.x - H.n.x * .35, H.p.y, H.p.z - H.n.z * .35, 6, [1, .55, .2], .45); fx.puff(H.p.x - H.n.x * .25, H.p.y, H.p.z - H.n.z * .25, 4); }
+          else fx.puff(H.p.x - H.n.x * .3, H.p.y, H.p.z - H.n.z * .3, 5);
+          this.sfx("land", .3); break;
+        case "corner": fx.sparks(H.p.x, H.p.y, H.p.z, 5, [1, .65, 1], .4); this.sfx("whoosh", .35); break;
         case "vault": case "mantle": case "climb": this.sfx("vault"); break;
         case "slide": this.sfx("slide"); break;
         case "dive": this.sfx("dive"); break;
