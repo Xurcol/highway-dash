@@ -724,7 +724,11 @@ export class HeroMode {
     const H = this.H, fx = this.parts, A = this.ctx.audio;
     for (const e of list) {
       switch (e.type) {
-        case "shoot": this.thwip(e.second ? .7 : 1); this.shootAt = new V(e.x, e.y, e.z); this.shootSide = e.side; this.shootFlash = .18; break;
+        case "shoot": {
+          this.thwip(e.second ? .7 : 1); this.shootAt = new V(e.x, e.y, e.z); this.shootSide = e.side; this.shootFlash = .18;
+          const hand = this.rig.handPos(e.side, _h1); fx.energy(hand.x, hand.y, hand.z, 4, this.glowRGB());
+          break;
+        }
         case "slingstart": this.slingAnchors(); this.thwip(1); this.thwip(.8); break;
         case "slingcancel": this.sfx("release"); break;
         case "slingshot": {
@@ -735,13 +739,25 @@ export class HeroMode {
           break;
         }
         case "windin": this.sfx("glide"); this.tricks.link(e.kind === "tunnel" ? "wind" : "updraft"); break;
-        case "attach": { this.swingStyle = (this.swingStyle + 1 + (Math.random() < .4 ? 1 : 0)) % 3; const w = H.webs[H.webs.length - 1]; if (w) fx.puff(w.a.x, w.a.y, w.a.z, 8, w.n.x, w.n.y, w.n.z); this.sfx("attach"); break; }
+        case "attach": {
+          this.swingStyle = (this.swingStyle + 1 + (Math.random() < .4 ? 1 : 0)) % 3;
+          const w = H.webs[H.webs.length - 1];
+          if (w) { fx.puff(w.a.x, w.a.y, w.a.z, 10, w.n.x, w.n.y, w.n.z); fx.sparks(w.a.x, w.a.y, w.a.z, 8, [1, .65, 1], .55); this.rings.spawn(w.a.x, w.a.y, w.a.z, 1.8, 0xffffff, .28, w.n); }
+          this.sfx("attach"); break;
+        }
         case "letgo": case "release": if (e.type === "letgo") { this.sfx(e.jump ? "launch" : "release", e.jump ? 1 : e.quality + 1); if (e.quality === 2) this.hud.center("PERFECT RELEASE", "", .9, "small"); } this.dropWebs(); break;
         case "snap": this.sfx("snap"); this.dropWebs(); break;
         case "land": {
           const p = H.p, power = clamp(-e.vy / 30, .2, 1.4);
           fx.dust(p.x, p.y - HIP_H, p.z, Math.round(8 + power * 18), power);
-          if (e.kind === "hard") { this.rings.spawn(p.x, p.y - HIP_H + .05, p.z, 5 + power * 4, 0xffffff, .6); this.cam.shake(.5 * power); this.cam.punch(0, -.35 * power, 0); this.sfx("hardland", power); }
+          if (e.kind === "hard") {
+            const y = p.y - HIP_H + .05;
+            this.rings.spawn(p.x, y, p.z, 5 + power * 4, 0xffffff, .6);
+            this.rings.spawn(p.x, y + .04, p.z, 2.5 + power * 2.5, SUITS[this.suitId].glow, .38);
+            fx.sparks(p.x, y + .1, p.z, Math.round(12 + power * 18), [1, .55, .2], .7 + power * .3);
+            fx.energy(p.x, y + .2, p.z, Math.round(6 + power * 8), this.glowRGB());
+            this.cam.shake(.5 * power); this.cam.punch(0, -.35 * power, 0); this.sfx("hardland", power);
+          }
           else { this.cam.shake(.12 * power); this.sfx("land", power); }
           break;
         }
@@ -1153,7 +1169,7 @@ export class HeroMode {
       case "trap": fx.puff(d.x, d.y + .5, d.z, 18); this.sfx("webhit", 1.2); break;
       case "grab": this.thwip(1); break;
       case "throw": this.sfx("whoosh", 1.5); this.tricks.link("throw"); break;
-      case "webstrike": this.tricks.link("webstrike"); this.cam.shake(.25); break;
+        case "webstrike": fx.energy(H.p.x, H.p.y, H.p.z, 12, this.glowRGB()); fx.sparks(H.p.x, H.p.y, H.p.z, 8, [1, .65, 1], .7); this.tricks.link("webstrike"); this.cam.shake(.25); break;
       case "slamland": fx.dust(H.p.x, H.p.y - HIP_H, H.p.z, 40, 2); this.rings.spawn(H.p.x, H.p.y - HIP_H + .05, H.p.z, 8, 0xffffff, .55); this.cam.shake(.5); this.tricks.link("slam"); this.sfx("hardland", 1.2); break;
       case "heal": fx.energy(H.p.x, H.p.y, H.p.z, 24, [.4, 1, .6]); this.hud.center("HEALED", "", .8, "small"); this.sfx("perfect"); break;
       case "deny": this.sfx("deny"); break;
