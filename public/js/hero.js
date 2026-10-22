@@ -76,6 +76,7 @@ export class HeroMode {
     this.slingPts = [new V(), new V()]; this.swingStyle = 0; this.overFxT = 0;
     this.fallFxT = 0;
     this.fxFrame = 0; this.fxStride = 1; this.enemyFrame = 0;
+    this.traversalFxT = 0;
     this.lines = [];      // short-lived combat lines: { side, to, t, life, follow }
     this.frameEvents = []; this.stepInput = {}; this.idleInput = {};
     this.webPoints = []; this.webPair = [new V(), new V()];
@@ -316,6 +317,13 @@ export class HeroMode {
     if (fxDt > 0) this.trailsUpdate(fxDt);
     if (fxDt > 0) this.parts.update(fxDt, this.ctx.renderer.domElement.height);
     this.speedLines.update(real, camera.position, H.v);
+    this.traversalFxT -= real;
+    if (this.traversalFxT <= 0 && H.state === "wall" && H.speed > 3) {
+      this.traversalFxT = H.wallMode === "run" ? .055 : .12;
+      const bx = H.p.x - H.n.x * .35, by = H.p.y - .35, bz = H.p.z - H.n.z * .35;
+      if (H.wallMode === "run") this.parts.sparks(bx, by, bz, 2, [1, .55, .2], .35);
+      else this.parts.puff(bx, by, bz, 2, -H.n.x, 0, -H.n.z);
+    }
     // A fast fall gets its own readable visual beat instead of looking like a normal jump.
     if (H.state === "air" && H.v.y < -18 && !H.glide && !this.tricks.active) {
       this.fallFxT -= real;
@@ -680,7 +688,8 @@ export class HeroMode {
       pts.push(w.a);
       const d = H.p.distanceTo(w.pivot());
       const slack = Math.max(0, w.L - d);
-      this.webs.line(pts, this.webCol, 1, Math.max(0, .25 - w.t) * 3, Math.min(3, slack * .4), this.clock);
+      const tensionPulse = 1 + Math.sin(this.clock * 20 + w.side) * clamp(H.speed / 90, 0, .14);
+      this.webs.line(pts, this.webCol, tensionPulse, Math.max(0, .25 - w.t) * 3, Math.min(3, slack * .4), this.clock);
       w.t += dt;
     }
     // the slingshot's two lines, drawn tighter the harder it is pulled

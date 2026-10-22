@@ -154,7 +154,8 @@ export class HeroCam {
     C.lookAt(C.position.x + fx, C.position.y + fy, C.position.z + fz);
     // a little roll into hard turns at speed, and with the trauma
     const turn = H.turnRate || 0;
-    this.roll += (clamp(-turn * .025 * clamp(hs / 35, 0, 1), -.055, .055) - this.roll) * ease(dt, 4.5);
+    const wallLean = H.state === "wall" && H.wallMode === "run" ? clamp(H.v.y / 18, -1, 1) * .035 : 0;
+    this.roll += (clamp(-turn * .025 * clamp(hs / 35, 0, 1), -.055, .055) + wallLean - this.roll) * ease(dt, 4.5);
     C.rotateZ(this.roll + (tr > 0 ? noise(this.t * 14, 3) * tr * .035 : 0));
     if (Math.abs(C.fov - this.fov) > .05) { C.fov = this.fov; C.updateProjectionMatrix(); }
   }
