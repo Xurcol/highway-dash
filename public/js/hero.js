@@ -1139,16 +1139,16 @@ export class HeroMode {
     switch (e.type) {
       case "hurt": fx.sparks(e.x, e.y + .3, e.z, e.heavy ? 14 : 7, [1, .85, .5], e.heavy ? 1.3 : .8); if (en) en.flash = 1; this.sfx("punch", e.heavy ? 1.4 : 1); break;
       case "ko": fx.sparks(e.x, e.y + .3, e.z, 18, [1, 1, 1]); this.rings.spawn(e.x, e.y, e.z, e.boss ? 5 : 2.5, e.boss ? 0xffa040 : 0xffffff, e.boss ? .5 : .25); if (e.from === this.meId()) { this.tricks.link(e.boss ? "finisher" : "takedown"); this.combat.focus = Math.min(3, this.combat.focus + .15); this.combat.kills++; this.onKo?.(e); } this.sfx("ko"); break;
-      case "webbed": if (en) fx.puff(en.x, en.y, en.z, 14); this.sfx("webhit"); break;
-      case "pinned": fx.puff(e.x, e.y, e.z, 20); this.tricks.link("wallpin"); this.sfx("webhit", 1.4); this.cam.shake(.15); break;
-      case "wallslam": case "bodyhit": fx.dust(e.x, e.y - .6, e.z, 12, 1); fx.debris(e.x, e.y, e.z, 8); this.cam.shake(.12); this.sfx("thud"); break;
+      case "webbed": if (en) { fx.puff(en.x, en.y, en.z, 14); fx.energy(en.x, en.y + .35, en.z, 5, this.glowRGB()); this.rings.spawn(en.x, en.y, en.z, 1.8, 0xffffff, .24); } this.sfx("webhit"); break;
+      case "pinned": fx.puff(e.x, e.y, e.z, 20); fx.sparks(e.x, e.y + .35, e.z, 10, [1, .65, 1], .6); this.rings.spawn(e.x, e.y, e.z, 3.2, 0xffffff, .3); this.tricks.link("wallpin"); this.sfx("webhit", 1.4); this.cam.shake(.15); break;
+      case "wallslam": case "bodyhit": fx.dust(e.x, e.y - .6, e.z, 12, 1); fx.debris(e.x, e.y, e.z, 8); this.rings.spawn(e.x, e.y, e.z, 2.5, 0xffa040, .25); this.cam.shake(.12); this.sfx("thud"); break;
       case "land": if (e.v > 8) { fx.dust(e.x, e.y - .9, e.z, 10, .9); this.sfx("thud", .6); } break;
       case "fire": this.tracers.add(e.x, e.y, e.z, e.vx, e.vy, e.vz); this.sfx("gun", Math.max(.2, 1 - Math.hypot(e.x - this.H.p.x, e.z - this.H.p.z) / 80)); break;
       case "ricochet": fx.sparks(e.x, e.y, e.z, 5, [1, .8, .4], .5); break;
       case "explode": fx.sparks(e.x, e.y, e.z, 40, [1, .55, .2], 2); fx.dust(e.x, e.y, e.z, 30, 2.2); this.rings.spawn(e.x, e.y, e.z, 9, 0xffa040, .6); this.cam.shake(.4); this.sfx("boom"); break;
       case "smash": fx.debris(e.x, e.y, e.z, 14, [.55, .45, .3]); this.sfx("thud", .8); break;
       case "shockwave": this.rings.spawn(e.x, e.y + .05, e.z, e.r * 1.4, 0xff3048, .7); fx.dust(e.x, e.y, e.z, 30, 2); this.cam.shake(.5); this.sfx("boom", .7); break;
-      case "disarm": if (e.from === this.meId()) { this.tricks.link("throw"); this.hud.center("DISARMED", "", .9, "small"); } this.sfx("snap"); break;
+      case "disarm": fx.sparks(e.x, e.y + .4, e.z, 10, [1, .85, .45], .7); if (e.from === this.meId()) { this.tricks.link("throw"); this.hud.center("DISARMED", "", .9, "small"); } this.sfx("snap"); break;
       case "bossphase": this.hud.center("VANTA IS ENRAGED", "Phase two", 2.4); break;
       case "taunt": break;
     }
@@ -1184,7 +1184,7 @@ export class HeroMode {
       case "sense": this.sfx("sense", d.kind === "heavy" || d.kind === "slam" ? 1.4 : 1); break;
       case "line": this.lines.push({ side: d.side || 1, to: d.to, t: 0, life: d.yank ? .3 : .25 }); this.thwip(.8); break;
       case "gadget": this.thwip(1.1); this.shootAt = d.to; this.shootSide = d.side; this.shootFlash = .2; break;
-      case "webhit": fx.puff(d.x, d.y, d.z, d.kind === "impact" ? 16 : 6); this.sfx("webhit", d.kind === "impact" ? 1.3 : .7); break;
+      case "webhit": fx.puff(d.x, d.y, d.z, d.kind === "impact" ? 16 : 6); if (d.kind === "impact") { fx.sparks(d.x, d.y, d.z, 8, [1, .65, 1], .7); this.rings.spawn(d.x, d.y, d.z, 2.2, 0xffffff, .25); } this.sfx("webhit", d.kind === "impact" ? 1.3 : .7); break;
       case "bomb": fx.puff(d.x, d.y, d.z, 40); this.rings.spawn(d.x, d.y + .1, d.z, 7, 0xffffff, .5); this.sfx("bomb"); break;
       case "trapset": fx.energy(d.x, d.y, d.z, 10, this.glowRGB()); this.sfx("snap"); break;
       case "trap": fx.puff(d.x, d.y + .5, d.z, 18); this.sfx("webhit", 1.2); break;
