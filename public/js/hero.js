@@ -729,7 +729,8 @@ export class HeroMode {
     this.webs.end(dt);
   }
   trailsUpdate(dt) {
-    const H = this.H, rig = this.rig, on = this.tricks.active ? 1 : H.state === "swing" && H.speed > 25 ? .3 : H.speed > 38 ? .45 : 0;
+    const H = this.H, rig = this.rig;
+    const on = this.dashT > 0 ? 1 : this.tricks.active ? 1 : H.state === "wall" && H.wallMode === "run" ? .55 : H.state === "swing" && H.speed > 25 ? .3 : H.speed > 38 ? .45 : 0;
     const col = this.webCol;
     rig.mesh.updateMatrixWorld(true);
     for (let i = 0; i < TRAIL_BONES.length; i++) this.trails.push(i, rig.bonePos(TRAIL_BONES[i], _h2), on, col);
