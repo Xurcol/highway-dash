@@ -436,28 +436,23 @@ function blendBasePose(rig, strength) {
 function poseWall(rig, a) {
   const mv = a.wallMove, mx = mv?.x || 0, my = mv?.y || 0, speed = Math.hypot(mx, my);
   const moving = smooth(speed / .6), dx = speed > .05 ? mx / speed : 0, dy = speed > .05 ? my / speed : 1;
-  const running = a.wallMode === "run" && speed > 3, phase = a.phase || 0;
+  const running = a.wallMode === "run", phase = a.phase || 0;
   const gap = cl(a.wallDistance ?? .44, .3, .65), sway = sin(phase) * moving;
-  torso(rig, running ? 10 : 18, sway * (running ? 7 : 4), -dx * 5, running ? 3 : 7, -sway * 3);
-  headP(rig, running ? -26 : -38, dx * 12, sway * 2);
-  rig.poseOffset.set(sway * (running ? .018 : .012), running ? -.015 : -.065, 0);
+  // Wall run is an upright sprint with the chest open; crawl stays low with four points of contact.
+  torso(rig, running ? 3 : 28, sway * (running ? 10 : 4), -dx * (running ? 10 : 5), running ? 2 : 9, -sway * 3);
+  headP(rig, running ? -16 : -46, dx * (running ? 16 : 12), sway * 2);
+  rig.poseOffset.set(sway * (running ? .025 : .012), running ? .01 : -.11, 0);
   for (let s = -1; s <= 1; s += 2) {
     const limbPhase = phase + (s > 0 ? 0 : PI), cycle = ((limbPhase / (PI * 2)) % 1 + 1) % 1;
-    const hold = running ? .4 : .64, reach = smooth((cycle - hold) / (1 - hold));
+    const hold = running ? .34 : .72, reach = smooth((cycle - hold) / (1 - hold));
     const travel = (cycle < hold ? .5 - cycle / hold : -.5 + reach) * moving;
     const lift = cycle < hold ? 0 : sin(reach * PI) * moving;
     if (running) {
-      arm(rig, s, 20 - sway * s * 38, 18, -sway * 9, 75 + sway * s * 15);
+      // Do not plant hands while running: the arms pump like a sprint instead of falling into crawl IK.
+      arm(rig, s, -18 - sway * s * 48, 12, -sway * 9, 22 + sway * s * 16);
       hand(rig, s, 20);
-      const brush = smooth((cos(limbPhase) - .15) / .65);
-      if (brush > 0) {
-        const upper = BI["arm" + (s > 0 ? "L" : "R")], lower = upper + 1, end = upper + 2;
-        rig.posePrevious[upper].copy(rig.target[upper]); rig.posePrevious[lower].copy(rig.target[lower]); rig.posePrevious[end].copy(rig.target[end]);
-        _contact.set(s * .32 + dx * travel * .24, .18 + dy * travel * .24, gap - .018);
-        plantLimb(rig, s, true, _contact, _pole.set(s * .7, -.2, -1));
-        rig.target[upper].slerp(rig.posePrevious[upper], 1 - brush); rig.target[lower].slerp(rig.posePrevious[lower], 1 - brush); rig.target[end].slerp(rig.posePrevious[end], 1 - brush);
-      }
     } else {
+      // Crawl hands reach and plant in alternating rhythm, keeping the body low and close to the wall.
       _contact.set(s * (.36 + lift * .035) + dx * travel * .46, .56 + dy * travel * .46, gap - .018 - lift * .14);
       plantLimb(rig, s, true, _contact, _pole.set(s * .8, -.1, -1));
     }
@@ -913,4 +908,3 @@ function poseEmote(rig, at) {
   return 12;
 }
 export const EMOTES = ["Wave", "Salute", "Flex", "Dance", "Cheer", "Point", "Sit", "Bow"];
-
