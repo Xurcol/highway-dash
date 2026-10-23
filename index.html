@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en" data-ver="mvkadte1">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0b1013">
+  <meta name="description" content="Become ARCLINE. Swing through New Meridian, meet other heroes, and make the city your own.">
+  <title>ARCLINE — New Meridian</title>
+  <link rel="stylesheet" href="style.css?v=mvkadte1">
+  <link rel="stylesheet" href="arcline.css?v=mvkadte1">
+  <script type="importmap">
+    { "imports": { "three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/" } }
+  </script>
+</head>
+<body class="arc-app">
+  <svg class="arc-sprite" width="0" height="0" aria-hidden="true">
+    <symbol id="i-arc" viewBox="0 0 32 32"><path d="M4 22C4 12 9 5 16 5s12 7 12 17M10 22h12M16 14v13"/></symbol>
+    <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c2.4 2.6 3.6 5.6 3.6 9s-1.2 6.4-3.6 9c-2.4-2.6-3.6-5.6-3.6-9S9.6 5.6 12 3z"/></symbol>
+    <symbol id="i-users" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.3"/><path d="M2.8 20a6.2 6.2 0 0 1 12.4 0M15.8 4.8a3.3 3.3 0 0 1 0 6.4M18.8 20a6.2 6.2 0 0 0-3-5.3"/></symbol>
+    <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="7"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l2 2M17 17l2 2M5 19l2-2M17 7l2-2"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15M13 5l7 7-7 7"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+    <symbol id="i-restart" viewBox="0 0 24 24"><path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3M4.5 4v4.2h4.2"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></symbol>
+    <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m16 8-2.5 5.5L8 16l2.5-5.5z"/></symbol>
+    <symbol id="i-signal" viewBox="0 0 24 24"><path d="M4 19v-3M9 19v-7M14 19V8M19 19V4"/></symbol>
+    <symbol id="i-logout" viewBox="0 0 24 24"><path d="M10 4H4v16h6M9 12h12M17 8l4 4-4 4"/></symbol>
+    <symbol id="i-play" viewBox="0 0 24 24"><path d="m7 4 13 8-13 8z"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 4-3 7-8 9-5-2-8-5-8-9V6zM8 12l3 3 5-6"/></symbol>
+  </svg>
+  <canvas id="c" aria-label="New Meridian game view"></canvas>
+
+  <section id="loader" class="loader" aria-label="Starting ARCLINE">
+    <div class="arc-loader-grid" aria-hidden="true"></div>
+    <div class="loader-box">
+      <div class="brand arc-brand"><svg class="ic" aria-hidden="true"><use href="#i-arc"/></svg>ARC<span>LINE</span></div>
+      <span class="arc-kicker">WELCOME TO NEW MERIDIAN</span>
+      <h1 class="loader-title" id="loaderTitle">Getting the city ready</h1>
+      <div class="loader-bar"><i id="loaderBar"></i></div>
+      <p class="loader-sub" id="loaderSub">Your next skyline is waiting.</p>
+      <p class="loader-tip" id="loaderTip">An original hero. A city to explore together.</p>
+    </div>
+    <div class="auth" id="auth" hidden>
+      <div class="auth-card">
+        <div class="brand arc-brand"><svg class="ic" aria-hidden="true"><use href="#i-arc"/></svg>ARC<span>LINE</span></div>
+        <p class="arc-auth-intro">Your city. Your hero.</p>
+        <div class="auth-quick" id="authQuick" hidden>
+          <span class="arc-kicker">WELCOME BACK</span>
+          <b id="authQuickName"></b>
+          <button class="btn accent xl" id="authContinue" type="button">Continue</button>
+          <button class="auth-link" id="authSwitch" type="button">Use another account</button>
+        </div>
+        <div class="auth-tabs" id="authTabs">
+          <button class="tab" data-auth="login" type="button">Sign in</button>
+          <button class="tab" data-auth="register" type="button">Create account</button>
+        </div>
+        <form id="authForm" autocomplete="on" novalidate>
+          <label class="field"><span>Username</span><input type="text" id="authUser" autocomplete="username" maxlength="16" spellcheck="false" autocapitalize="none" required></label>
+          <label class="field"><span>Password</span><input type="password" id="authPass" autocomplete="current-password" required></label>
+          <label class="field" id="authPass2Row" hidden><span>Confirm password</span><input type="password" id="authPass2" autocomplete="new-password"></label>
+          <label class="toggle"><input type="checkbox" id="authKeep"> Keep me signed in on this device</label>
+          <p class="auth-msg" id="authMsg" role="alert"></p>
+          <button class="btn accent xl" id="authGo" type="submit">Sign in</button>
+        </form>
+        <p class="arc-save-note"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>Your account and hero progress are saved in this browser. Use this device to keep your progress.</p>
+      </div>
+    </div>
+    <div class="loader-foot"><span id="loaderVer">ARCLINE · NEW MERIDIAN</span></div>
+  </section>
+
+  <section id="hud" hidden aria-label="Hero heads-up display"></section>
+  <header id="arcBar" class="arc-bar" hidden>
+    <button class="arc-bar-brand" data-arc-action="menu" type="button" title="Open city menu [Esc]"><svg class="ic" aria-hidden="true"><use href="#i-arc"/></svg><span>ARCLINE</span></button>
+    <div class="arc-session"><b id="arcSessionLabel">NEW MERIDIAN</b><small id="arcNetLabel" aria-live="polite">Connecting…</small></div>
+    <nav aria-label="In-game actions">
+      <button class="btn gray" data-arc-action="activities" type="button" title="Hero activities, suits and skills [K]"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg><span>Hero menu</span><kbd>K</kbd></button>
+      <button class="btn gray" data-arc-action="players" type="button" title="City players"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg><span>Players</span></button>
+      <button class="btn gray" data-arc-action="menu" type="button" title="City menu [Esc]"><svg class="ic" aria-hidden="true"><use href="#i-gear"/></svg><span>Menu</span></button>
+    </nav>
+  </header>
+
+  <section id="arcMenu" class="arc-menu" hidden aria-label="ARCLINE city menu">
+    <div class="arc-menu-wrap">
+      <header class="arc-menu-head">
+        <div><div class="brand arc-brand"><svg class="ic" aria-hidden="true"><use href="#i-arc"/></svg>ARC<span>LINE</span></div><p class="arc-kicker">NEW MERIDIAN / ONLINE CITY</p></div>
+        <div class="arc-account"><span>YOUR HERO</span><b id="arcPlayerName">Hero</b><small>Hero code <strong id="arcHeroCode">Connecting…</strong></small></div>
+        <button id="arcClose" class="btn gray arc-icon-button" data-arc-action="resume" type="button" aria-label="Close city menu" hidden><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button>
+      </header>
+      <div class="arc-shell">
+        <nav class="arc-nav" aria-label="City menu sections">
+          <button class="on" data-arc-panel="lobby" type="button"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg>Play online<svg class="ic arc-nav-arrow" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+          <button data-arc-panel="friends" type="button"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg>Friends</button>
+          <button data-arc-panel="settings" type="button"><svg class="ic" aria-hidden="true"><use href="#i-gear"/></svg>Settings</button>
+          <div class="arc-nav-foot"><span>MAKE THE CITY<br>YOUR OWN.</span><p>Swing. Explore.<br>Stand together.</p></div>
+          <button class="arc-signout" data-arc-action="signout" type="button"><svg class="ic" aria-hidden="true"><use href="#i-logout"/></svg>Sign out</button>
+        </nav>
+        <main class="arc-content">
+          <section data-arc-section="lobby" aria-label="Join a city">
+            <div class="arc-lobby-grid">
+              <div class="arc-feature">
+                <span class="arc-kicker"><i class="arc-status-dot" aria-hidden="true"></i>AN OPEN CITY. A NEW PERSPECTIVE.</span>
+                <h1>Find your<br>next skyline.</h1>
+                <p>Swing through New Meridian, take on city threats, and meet the heroes sharing your streets.</p>
+                <svg class="arc-skyline" viewBox="0 0 640 240" fill="none" aria-hidden="true">
+                  <path d="M0 240V157h46v-29h22v-51h25v-20h18v20h25v103h20V113h42V93h28v20h15v64h29V55h18V33h23V12h7v21h23v22h18v185M347 240V150h29v-33h44v33h26V86h14V61h30v25h14v100h20v-53h48v-30h24v30h17v55h27v-45h28v97" fill="currentColor"/>
+                  <path d="M0 240V157h46v-29h22v-51h25v-20h18v20h25v103h20V113h42V93h28v20h15v64h29V55h18V33h23V12h7v21h23v22h18v185M347 240V150h29v-33h44v33h26V86h14V61h30v25h14v100h20v-53h48v-30h24v30h17v55h27v-45h28v97" stroke="currentColor" stroke-width="1"/>
+                  <path d="m318 12 139 142-21 40M436 194l-24-12-9 20m33-8 16 18 18-3m-34-15 4-25 17-15" class="arc-skyline-line" stroke-width="2"/>
+                  <path d="M95 94h12m-12 15h12m-12 15h12M284 72h12m-12 16h12m-12 16h12M466 107h10m-10 16h10m-10 16h10M545 153h10m-10 15h10" class="arc-skyline-windows"/>
+                </svg>
+                <div class="arc-play-actions">
+                  <button id="arcQuick" class="btn accent arc-join-city" data-arc-action="quick" type="button">Join city<svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+                  <button class="btn gray" data-arc-action="practice" type="button">Explore alone</button>
+                </div>
+                <p id="arcStatus" class="arc-network-status" role="status">Connecting to the city network…</p>
+              </div>
+              <aside class="arc-lobby-side">
+                <div id="arcRoom" class="arc-current-room" hidden></div>
+                <form id="arcJoinForm" class="arc-card">
+                  <span class="arc-kicker">HAVE AN INVITE?</span><h2>Join with a city code</h2>
+                  <label class="arc-field" for="arcJoinCode">Six-digit city code</label>
+                  <div class="arc-input-action"><input id="arcJoinCode" type="text" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" placeholder="000000" autocomplete="off" required><button class="btn gray" type="submit">Join</button></div>
+                </form>
+                <form id="arcCreateForm" class="arc-card">
+                  <span class="arc-kicker">YOUR OWN CORNER OF THE CITY</span><h2>Create a city</h2>
+                  <label class="arc-field" for="arcRoomName">City name</label><input id="arcRoomName" type="text" maxlength="32" placeholder="New Meridian" autocomplete="off">
+                  <div class="arc-create-options"><label class="arc-field" for="arcCapacity">Heroes<select id="arcCapacity"><option value="4">4</option><option value="8" selected>8</option><option value="12">12</option></select></label><label class="toggle"><input id="arcPrivate" type="checkbox">Private city</label></div>
+                  <button class="btn gray arc-full" type="submit">Create city<svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button>
+                </form>
+              </aside>
+            </div>
+            <div class="arc-section-head"><div><span class="arc-kicker">MEET YOUR NEXT TEAM</span><h2>Public cities</h2></div><button class="btn gray" data-arc-action="refresh" type="button"><svg class="ic" aria-hidden="true"><use href="#i-restart"/></svg>Refresh</button></div>
+            <div id="arcServers" class="arc-list" aria-live="polite"><p class="arc-empty">Cities appear once the network connects. You can explore alone while you wait.</p></div>
+          </section>
+
+          <section data-arc-section="friends" aria-label="Friends" hidden>
+            <div class="arc-page-heading"><span class="arc-kicker">BETTER WITH YOUR PEOPLE</span><h1>Bring your crew.</h1><p>Share your hero code, add a friend, and find each other in the city.</p></div>
+            <form id="arcFriendForm" class="arc-card arc-friend-form"><label class="arc-field" for="arcFriendCode">Friend's six-character hero code</label><div class="arc-input-action"><input id="arcFriendCode" type="text" minlength="6" maxlength="6" pattern="[A-Za-z0-9]{6}" placeholder="ABC123" autocomplete="off" spellcheck="false" required><button class="btn accent" type="submit">Add friend</button></div></form>
+            <div class="arc-section-head"><h2>Your friends</h2><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg></div>
+            <div id="arcFriends" class="arc-list" aria-live="polite"><p class="arc-empty">Add a friend using their six-character hero code.</p></div>
+          </section>
+
+          <section data-arc-section="settings" aria-label="Settings" hidden>
+            <div class="arc-page-heading"><span class="arc-kicker">MAKE IT FEEL RIGHT</span><h1>Your city. Your settings.</h1><p>Choose the detail and sound that feel best on your device.</p></div>
+            <div class="arc-settings-grid">
+              <div class="arc-card arc-settings-card"><svg class="ic" aria-hidden="true"><use href="#i-signal"/></svg><h2>Graphics</h2><label class="arc-field" for="arcGraphics">City detail</label><select id="arcGraphics" data-arc-setting="graphics"><option value="low">Low — fastest</option><option value="medium" selected>Medium — balanced</option><option value="high">High — more detail, bloom</option><option value="ultra">Ultra — sharpest, longest view</option></select><p class="arc-help">Lower detail keeps nearby action clear while drawing less in the distance.</p><label class="toggle"><input type="checkbox" data-arc-setting="hideNames">Hide player names</label><label class="toggle"><input type="checkbox" data-arc-setting="noPost">Turn off bloom and motion blur</label><p id="arcPerf" class="arc-perf" aria-live="polite">Performance adjusts to your device.</p></div>
+              <div class="arc-card arc-settings-card"><svg class="ic" aria-hidden="true"><use href="#i-compass"/></svg><h2>Sound</h2><label class="arc-range"><span>Master volume</span><input type="range" min="0" max="1" step="0.05" value="0.8" data-arc-setting="volMaster"></label><label class="arc-range"><span>Hero effects</span><input type="range" min="0" max="1" step="0.05" value="0.8" data-arc-setting="volFx"></label><label class="arc-range"><span>Wind</span><input type="range" min="0" max="1" step="0.05" value="0.3" data-arc-setting="volWind"></label><label class="arc-range"><span>City ambience</span><input type="range" min="0" max="1" step="0.05" value="0.65" data-arc-setting="ambience"></label></div>
+            </div>
+            <div class="arc-controls"><h2>Your first leap</h2><div></div><p>Hold X and WASD or arrow keys to flip in that direction. Switch directions without releasing X; Alt and Ctrl add more trick styles. Keyboard and mouse or a standard gamepad. Press Enter to chat in an online city.</p></div>
+          </section>
+        </main>
+      </div>
+      <footer class="arc-menu-foot"><span><svg class="ic" aria-hidden="true"><use href="#i-shield"/></svg>ARCLINE / ORIGINAL HERO WORLD</span><button id="arcResume" class="btn accent" data-arc-action="resume" type="button" hidden>Back to the city<svg class="ic" aria-hidden="true"><use href="#i-arrow"/></svg></button></footer>
+    </div>
+  </section>
+
+  <aside id="arcChat" class="arc-chat" aria-label="City chat"><div id="arcChatLines" class="arc-chat-lines" role="log" aria-live="polite" aria-relevant="additions"></div><form id="arcChatForm" hidden><label class="arc-sr-only" for="arcChatInput">Message your city</label><input id="arcChatInput" type="text" maxlength="180" autocomplete="off" placeholder="Message your city…"><button class="btn accent" type="submit">Send</button></form></aside>
+  <aside id="arcPlayers" class="arc-players" hidden aria-label="Heroes in your city"><div class="arc-section-head"><h2>City heroes</h2><button class="btn gray arc-icon-button" data-arc-action="players" type="button" aria-label="Close players"><svg class="ic" aria-hidden="true"><use href="#i-x"/></svg></button></div><div id="arcPlayersList"></div></aside>
+  <div id="arcToasts" class="arc-toasts" aria-live="polite" aria-relevant="additions"></div>
+  <section id="arcError" class="arc-error" hidden role="alertdialog" aria-modal="true" aria-labelledby="arcErrorTitle" aria-describedby="arcErrorMsg"><div class="arc-card"><svg class="ic" aria-hidden="true"><use href="#i-arc"/></svg><span class="arc-kicker">LET'S GET YOU BACK</span><h1 id="arcErrorTitle">The city couldn't start.</h1><p id="arcErrorMsg">Something interrupted the game. Reload to try again.</p><button id="arcReload" class="btn accent" type="button">Reload ARCLINE<svg class="ic" aria-hidden="true"><use href="#i-restart"/></svg></button></div></section>
+  <noscript><div class="arc-noscript">ARCLINE needs JavaScript to bring New Meridian to life. Enable JavaScript, then reload this page.</div></noscript>
+  <script type="module" src="js/main.js?v=mvkadte1"></script>
+</body>
+</html>
