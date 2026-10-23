@@ -34,6 +34,9 @@ export class Activities {
 
   // ------------------------------------------------------------------ starting
   start(kind, arg) {
+    if (kind === "endwaves") { this.endWaves("SURVIVAL ENDED"); return { ok: true, text: "Back to free roam." }; }
+    if (kind === "waves") return this.startWaves();
+    if (this.waves) return { ok: false, text: "End Wave Survival in K before starting another activity." };
     if (kind === "race") {
       const r = ROUTES.find((q) => q.id === arg || q.name.toLowerCase().startsWith(String(arg || "").toLowerCase())) || ROUTES[0];
       if (this.race && !this.race.over) return { ok: false, text: "A race is already on." };
@@ -90,6 +93,67 @@ export class Activities {
   }
 
   // ------------------------------------------------------------------ per frame
+  startWaves() {
+    const h = this.hero;
+    if (this.online) return { ok: false, text: "Choose Explore alone in the city menu, then K → Wave Survival." };
+    if (this.waves) return { ok: false, text: "Wave Survival is already running." };
+    if (this.race && !this.race.over || this.tricks && !this.tricks.over)
+      return { ok: false, text: "Finish your current activity first." };
+    const p = h.events.sidewalk(h.H.p.x, h.H.p.z, 180);
+    if (!p) return { ok: false, text: "Move closer to a city street to start survival." };
+    h.H.reset(p.x, p.y + HIP_H, p.z); h.H.state = "ground"; h.afterTeleport();
+    h.combat.reset();
+    this.waves = { x: p.x, z: p.z, wave: 0, cleared: 0, timer: 4, fighting: false, ids: [] };
+    h.hud.center("WAVE SURVIVAL", "Get ready · Stay within 100 m · K to end", 3);
+    return { ok: true, text: "Wave Survival: clear each wave to recover 25% health." };
+  }
+  clearWaveEnemies() {
+    const h = this.hero, w = this.waves;
+    if (!w) return;
+    h.sim.shots = h.sim.shots.filter(s => !w.ids.includes(s.from));
+    for (const id of w.ids) { const e = h.sim.byId.get(id); if (e) h.sim.remove(e); }
+    w.ids.length = 0;
+  }
+  endWaves(title) {
+    const w = this.waves;
+    if (!w) return;
+    this.clearWaveEnemies(); this.waves = null; this.raceHtml = "";
+    this.hero.hud.center(title, `${w.cleared} waves cleared · K to play again`, 3);
+  }
+  updateWaves(dt) {
+    const h = this.hero, w = this.waves;
+    if (!w) return "";
+    if (this.online || h.combat.downT > 0 || h.combat.hp <= 0) { this.endWaves("SURVIVAL OVER"); return ""; }
+    if (Math.hypot(h.H.p.x - w.x, h.H.p.z - w.z) > 100) { this.endWaves("LEFT THE ARENA"); return ""; }
+    let left = 0;
+    for (const id of w.ids) { const e = h.sim.byId.get(id); if (e && h.sim.alive(e)) left++; }
+    if (w.fighting && left === 0) {
+      w.cleared = w.wave; w.fighting = false; w.timer = 7;
+      this.clearWaveEnemies();
+      h.combat.hp = Math.min(1, h.combat.hp + .25);
+      const pr = h.profile(); pr.waveBest = Math.max(pr.waveBest || 0, w.cleared); h.ctx.save();
+      h.hud.center(`WAVE ${w.wave} CLEARED`, "25% health restored · Next wave in 7 seconds", 3);
+    }
+    if (!w.fighting) {
+      w.timer -= dt;
+      if (w.timer <= 0) {
+        w.wave++;
+        const count = Math.min(12, 3 + w.wave);
+        for (let i = 0; i < count; i++) {
+          const angle = i / count * Math.PI * 2;
+          const p = h.events.sidewalk(w.x + Math.cos(angle) * 16, w.z + Math.sin(angle) * 16, 16);
+          if (!p) continue;
+          const kind = w.wave % 5 === 0 && i === 0 ? "boss" : w.wave >= 3 && i % 5 === 0 ? "brute" : w.wave >= 2 && i % 4 === 0 ? "gunner" : i % 2 ? "bat" : "thug";
+          const e = h.sim.spawn(kind, p.x, p.z, { y: p.y, guard: 100, hpK: 1 + Math.min(.75, (w.wave - 1) * .05) });
+          e.alert = true; w.ids.push(e.id);
+        }
+        if (!w.ids.length) { this.endWaves("NO ROOM FOR A WAVE"); return ""; }
+        w.fighting = true; left = w.ids.length;
+        h.hud.center(`WAVE ${w.wave}`, w.wave % 5 === 0 ? "VANTA has entered the fight" : `${left} enemies incoming`, 2);
+      }
+    }
+    return `<small>WAVE SURVIVAL · BEST ${h.profile().waveBest || 0}</small><b>Wave ${w.fighting ? w.wave : w.wave + 1}</b><small>${w.fighting ? `${left} enemies left` : `Starts in ${Math.max(0, Math.ceil(w.timer))}s · Recover`}</small><small>K · End survival</small>`;
+  }
   update(dt) {
     const h = this.hero, H = h.H, now = this.now();
     let race = "";
@@ -144,7 +208,7 @@ export class Activities {
     if (Tr?.over && now - Tr.overAt < 15000) race = race || `<small>TRICK ATTACK RESULTS</small>${this.resultsHtml(Tr.results, false)}`;
     if (this.invite && now > this.invite.start) this.invite = null;
     if (this.invite) race = race || `<small>${this.invite.text}</small><small>Press K to join</small>`;
-    this.raceHtml = race;
+    this.raceHtml = this.updateWaves(dt) || race;
     this.drawRings(dt);
   }
   finishRace(t) {
@@ -296,6 +360,7 @@ export class Activities {
       <div class="hm-list">${ROUTES.map((r) => `<button data-act="race:${r.id}"><b>${r.name}</b><small>${r.note} · ${r.pts.length - 1} checkpoints${best[r.id] ? " · best " + fmtT(best[r.id]) : ""}</small></button>`).join("")}</div>
       <h4>CHALLENGES</h4>
       <div class="hm-list">
+        <button data-act="${this.waves ? "endwaves" : "waves"}"><b>${this.waves ? "End Wave Survival" : "Wave Survival"}</b><small>Solo combat · Escalating waves · VANTA every 5 waves · Best ${pr.waveBest || 0}</small></button>
         <button data-act="tricks"><b>Trick Attack</b><small>90 seconds: the most style wins${pr.trickBest ? " · best " + pr.trickBest.toLocaleString() : ""}</small></button>
         <button data-act="boss"><b>Challenge VANTA</b><small>The city's worst, with a crew. Better with friends.</small></button>
       </div>

@@ -184,6 +184,7 @@ export class HeroMode {
     this.firstFrames = 3;
   }
   exit() {
+    this.activities.endWaves("SURVIVAL ENDED");
     if (!this.on) return;
     this.photo?.close(); this.worldMap?.close();
     this.on = false;
