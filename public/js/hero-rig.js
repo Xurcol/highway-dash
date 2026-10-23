@@ -434,9 +434,26 @@ function blendBasePose(rig, strength) {
 }
 
 function poseWall(rig, a) {
+  const want = a.wallMode === "run" ? 1 : 0;
+  if (!rig.wasOnWall) rig.wallRunBlend = want;
+  const dt = cl(a.dt || 0, 0, .1);
+  rig.wallRunBlend += cl(want - rig.wallRunBlend, -dt / .24, dt / .24);
+  const blend = smooth(rig.wallRunBlend);
+  if (blend <= 0 || blend >= 1) return poseWallStyle(rig, a, blend >= 1);
+  // Blend complete contact poses so the hands release as the chest rises into a run.
+  poseWallStyle(rig, a, false);
+  saveBasePose(rig);
+  for (let i = 1; i < rig.target.length; i++) rig.target[i].identity();
+  hand(rig, 1, 30); hand(rig, -1, 30);
+  poseWallStyle(rig, a, true);
+  blendBasePose(rig, blend);
+  return 20;
+}
+
+function poseWallStyle(rig, a, running) {
   const mv = a.wallMove, mx = mv?.x || 0, my = mv?.y || 0, speed = Math.hypot(mx, my);
   const moving = smooth(speed / .6), dx = speed > .05 ? mx / speed : 0, dy = speed > .05 ? my / speed : 1;
-  const running = a.wallMode === "run", runDrive = running ? cl((speed - 3) / 14, 0, 1) : 0, phase = a.phase || 0;
+  const runDrive = running ? cl((speed - 3) / 14, 0, 1) : 0, phase = a.phase || 0;
   const gap = cl(a.wallDistance ?? .44, .3, .65), sway = sin(phase) * moving;
   // Wall run is an upright sprint with the chest open; crawl stays low with four points of contact.
   torso(rig, running ? 3 : 28, sway * (running ? 10 : 4), -dx * (running ? 10 : 5), running ? 2 : 9, -sway * 3);
@@ -449,7 +466,7 @@ function poseWall(rig, a) {
     const lift = cycle < hold ? 0 : sin(reach * PI) * moving;
     if (running) {
       // Do not plant hands while running: the arms pump like a sprint instead of falling into crawl IK.
-      arm(rig, s, -18 - sway * s * 48 - runDrive * s * 12, 12 + runDrive * 18, -sway * 9, 22 + sway * s * 16 + runDrive * 18);
+      arm(rig, s, -18 - sway * s * (48 + runDrive * 16), 12 + runDrive * 6, -sway * 9, 48 + sway * s * 22 + runDrive * 18);
       hand(rig, s, 20);
     } else {
       // Crawl hands reach and plant in alternating rhythm, keeping the body low and close to the wall.
@@ -583,6 +600,7 @@ function poseTricks(rig, tr) {
 export function poseBody(rig, a) {
   const t = a.t || 0, st = a.state, turn = cl(a.turn || 0, -1, 1);
   const hero = rig.look.style < 2.5;
+  if (st !== "wall") rig.wasOnWall = false;
   rig.poseOffset.set(0, 0, 0);
   const U = rig.mat.userData.u;
   U.uTime.value = t;
@@ -607,11 +625,14 @@ export function poseBody(rig, a) {
       if (hero) rig.poseOffset.y = -.36;
       rate = 22;
     } else if (a.hard > 0) {
-      // superhero landing: down on one knee, a fist on the ground
-      torso(rig, 55, 10, 0, 14); headP(rig, -38);
-      leg(rig, 1, 95, 8, 105, -20); leg(rig, -1, 15, 12, 120, 35);
-      arm(rig, -1, 72, 12, 0, 4); hand(rig, -1, 12); arm(rig, 1, -10, 48, 0, 30);
-      if (hero) rig.poseOffset.y = -.48;
+      // Compress on impact, then lift the planted hand and unfold before movement resumes.
+      const recover = 1 - smooth(a.hard / .18), hold = 1 - recover;
+      torso(rig, 8 + 47 * hold, 10 * hold, 0, 3 + 11 * hold); headP(rig, -8 - 30 * hold);
+      leg(rig, 1, 12 + 83 * hold, 8, 18 + 87 * hold, -4 - 16 * hold);
+      leg(rig, -1, 4 + 11 * hold, 12, 14 + 106 * hold, 4 + 31 * hold);
+      arm(rig, -1, 12 + 60 * hold, 12, 0, 4 + 38 * recover); hand(rig, -1, 12);
+      arm(rig, 1, 8 - 18 * hold, 12 + 36 * hold, 0, 30);
+      if (hero) rig.poseOffset.y = -.48 * hold;
       rate = 26;
     } else if (hs < 1.2) {
       // idle: an easy hero stance, breathing
@@ -704,6 +725,7 @@ export function poseBody(rig, a) {
     rate = 18;
   } else if (st === "wall") {
     rate = poseWall(rig, a);
+    rig.wasOnWall = true;
   } else if (st === "ledge") {
     torso(rig, -2, 0, 0, -4); headP(rig, -25);
     arm(rig, 1, 172, 14, 0, 18); arm(rig, -1, 172, 14, 0, 18); hand(rig, 1, 60); hand(rig, -1, 60);
