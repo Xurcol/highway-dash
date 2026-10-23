@@ -561,7 +561,7 @@ export class EnemyView {
         case "windup": attack = { kind: atkKind, k: Math.min(.3, e.t / (KINDS[e.kind]?.ranged && !e.weapon ? KINDS.thug.windup : (KINDS[e.kind]?.windup || .5) + (atkKind === "slam" ? .3 : 0)) * .3), side: -1 }; break;
         case "attack": attack = { kind: atkKind, k: .3 + Math.min(.7, e.t / .25 * .3), side: -1 }; break;
         case "recover": attack = { kind: atkKind, k: Math.min(1, .6 + e.t), side: -1 }; break;
-        case "hit": attack = { kind: "hit", k: Math.min(1, e.t / .45) }; break;
+        case "hit": attack = { kind: "hit", k: Math.min(1, e.t / Math.max(.25, e.stun || .45)), side: Math.sin(e.yaw) * e.vz - Math.cos(e.yaw) * e.vx >= 0 ? 1 : -1 }; break;
         case "air": an.state = "air"; an.vy = e.vy; break;
         case "down": case "ko": attack = { kind: "down", k: .5 }; break;
         case "getup": attack = { kind: "down", k: 1 - e.t / .6 }; break;
@@ -573,7 +573,12 @@ export class EnemyView {
       if (!attack && (e.st === "circle" || e.st === "chase" || e.st === "idle") && hs < 6 && e.alert !== false && e.st !== "idle") attack = { kind: "guard" };
       an.attack = attack && attack.kind !== "guard" ? attack : null;
       const rr = poseBody(rig, an);
-      if (attack?.kind === "guard") guardArms(rig);
+      if (attack?.kind === "guard") {
+        guardArms(rig);
+        // Small weight shifts keep the waiting fighters alive without hiding attack windups.
+        rig.poseOffset.x += Math.sin(a.t * 2.4 + e.id) * .025;
+        rig.poseOffset.y -= .025 + Math.sin(a.t * 4.8 + e.id) * .012;
+      }
       rig.apply(dt, rr);
       // the weapon in the right hand
       const wk = e.weapon || null;

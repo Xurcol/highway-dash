@@ -1196,7 +1196,7 @@ export class HeroMode {
     switch (type) {
       case "swing": this.sfx("whoosh", d.kind === "roundhouse" || d.kind === "launch" ? 1.3 : .8); break;
       case "whiff": break;
-      case "hit": fx.sparks(H.p.x + H.face.x * .5, H.p.y + .6, H.p.z + H.face.z * .5, d.heavy ? 12 : 5, d.heavy ? [1, .55, .2] : [1, .85, .55], d.heavy ? 1.1 : .55); if (d.a?.kind === "finisher") { this.rings.spawn(H.p.x, H.p.y - HIP_H + .1, H.p.z, 3.5, SUITS[this.suitId].glow, .3); fx.energy(H.p.x, H.p.y, H.p.z, 12, this.glowRGB()); } this.cam.shake(d.heavy ? .22 : .08); this.cam.punch(H.face.x * .12, 0, H.face.z * .12); if (H.state === "air") this.tricks.link("aircombo"); if (d.a?.kind === "finisher") this.tricks.link("finisher"); break;
+      case "hit": fx.sparks(d.e?.x ?? H.p.x + H.face.x * .5, (d.e?.y ?? H.p.y) + .35, d.e?.z ?? H.p.z + H.face.z * .5, d.heavy ? 12 : 5, d.heavy ? [1, .55, .2] : [1, .85, .55], d.heavy ? 1.1 : .55); if (d.a?.kind === "finisher") { this.rings.spawn(H.p.x, H.p.y - HIP_H + .1, H.p.z, 3.5, SUITS[this.suitId].glow, .3); fx.energy(H.p.x, H.p.y, H.p.z, 12, this.glowRGB()); } this.cam.shake(d.heavy ? .22 : .08); this.cam.punch(H.face.x * .12, 0, H.face.z * .12); if (H.state === "air") this.tricks.link("aircombo"); if (d.a?.kind === "finisher") this.tricks.link("finisher"); break;
       case "dodge": fx.energy(H.p.x, H.p.y, H.p.z, 6, this.glowRGB()); fx.puff(H.p.x, H.p.y - HIP_H * .5, H.p.z, 5); this.sfx("dash"); break;
       case "guard": this.sfx("whoosh", .6); break;
       case "parry": {

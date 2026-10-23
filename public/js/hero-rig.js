@@ -789,7 +789,13 @@ export function poseBody(rig, a) {
     if (st === "swing" && a.anchor2Local) aimArm(rig, -(a.swingSide || 1), a.anchor2Local, 7);
   }
   // combat moves override arms/legs/torso for their duration
-  if (a.attack) rate = Math.max(rate, poseAttack(rig, a.attack));
+  if (a.attack) {
+    saveBasePose(rig);
+    rate = Math.max(rate, poseAttack(rig, a.attack));
+    // Recover into the moving stance instead of holding the last attack pose until it vanishes.
+    if (["jab", "cross", "hook", "uppercut", "launch", "kick", "roundhouse", "spin", "air"].includes(a.attack.kind))
+      blendBasePose(rig, 1 - smooth(((a.attack.k || 0) - .76) / .24));
+  }
   // web shots outside a swing: the shooting arm snaps to the target for a moment
   if (a.shootLocal && st !== "swing" && st !== "zip") aimArm(rig, a.shootSide || 1, a.shootLocal, 4);
   return rate;
@@ -808,7 +814,10 @@ function poseAttack(rig, at) {
       torso(rig, 10 + Math.max(0, ext) * 5, -s * tw * ext, -s * Math.max(0, ext) * 4, 4, -s * tw * .5 * ext); headP(rig, -6, s * 8 * ext);
       arm(rig, s, 20 + 72 * Math.max(0, ext), 10, 0, 110 - 105 * Math.max(0, ext)); hand(rig, s, 85);
       arm(rig, -s, 40, 15, 0, 120); hand(rig, -s, 85);
-      leg(rig, s, 25, 8, 30); leg(rig, -s, -12, 10, 20);
+      const drive = Math.max(0, ext);
+      leg(rig, s, 20 + drive * 12, 8, 26 + drive * 15, -drive * 10);
+      leg(rig, -s, -12 - drive * 10, 10, 20 - drive * 10, drive * 14);
+      rig.poseOffset.y = -.045 * wind + .025 * drive;
       return 30;
     }
     case "hook": {
@@ -826,8 +835,10 @@ function poseAttack(rig, at) {
       return 28;
     }
     case "kick": {
-      torso(rig, -20 * Math.max(0, ext), s * 10, 0, -6); headP(rig, 10);
-      leg(rig, s, 10 + 95 * Math.max(0, ext), 8, 90 - 85 * Math.max(0, ext), 20); leg(rig, -s, -5, 10, 15);
+      const strike = Math.max(0, ext), chamber = k < contact ? wind : 1 - rec;
+      torso(rig, -20 * strike, s * (10 + strike * 14), -s * strike * 8, -6); headP(rig, 10);
+      leg(rig, s, 10 + chamber * 42 + strike * 48, 8, 18 + chamber * 94 - strike * 106, 20);
+      leg(rig, -s, -5, 10, 15 + chamber * 14, -chamber * 5);
       arm(rig, s, -20, 40, 0, 60); arm(rig, -s, 30, 30, 0, 80);
       return 30;
     }
@@ -880,9 +891,16 @@ function poseAttack(rig, at) {
       return 22;
     }
     case "hit": {
-      // taking a hit: knocked back, arms up
-      torso(rig, -25 * Math.sin(k * PI), 0, 10, -10); headP(rig, -25 * Math.sin(k * PI));
-      arm(rig, 1, 40, 40, 0, 80); arm(rig, -1, 40, 40, 0, 80);
+      // Fast recoil, then a slower stagger back to guard, with an asymmetric weight shift.
+      const recoil = k < .18 ? ease(k / .18) : 1 - ease((k - .18) / .82);
+      const side = at.side || 1;
+      torso(rig, -30 * recoil, side * 22 * recoil, side * 14 * recoil, -12 * recoil);
+      headP(rig, -32 * recoil, -side * 18 * recoil);
+      arm(rig, side, 30 + recoil * 24, 26 + recoil * 24, 0, 92 - recoil * 25);
+      arm(rig, -side, 42 - recoil * 20, 20, 0, 110);
+      leg(rig, side, 12 + recoil * 28, 12, 24 + recoil * 25, -recoil * 10);
+      leg(rig, -side, -8 - recoil * 22, 14, 20, recoil * 8);
+      rig.poseOffset.y = -.09 * recoil;
       return 24;
     }
     case "down": {

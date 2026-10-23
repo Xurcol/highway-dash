@@ -68,7 +68,11 @@ export class HeroCombat {
   get list() { return this.hero.enemyList(); }
   alive(e) { return e && e.st !== "ko" && e.st !== "pinned" && e.hp > 0; }
   near(r = 18) { const H = this.H; return this.list.filter((e) => this.alive(e) && Math.hypot(e.x - H.p.x, e.z - H.p.z) < r && Math.abs(e.y - H.p.y) < 8); }
-  get inCombat() { return this.near(22).some((e) => e.alert !== false && e.st !== "idle"); }
+  get inCombat() {
+    const p = this.H.p;
+    return this.list.some(e => this.alive(e) && e.alert !== false && e.st !== "idle"
+      && Math.abs(e.y - p.y) < 8 && (e.x - p.x) ** 2 + (e.z - p.z) ** 2 < 484);
+  }
   visible(e) { const p = this.H.p; return this.hero.W.clear(p.x, p.y + .25, p.z, e.x, e.y + .25, e.z, 2, .35); }
   threatening(s) {
     const e = this.byId(s.e);
@@ -90,9 +94,9 @@ export class HeroCombat {
       const dx = e.x - H.p.x, dz = e.z - H.p.z, d = Math.hypot(dx, dz);
       if (d > range || Math.abs(e.y - H.p.y) > 9) continue;
       const ang = Math.acos(clamp((dx * px + dz * pz) / (d || 1), -1, 1));
-      if (d > 4 && ang > 1.8 || !this.visible(e)) continue;
+      if (d > 4 && ang > 1.8) continue;
       const s = ang * 3.8 + d * .15 - (e.st === "windup" ? .8 : 0) - (this.target === e.id ? .65 : 0);
-      if (s < bs) { bs = s; best = e; }
+      if (s < bs && this.visible(e)) { bs = s; best = e; }
     }
     return best;
   }
@@ -141,7 +145,7 @@ export class HeroCombat {
     if (this.buf && (this.buf.t -= dt) <= 0) this.buf = null;
     const a = this.action;
     const cancel = a && ((this.buf?.cmd === "dodge" || this.buf?.cmd === "parry") && a.kind !== "dodge" && a.kind !== "parry" && a.kind !== "finisher"
-      || this.buf && a.done && a.t >= a.dur * .7 && ["jab", "cross", "hook", "kick", "roundhouse", "air", "launch"].includes(a.kind));
+      || this.buf && a.done && a.t >= Math.max(a.hitAt + .06, a.dur * .62) && ["jab", "cross", "hook", "uppercut", "kick", "roundhouse", "spin", "air", "launch"].includes(a.kind));
     if (this.action && !cancel) return;
     if (cancel) { this.action = null; H.combatLock = 0; }
     const air = H.state === "air" || H.state === "swing" || H.state === "zip";
@@ -353,7 +357,8 @@ export class HeroCombat {
     this.focus = Math.min(3, this.focus + (.07 * hits.length + (a.counter ? .3 : 0)) * (this.focusK || 1));
     // launching: jump after them
     if (a.kind === "launch") { a.follow = true; H.v.y = 12.5; H.toAir(); H.combatLock = .25; }
-    this.stopT = a.kind === "finisher" ? .12 : opts.heavy ? .07 : .045;
+    // Light hits keep the string moving; heavy finishers get a more deliberate impact pause.
+    this.stopT = a.kind === "finisher" ? .1 : opts.heavy ? .055 : .022;
     this.hero.onCombat("hit", { a, n: hits.length, e: hits[0], heavy: opts.heavy });
   }
   // send a hit where the enemy simulation is (and show it here straight away)
