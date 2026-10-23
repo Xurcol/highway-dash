@@ -180,7 +180,7 @@ export class HeroMode {
     this.rig.place(this.H.p, UP, this.H.face, null, 0, 0);
     this.tricks.score = this.profile().score || 0;
     this.tricks.best = this.profile().best || 0;
-    this.hud.center("NEW MERIDIAN", "Right mouse swings · glide into the wind currents · M world map · O photo mode", 4);
+    this.hud.center("NEW MERIDIAN", "Shift swings · F web wings · Tab world map · P first person", 4);
     this.firstFrames = 3;
   }
   exit() {
@@ -519,7 +519,7 @@ export class HeroMode {
   }
   updateCarry(dt) {
     const k = this.carry, H = this.H;
-    if (!k) { const g = this.events.grabbable(H.p); this.hud.prompt(g ? "<kbd>E</kbd> Grab" : this.H.riding?.car?.chase ? "<kbd>LMB</kbd> Hit the car" : ""); return; }
+    if (!k) { const g = this.events.grabbable(H.p); this.hud.prompt(g ? "<kbd>C</kbd> Grab" : this.H.riding?.car?.chase ? "<kbd>LMB</kbd> Hit the car" : ""); return; }
     this.hud.prompt("Carrying - land on the street to set them down");
     k.still = H.state === "ground" && H.speed < 2.5 ? k.still + dt : 0;
     if (k.still > .5) {
@@ -965,9 +965,9 @@ export class HeroMode {
     const H = this.H, cb = this.combat, pad = inp.pad;
     const jump = pad ? "A" : "Space", swing = pad ? "RT" : "Shift", zip = pad ? "LB" : "C";
     if (cb.downT > 0) return "Recovering";
-    if (H.sling) return `${pad ? "Release LB + RB" : "Release X"} · Launch (${Math.round(H.sling.charge * 100)}%)`;
-    if (cb.senses.length) return `${pad ? "LT" : "Q"} · Dodge   ${pad ? "B" : "V"} · Parry`;
-    if (this.inCombat) return cb.focus >= 1 ? `${pad ? "X" : "Left mouse"} · Combo   ${pad ? "Y" : "R"} · Web strike` : `${pad ? "X" : "Left mouse"} · Attack   ${pad ? "LT" : "Q"} · Dodge`;
+    if (H.sling) return `${pad ? "Release LB + RB" : "Release right mouse or Space"} · Launch (${Math.round(H.sling.charge * 100)}%)`;
+    if (cb.senses.length) return `${pad ? "B" : "R"} · Dodge   ${pad ? "LB" : "V"} · Parry`;
+    if (this.inCombat) return cb.focus >= 1 ? `${pad ? "X" : "Left mouse"} · Combo   ${pad ? "Y" : "F"} · Web strike` : `${pad ? "X" : "Left mouse"} · Attack   ${pad ? "B" : "R"} · Dodge`;
     if (inp.trick && (H.state === "air" || H.state === "swing")) return `${pad ? "RB + stick" : "X + WASD / arrows"} · Change trick direction   ${pad ? "Release RB" : "Release X"} · Recover`;
     if (H.state === "swing") return releaseReady ? `${jump} · Perfect launch now` : `${jump} · Launch   WASD / stick · Steer`;
     if (H.state === "zip") return `${jump} · Time a point launch on arrival`;

@@ -1,10 +1,13 @@
 // The online city, friends and hero settings are independent of the saved driving game.
+import { HERO_KEYS } from "./hero-input.js";
 const $ = id => document.getElementById(id);
 const esc = value => String(value ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
 
 export class ArclineUI {
   constructor(ctx) {
     this.ctx = ctx; this.net = ctx.net; this.panel = "lobby"; this.joining = false;
+    // Share the help screen's bindings so menu controls cannot drift out of date.
+    document.querySelector(".arc-controls>div").innerHTML = HERO_KEYS.map(([key, action]) => `<span><kbd>${esc(key)}</kbd>${esc(action)}</span>`).join("");
     document.addEventListener("click", event => {
       const button = event.target.closest("[data-arc-action]");
       if (button) this.action(button.dataset.arcAction, button.dataset.code);

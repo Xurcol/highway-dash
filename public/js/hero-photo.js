@@ -77,9 +77,9 @@ export class PhotoMode {
         <label class="photo-hour">Time of day <output data-o="hour"></output><input type="range" min="0" max="23.9" step=".1" data-k="hour"></label>
         <div class="photo-filters">${Object.entries(FILTERS).map(([id, f]) => `<button data-f="${id}">${esc(f.name)}</button>`).join("")}</div>
         <div class="photo-toggles"><button data-t="frame">Letterbox</button><button data-t="hideHero">Hide hero</button></div>
-        <button class="btn photo-shot" data-act="shot">TAKE PHOTO · SPACE</button>
+        <button class="btn photo-shot" data-act="shot">TAKE PHOTO · E</button>
         <button class="btn gray" data-act="exit">EXIT · O</button>
-        <p>WASD move · Q / E down / up · drag to look · wheel lens · H hide panel</p>
+        <p>WASD move · Q / PageUp down / up · drag to look · wheel lens · H hide panel</p>
       </aside>`;
     (document.getElementById("hud")?.parentNode || document.body).appendChild(el);
     el.addEventListener("input", (e) => {

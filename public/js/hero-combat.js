@@ -16,7 +16,7 @@ const COMBO = ["jab", "cross", "hook", "uppercut", "kick", "roundhouse", "spin"]
 const FINISHERS = ["hook", "kick", "uppercut", "roundhouse", "spin"];
 export const GADGETS = [
   null,
-  { id: "shot", name: "Web Shot", key: "1", cool: 0, ammo: 10 },
+  { id: "shot", name: "Web Shot", key: "E / 1", cool: 0, ammo: 10 },
   { id: "pull", name: "Web Pull", key: "2", cool: 1.4 },
   { id: "launch", name: "Web Launch", key: "3", cool: 3 },
   { id: "bomb", name: "Web Bomb", key: "4", cool: 14 },

@@ -6,7 +6,7 @@ export const HERO_KEYS = [
   ["Mouse", "Camera", "Right stick"],
   ["Space", "Jump · wall jump · swing launch · airborne forward zip", "Cross / A"],
   ["Shift", "Web swing / parkour (hold; release to let go)", "R2 / RT"],
-  ["Alt", "Sprint / parkour; L3 also dives/perches in the air", "L3"],
+  ["Shift / Alt", "Sprint / parkour; L3 also dives/perches in the air", "L3"],
   ["Right mouse", "Hold to swing; aim at surfaces in first person", "R2 / RT"],
   ["P", "Toggle first-person camera", "Keyboard shortcut"],
   ["C", "Web zip to the point you aim at", "L2 + R2 / LT + RT"],
@@ -26,7 +26,10 @@ export const HERO_KEYS = [
   ["B (hold) + 1-8", "Emotes", "-"],
   ["Tab / M", "World map · click a spot to fast travel", "View"],
   ["O", "Photo mode", "-"],
-  ["K", "Activities: races, trick attack, crimes", "-"],
+  ["E (photo mode)", "Take photo; Q / PageUp move camera down / up", "-"],
+  ["Esc", "Pause / city menu", "-"],
+  ["Enter", "Online chat", "-"],
+  ["K", "Activities: wave survival, races, trick attack, suits and skills", "-"],
   ["H", "Show / hide these controls", "-"],
 ];
 const MOVE = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1], KeyA: [-1, 0], ArrowLeft: [-1, 0], KeyD: [1, 0], ArrowRight: [1, 0] };

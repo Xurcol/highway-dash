@@ -33,7 +33,7 @@ export class WorldMap {
     const el = this.el = document.createElement("div");
     el.className = "wmap"; el.hidden = true;
     el.innerHTML = `<div class="wmap-card">
-      <header><div><small>NEW MERIDIAN</small><b>WORLD MAP</b></div><span id="wmStats"></span><button class="btn gray" data-act="close">CLOSE · M</button></header>
+      <header><div><small>NEW MERIDIAN</small><b>WORLD MAP</b></div><span id="wmStats"></span><button class="btn gray" data-act="close">CLOSE · TAB / M</button></header>
       <canvas></canvas>
       <footer><span><i class="k-hero"></i>You</span><span><i class="k-crime"></i>Crime</span><span><i class="k-help"></i>Emergency</span><span><i class="k-cache"></i>Signal cache</span><span><i class="k-wind"></i>Wind current</span><span><i class="k-draft"></i>Updraft</span><em>Click to fast travel · wheel to zoom · drag to pan</em></footer>
     </div>`;
@@ -43,7 +43,7 @@ export class WorldMap {
     el.addEventListener("click", (e) => { if (e.target.closest("[data-act=close]")) this.close(); });
     addEventListener("keydown", (e) => {
       if (!this.on) return;
-      if (e.code === "Escape" || e.code === "KeyM") { e.preventDefault(); e.stopImmediatePropagation(); this.close(); }
+      if (e.code === "Escape" || e.code === "KeyM" || e.code === "Tab") { e.preventDefault(); e.stopImmediatePropagation(); this.close(); }
     }, true);
     cv.addEventListener("wheel", (e) => {
       e.preventDefault();
