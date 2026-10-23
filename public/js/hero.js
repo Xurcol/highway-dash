@@ -235,6 +235,12 @@ export class HeroMode {
     H.clock = this.clock;
     // ---- input ----
     const look = cam.look, inp = this.input.read(cam.yaw, look, camera.position, real);
+    if (inp.viewToggle) {
+      cam.firstPerson = !cam.firstPerson; cam.snapNext = true;
+      for (const trail of this.trails.t) trail.ready = false;
+      this.hud.center(cam.firstPerson ? "FIRST PERSON" : "THIRD PERSON", "P · Switch camera", 1.5, "small");
+    }
+    inp.aimWeb = !!cam.firstPerson;
     // Spider-Man 2 uses Square + a direction for air tricks.  Keep the keyboard T/F shortcut,
     // but let a standard controller use the same face button without starting an air punch.
     const padAirTrick = inp.pad && inp.attackHeld && (H.state === "air" || H.state === "swing" || H.state === "zip")
@@ -304,18 +310,25 @@ export class HeroMode {
     cam.update(real, H, inp, this.cameraOptions);
     // ---- the character ----
     this.animate(dt > 0 ? dt : 0, inp);
+    this.rig.mesh.visible = !cam.firstPerson;
     // ---- the other heroes ----
     if (this.online) this.netx.update(real, T);
     // ---- enemies and props, as this machine sees them ----
     // Keep gameplay at full rate, but let cosmetic work step down on slower machines.
     this.fxStride = real > .024 ? 2 : 1;
     this.fxFrame = (this.fxFrame + 1) % this.fxStride;
-    if (this.fxStride === 1 || this.enemyFrame++ % 2 === 0) this.drawEnemies(real);
-    const fxDt = this.fxStride === 1 || this.fxFrame === 0 ? dt * this.fxStride : 0;
+    this.enemyElapsed = (this.enemyElapsed || 0) + real;
+    if (this.fxStride === 1 || this.enemyFrame++ % 2 === 0) {
+      this.drawEnemies(this.enemyElapsed); this.enemyElapsed = 0;
+    }
+    this.fxElapsed = (this.fxElapsed || 0) + dt;
+    const fxDt = this.fxStride === 1 || this.fxFrame === 0 ? this.fxElapsed : 0;
+    if (fxDt > 0) this.fxElapsed = 0;
     if (fxDt > 0) this.tracers.update(fxDt);
     // ---- effects ----
     this.drawWebs(real);
-    if (fxDt > 0) this.trailsUpdate(fxDt);
+    this.trails.mesh.visible = !cam.firstPerson;
+    if (fxDt > 0 && !cam.firstPerson) this.trailsUpdate(fxDt);
     if (fxDt > 0) this.parts.update(fxDt, this.ctx.renderer.domElement.height);
     this.speedLines.update(real, camera.position, H.v);
     this.traversalFxT -= real;
@@ -950,6 +963,7 @@ export class HeroMode {
     if (H.dive) return `${swing} · Catch a line and carry your speed`;
     if (H.inWind) return `Steer to ride the ${H.inWind === "tunnel" ? "current" : "updraft"}   ${swing} · Swing out`;
     if (H.glide) return `${pad ? "B" : "Ctrl"} · Dive   ${swing} · Swing`;
+    if (H.state === "air" && this.cam.firstPerson) return "Aim at a building · Hold right mouse to swing · P · Third person";
     if (H.state === "air") return `${swing} · Swing   ${zip} · Zip   ${pad ? "B" : "Ctrl"} · Dive`;
     if (H.state === "perch") return `${jump} · Point launch   ${pad ? "Hold LB + RB" : "Hold X"} · Slingshot`;
     return `${swing} · Swing   ${jump} · Jump   ${pad ? "Hold LB + RB" : "Hold X"} · Slingshot`;

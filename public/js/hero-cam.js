@@ -47,7 +47,7 @@ export class HeroCam {
     const moving = (H.state === "swing" || H.state === "air" || H.state === "zip") && hs > 9 || H.state === "ground" && hs > 12 || H.state === "wall" && sp > 3;
     // A wall is a deliberate camera state: never auto-orbit while attached, because that makes
     // the surface feel like it is dragging the player's view around.
-    if (this.autoFollow && H.state !== "wall" && this.idle > 1.1 && moving && !this.combat && !o.aim && !o.tricking) {
+    if (this.autoFollow && !this.firstPerson && H.state !== "wall" && this.idle > 1.1 && moving && !this.combat && !o.aim && !o.tricking) {
       // on a wall: look along the run from a little way out; elsewhere: behind the direction of travel
       let wx = v.x, wz = v.z;
       if (H.state === "wall" && !H.ceiling) { const al = v.x * -H.n.z + v.z * H.n.x; wx = -H.n.z * al - H.n.x * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; wz = H.n.x * al - H.n.z * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; if (Math.hypot(wx, wz) < .5) { wx = -H.n.x; wz = -H.n.z; } }
@@ -61,6 +61,21 @@ export class HeroCam {
     }
     this.pitch = clamp(this.pitch, -1.38, 1.15);
     this.yaw = wrapA(this.yaw);
+
+    if (this.firstPerson) {
+      // Keep the horizon under mouse control even during flips and wall traversal.
+      const cp = Math.cos(this.pitch);
+      this.look.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
+      this.pos.copy(p); this.pos.y += .55;
+      this.W.collide?.(this.pos, .2, this.contacts, 2);
+      this.cam.position.copy(this.pos); this.cam.up.set(0, 1, 0);
+      this.cam.lookAt(this.pos.x + this.look.x, this.pos.y + this.look.y, this.pos.z + this.look.z);
+      const target = 78 + clamp((this.speed - 15) / 50, 0, 1) * 8;
+      this.fov = snap ? target : this.fov + (target - this.fov) * ease(dt, 4);
+      if (Math.abs(this.cam.fov - this.fov) > .05) { this.cam.fov = this.fov; this.cam.updateProjectionMatrix(); }
+      this.snapNext = false;
+      return;
+    }
 
     // ---- how far back and how wide, from speed and what the body is doing ----
     let dist = 4.7 + clamp((this.speed - 8) / 46, 0, 1) * 2.9, fov = 65 + clamp((this.speed - 10) / 52, 0, 1) * 17, up = .65, side = .35;

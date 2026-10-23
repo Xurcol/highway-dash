@@ -7,7 +7,8 @@ export const HERO_KEYS = [
   ["Space", "Jump · wall jump · release-jump · point launch · hold to glide", "Cross / A"],
   ["Shift", "Web swing / parkour (hold; release to let go)", "R2 / RT"],
   ["Alt", "Sprint / parkour; L3 also dives/perches in the air", "L3"],
-  ["Right mouse", "Web swing fallback", "R2 / RT"],
+  ["Right mouse", "Hold to swing; aim at surfaces in first person", "R2 / RT"],
+  ["P", "Toggle first-person camera", "Keyboard shortcut"],
   ["E", "Web zip to the point you aim at", "L2 + R2 / LT + RT"],
   ["Ctrl / C", "Crouch · slide · dive · drop off a wall · hold before Space = super jump", "B"],
   ["Hold T + direction", "Repeat flips, side rolls and diagonal corkscrews; change direction to blend into the next trick", "Air: hold Square + left stick"],
@@ -131,7 +132,7 @@ export class HeroInput {
     const emoteHeld = this.held("KeyB");
     const inp = {
       mx: fx * iy + rx * ix, mz: fz * iy + rz * ix, ix, iy,
-      look, camPos,
+      look, camPos, viewToggle: this.pressed("KeyP"),
       jump: this.pressed("Space") || pdn(0), jumpHeld: this.held("Space") || !!pb[0],
       sprint: this.held("AltLeft", "AltRight") || !!pb[10],
       swing: this.held("ShiftLeft", "ShiftRight") || b(4) || (pad ? pad.rt > .35 : false),

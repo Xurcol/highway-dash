@@ -465,6 +465,19 @@ export class HeroBody {
   // which swings us back towards the middle; and lines alternate hands.
   findAnchor(inp, avoidSide = 0, wantSide = 0, relaxed = false) {
     const T = TUNE, W = this.W, p = this.p;
+    if (inp.aimWeb) {
+      const c = inp.camPos, d = inp.look;
+      const h = W.raycast(c.x, c.y, c.z, d.x, d.y, d.z, T.webRange, 1, _hit2);
+      if (!h || h.kind === "ground") return null;
+      const dx = h.x - p.x, dy = h.y - p.y, dz = h.z - p.z, dist = Math.hypot(dx, dy, dz);
+      if (dist < 2 || dist > T.webRange) return null;
+      const block = W.raycast(p.x, p.y, p.z, dx / dist, dy / dist, dz / dist, Math.max(0, dist - .2), 1, _hit3);
+      if (block) return null;
+      const horizontal = Math.hypot(dx, dz) || 1;
+      return { x: h.x, y: h.y, z: h.z, nx: h.nx, ny: h.ny, nz: h.nz, s: h.s,
+        dist, side: -this.lastSide, ground: W.groundUnder(p.x, p.y - T.hip, p.z, 0, .2),
+        fx: dx / horizontal, fz: dz / horizontal };
+    }
     const hv = Math.hypot(this.v.x, this.v.z);
     const f = this.travelDir(inp, _tdir), fx = f.x, fz = f.z;
     const cor = this.corridor(fx, fz);
