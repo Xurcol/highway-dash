@@ -933,7 +933,7 @@ export class HeroBody {
     const T = TUNE, n = this.n, md = this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
     this.wallT += dt;
     // the swing button held on a wall runs it, like sprint: a swing into a building carries on as a run
-    const run = inp.sprint || inp.swing;
+    const run = !this.ceiling && m > .05 && (inp.sprint || inp.swing);
     this.wallMode = run ? "run" : "crawl";
     // the wall's own axes: up it, and along it to the right as you face it
     let ux, uy, uz, rx, ry, rz;

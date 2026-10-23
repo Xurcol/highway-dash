@@ -575,9 +575,9 @@ export class HeroMode {
         this.wallUp.applyAxisAngle(H.n, angle * (1 - Math.exp(-dt * 9)));
       }
       up.copy(this.wallUp).normalize();
-      // Crawling faces the surface; a wall run faces along the travel direction so the sprint pose reads correctly.
-      if (H.wallMode === "run" && vm.lengthSq() > .05) fwd.copy(vm).normalize();
-      else fwd.copy(H.n).negate();
+      // Up already follows travel along the wall. Forward must be perpendicular to it;
+      // using travel for both axes collapses the body frame and corrupts the running pose.
+      fwd.copy(H.n).negate();
       rate = 0;
     } else if (H.state === "air" && H.dive && H.speed > 8) {
       up.copy(H.v).normalize();

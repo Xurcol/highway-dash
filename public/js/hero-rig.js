@@ -459,6 +459,22 @@ function poseWallStyle(rig, a, running) {
   torso(rig, running ? 3 : 28, sway * (running ? 10 : 4), -dx * (running ? 10 : 5), running ? 2 : 9, -sway * 3);
   headP(rig, running ? -16 : -46, dx * (running ? 16 : 12), sway * 2);
   rig.poseOffset.set(sway * (running ? .025 : .012), running ? .01 : -.11, 0);
+  if (running) {
+    // A sprint along the surface, with alternating knee drive and bent-elbow arm pumps.
+    // Crawl IK below deliberately never supplies the running legs or hands.
+    const drive = cl((a.speed || 0) / 14, 0, 1);
+    torso(rig, 8 + drive * 8, sway * 10, -dx * 7, 3, -sway * 7);
+    headP(rig, -16, dx * 12, 0);
+    for (let s = -1; s <= 1; s += 2) {
+      const ph = phase + (s > 0 ? 0 : PI), stride = sin(ph) * moving;
+      leg(rig, s, 10 + stride * (32 + drive * 24), 7,
+        12 + Math.max(0, sin(ph + 1.4)) * moving * (44 + drive * 28), -stride * 14 - 6);
+      arm(rig, s, 12 - stride * (36 + drive * 18), 12, -sway * 5, 74 + stride * 18);
+      hand(rig, s, 65);
+    }
+    rig.poseOffset.set(sway * .018, Math.abs(cos(phase)) * .035 * moving, 0);
+    return 24;
+  }
   for (let s = -1; s <= 1; s += 2) {
     const limbPhase = phase + (s > 0 ? 0 : PI), cycle = ((limbPhase / (PI * 2)) % 1 + 1) % 1;
     const hold = running ? .34 : .72, reach = smooth((cycle - hold) / (1 - hold));
