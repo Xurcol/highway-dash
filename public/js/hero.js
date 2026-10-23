@@ -242,6 +242,17 @@ export class HeroMode {
       this.hud.center(cam.firstPerson ? "FIRST PERSON" : "THIRD PERSON", "P · Switch camera", 1.5, "small");
     }
     inp.aimWeb = !!cam.firstPerson;
+    if (inp.wings && H.state === "air") {
+      const target = this.combat.pickTarget(inp);
+      if (!target || this.combat.dist(target) >= 34) inp.strike = false;
+      else inp.wings = false;
+    }
+    if ((H.state === "ground" || H.state === "perch") && (inp.sling || H.sling)) {
+      inp.jump = inp.swing = inp.swingDown = false;
+    }
+    if (!inp.pad && H.state === "air" && inp.jump && H.airT > .15) {
+      inp.airZip = true; inp.jump = false;
+    }
     // Spider-Man 2 uses Square + a direction for air tricks.  Keep the keyboard T/F shortcut,
     // but let a standard controller use the same face button without starting an air punch.
     const padAirTrick = inp.pad && inp.attackHeld && (H.state === "air" || H.state === "swing" || H.state === "zip")
@@ -278,6 +289,7 @@ export class HeroMode {
       this.frameEvents.length = 0;
       const held = Object.assign(this.stepInput, I);
       held.jump = held.swingDown = held.zip = held.crouchDown = held.dodge = held.trickDown = false;
+      held.wings = held.airZip = false;
       for (let k = 0; k < sub; k++) {
         H.step(sdt, k === 0 ? I : held);
         for (const e of H.events) this.frameEvents.push(e);
@@ -951,12 +963,12 @@ export class HeroMode {
   }
   traversalHint(inp, releaseReady = this.releaseReady()) {
     const H = this.H, cb = this.combat, pad = inp.pad;
-    const jump = pad ? "A" : "Space", swing = pad ? "RT" : "Shift", zip = pad ? "LB" : "E";
+    const jump = pad ? "A" : "Space", swing = pad ? "RT" : "Shift", zip = pad ? "LB" : "C";
     if (cb.downT > 0) return "Recovering";
     if (H.sling) return `${pad ? "Release LB + RB" : "Release X"} · Launch (${Math.round(H.sling.charge * 100)}%)`;
     if (cb.senses.length) return `${pad ? "LT" : "Q"} · Dodge   ${pad ? "B" : "V"} · Parry`;
     if (this.inCombat) return cb.focus >= 1 ? `${pad ? "X" : "Left mouse"} · Combo   ${pad ? "Y" : "R"} · Web strike` : `${pad ? "X" : "Left mouse"} · Attack   ${pad ? "LT" : "Q"} · Dodge`;
-    if (inp.trick && (H.state === "air" || H.state === "swing")) return `${pad ? "RB + stick" : "T + WASD / arrows"} · Change trick direction   ${pad ? "Release RB" : "Release T"} · Recover`;
+    if (inp.trick && (H.state === "air" || H.state === "swing")) return `${pad ? "RB + stick" : "X + WASD / arrows"} · Change trick direction   ${pad ? "Release RB" : "Release X"} · Recover`;
     if (H.state === "swing") return releaseReady ? `${jump} · Perfect launch now` : `${jump} · Launch   WASD / stick · Steer`;
     if (H.state === "zip") return `${jump} · Time a point launch on arrival`;
     if (H.state === "wall") return `${pad ? "L3" : "Shift / Alt"} · Run   release to crawl   ${jump} · Leap off`;
@@ -966,8 +978,8 @@ export class HeroMode {
     if (H.glide) return `${pad ? "B" : "Ctrl"} · Dive   ${swing} · Swing`;
     if (H.state === "air" && this.cam.firstPerson) return "Aim at a building · Hold right mouse to swing · P · Third person";
     if (H.state === "air") return `${swing} · Swing   ${zip} · Zip   ${pad ? "B" : "Ctrl"} · Dive`;
-    if (H.state === "perch") return `${jump} · Point launch   ${pad ? "Hold LB + RB" : "Hold X"} · Slingshot`;
-    return `${swing} · Swing   ${jump} · Jump   ${pad ? "Hold LB + RB" : "Hold X"} · Slingshot`;
+    if (H.state === "perch") return `${jump} · Point launch   ${pad ? "Hold LB + RB" : "Right mouse + Space"} · Slingshot`;
+    return `${swing} · Swing   ${jump} · Jump   ${pad ? "Hold LB + RB" : "Right mouse + Space"} · Slingshot`;
   }
 
   // ------------------------------------------------------------------ sound

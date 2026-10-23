@@ -192,7 +192,7 @@ export async function bootArcline() {
     if (typing) return;
     if (event.code === "KeyK" && hero.activities.menuEl && !hero.activities.menuEl.hidden) { event.preventDefault(); hero.activities.closeMenu(); return; }
     if (event.code === "Enter") { event.preventDefault(); ui.openChat(); }
-    if (event.code === "Tab") { event.preventDefault(); ui.togglePlayers(); }
+    if (event.code === "Tab") event.preventDefault(); // HeroInput opens the map.
     // P belongs to HeroInput's camera toggle; Escape handles the city menu.
     startAudio();
   });

@@ -311,15 +311,21 @@ export class HeroBody {
     this.dive = diving && this.airT > .12 && hAbove > 5 && !this.glide;
     if (this.dive && !wasDive) { this.diveT = 0; this.ev("dive"); }
     if (this.dive) this.diveT += dt;
-    // web wings: hold jump while falling
-    if (!this.glide && !inp.trick && !inp.crouch && inp.jumpHeld && this.v.y < -4 && this.airT > .3 && hAbove > 6 && this.jumpBuf <= 0) { this.glide = true; this.ev("glide"); }
+    // Keyboard wings toggle with F; the controller retains its hold-to-glide input.
+    if (inp.wings && !inp.trick && !inp.crouch && hAbove > 3) { this.glide = !this.glide; if (this.glide) this.ev("glide"); }
+    if (inp.pad && !this.glide && !inp.trick && !inp.crouch && inp.jumpHeld && this.v.y < -4 && this.airT > .3 && hAbove > 6 && this.jumpBuf <= 0) { this.glide = true; this.ev("glide"); }
+    if (inp.airZip && this.webCool <= 0 && !inp.trick) {
+      const len = Math.hypot(inp.look.x, inp.look.z) || 1;
+      this.v.x += inp.look.x / len * 10; this.v.z += inp.look.z / len * 10;
+      this.v.y = Math.max(this.v.y, 1); this.webCool = .8; this.ev("airdash");
+    }
     // flying into a current or an updraft opens the wings by itself, and the air holds them open
     const wind = this.winds && !inp.crouch && !inp.trick && this.airT > .2 ? this.winds.at(this.p) : null;
     const wasWind = this.inWind;
     this.inWind = wind ? wind.kind : null;
     if (wind && !this.glide && !this.dive) { this.glide = true; this.ev("glide"); }
     if (this.inWind && this.inWind !== wasWind) this.ev("windin", { kind: this.inWind });
-    if (this.glide && (!inp.jumpHeld && !wind || hAbove < 1.5)) this.glide = false;
+    if (this.glide && (inp.pad && !inp.jumpHeld && !wind || hAbove < 1.5)) this.glide = false;
     // air dash
     if (inp.dodge && (this.dashN || 0) < (this.dashes || 1) && this.combatLock <= 0) {
       this.dashN = (this.dashN || 0) + 1; this.dashUsed = this.dashN >= (this.dashes || 1);

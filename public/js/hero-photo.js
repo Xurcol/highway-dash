@@ -1,5 +1,5 @@
 // Hero mode photo mode (O): the hero and the street freeze, the HUD goes away, and a free camera flies
-// round the scene (WASD, Q/E for down and up, drag to look, wheel for the lens) within reach of the
+// round the scene (WASD, Q/PageUp for down and up, drag to look, wheel for the lens) within reach of the
 // hero. Filters, a vignette, letterbox frames, the time of day (when playing alone) and the hero's
 // visibility can be changed, and Take Photo saves a PNG with the filter and frame baked in.
 import * as THREE from "three";
@@ -26,7 +26,7 @@ export class PhotoMode {
       if (!this.on || ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement?.tagName) && e.code !== "Escape") return;
       if (e.type === "keydown") {
         if (e.code === "Escape" || e.code === "KeyO") { e.preventDefault(); e.stopImmediatePropagation(); this.close(); return; }
-        if (e.code === "Space" || e.code === "Enter") { e.preventDefault(); this.capture(); return; }
+        if (e.code === "KeyE" || e.code === "Space" || e.code === "Enter") { e.preventDefault(); this.capture(); return; }
         if (e.code === "KeyH") { this.el.classList.toggle("hidden-ui"); return; }
         this.keys.add(e.code);
       } else this.keys.delete(e.code);
@@ -131,7 +131,7 @@ export class PhotoMode {
     if (k.has("KeyS")) { mx -= fx; my -= fy; mz -= fz; }
     if (k.has("KeyD")) { mx += rx; mz += rz; }
     if (k.has("KeyA")) { mx -= rx; mz -= rz; }
-    if (k.has("KeyE")) my += 1;
+    if (k.has("PageUp")) my += 1;
     if (k.has("KeyQ")) my -= 1;
     this.pos.x += mx * sp; this.pos.y += my * sp; this.pos.z += mz * sp;
     // stay near the hero and out of the walls
