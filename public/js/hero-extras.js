@@ -163,7 +163,7 @@ export function buildHeroExtras(M, G, kit) {
   for (const c of hx.canopies) { steel.box((c.x0 + c.x1) / 2, c.y, (c.z0 + c.z1) / 2, c.x1 - c.x0, .25, c.z1 - c.z0, 0x2b3440); for (const [x, z] of [[c.x0 + .5, c.z0 + .5], [c.x1 - .5, c.z0 + .5], [c.x0 + .5, c.z1 - .5], [c.x1 - .5, c.z1 - .5]]) steel.box(x, 0, z, .2, c.y, .2, K.dark); }
   for (const s of hx.signs) {
     const tex = canvas(512, 96, (g, w, h) => {
-      g.fillStyle = "#123a6b"; g.fillRect(0, 0, w, h); g.fillStyle = "#fff"; g.font = "italic 800 46px 'Barlow Condensed', Arial"; g.textBaseline = "middle"; g.fillText(s.text, 22, h * .42);
+      g.fillStyle = s.kind === "theater" ? "#6b102c" : "#123a6b"; g.fillRect(0, 0, w, h); g.fillStyle = "#fff"; g.font = "italic 800 46px 'Barlow Condensed', Arial"; g.textBaseline = "middle"; g.fillText(s.text, 22, h * .42);
       g.font = "600 18px Barlow, Arial"; g.globalAlpha = .8; g.fillText(s.sub, 24, h * .8); g.globalAlpha = 1; g.fillStyle = "#f2c230"; g.beginPath(); g.arc(w - 50, h / 2, 30, 0, 7); g.fill();
       g.fillStyle = "#123a6b"; g.font = "800 38px Arial"; g.textAlign = "center"; g.fillText("M", w - 50, h / 2 + 2);
     });
@@ -277,19 +277,19 @@ export function buildHeroExtras(M, G, kit) {
 
   // ---- Meridian Square's screens: one canvas, redrawn a few times a second ----
   if (hx.screens.length) {
-    const SW = 256, SH = 384, n = hx.screens.length;
-    const c = document.createElement("canvas"); c.width = SW * n; c.height = SH;
+    const SW = 256, SH = 384, n = hx.screens.length, cols = Math.min(8, n), rows = Math.ceil(n / cols);
+    const c = document.createElement("canvas"); c.width = SW * cols; c.height = SH * rows;
     const tex = new THREE.CanvasTexture(c); tex.colorSpace = THREE.SRGBColorSpace;
     const mat = new THREE.MeshBasicMaterial({ map: tex, toneMapped: false });
     const geos = hx.screens.map((s, i) => {
-      const g = new THREE.PlaneGeometry(s.w, s.h), uv = g.attributes.uv.array, u0 = i / n, u1 = (i + 1) / n, v0 = s.ticker ? .9 : 0;
-      uv.set([u0, 1, u1, 1, u0, v0, u1, v0]);
+      const g = new THREE.PlaneGeometry(s.w, s.h), uv = g.attributes.uv.array, u0 = (i % cols) / cols, u1 = u0 + 1 / cols, v1 = 1 - Math.floor(i / cols) / rows, v0 = v1 - (s.ticker ? .1 : 1) / rows;
+      uv.set([u0, v1, u1, v1, u0, v0, u1, v0]);
       g.rotateY(Math.atan2(s.fx, s.fz)); g.translate(s.x + s.fx * .32, s.y, s.z + s.fz * .32);
       steel.box(s.x, s.y - s.h / 2 - .4, s.z, s.fx ? .5 : s.w + .8, s.h + .8, s.fx ? s.w + .8 : .5, 0x111214);
       return g;
     });
     const m = new THREE.Mesh(mergeGeos(geos), mat); G.add(m);
-    out.screens = { c, g: c.getContext("2d"), tex, mat, list: hx.screens, SW, SH, t: 0 };
+    out.screens = { c, g: c.getContext("2d"), tex, mat, list: hx.screens, SW, SH, cols, t: 0 };
   }
 
   // ---- fire escapes ----
@@ -324,7 +324,7 @@ export function updateHeroExtras(X, dt, T, nk, glows, lights, cam) {
   if (S && S.list && (S.t -= dt) <= 0) {
     S.t = 1 / 8;
     const g = S.g, n = S.list.length;
-    for (let i = 0; i < n; i++) drawScreen(g, i * S.SW, 0, S.SW, S.SH, S.list[i], T);
+    for (let i = 0; i < n; i++) drawScreen(g, (i % S.cols) * S.SW, Math.floor(i / S.cols) * S.SH, S.SW, S.SH, S.list[i], T);
     S.tex.needsUpdate = true;
   }
   for (const [x, y, z, r, gg, b, s] of X.glows) if ((x - cam.x) ** 2 + (z - cam.z) ** 2 < 300 * 300 && (nk > .2 || y < 0)) glows.add(x, y, z, r, gg, b, s);
@@ -343,7 +343,7 @@ function drawScreen(g, x, y, w, h, s, T) {
     const msg = "  BYTE NEWS 24 · ARCLINE SEEN OVER 9TH AVE · TRANSIT: WEST LINE ON TIME · MERIDIAN BANK +2.4% · STORM WARNING TONIGHT · DAILY MERIDIAN: HERO OR MENACE?  ";
     g.font = "700 30px 'Barlow Condensed', Arial"; g.fillStyle = "#ffd23b"; g.textBaseline = "middle";
     const tw = g.measureText(msg).width, off = (T * 60 + s.seed * 37) % tw;
-    for (let k = -1; k < 3; k++) g.fillText(msg, k * tw - off, h * .95);
+    for (let k = -1; k < 3; k++) g.fillText(msg, k * tw - off, h * .05);
     g.restore(); return;
   }
   const mode = Math.floor((T / 7 + s.seed * .37)) % 3, a = ADS[(Math.floor(T / 7) + s.seed) % ADS.length];
@@ -352,7 +352,7 @@ function drawScreen(g, x, y, w, h, s, T) {
     g.fillStyle = a.bg; g.globalAlpha = .5; g.fillRect(0, 0, w, h * .25); g.fillRect(0, h * .75, w, h * .25); g.globalAlpha = 1;
   } else if (mode === 1) {
     for (let i = 0; i < 12; i++) { g.fillStyle = `hsl(${(T * 40 + i * 30 + s.seed * 50) % 360},90%,${45 + 15 * Math.sin(T * 2 + i)}%)`; g.fillRect(0, (i / 12) * h, w, h / 12 + 1); }
-    g.fillStyle = "#fff"; g.font = "italic 800 52px 'Barlow Condensed', Arial"; g.textAlign = "center"; g.fillText("MERIDIAN", w / 2, h * .48); g.font = "600 22px Barlow, Arial"; g.fillText("SQUARE", w / 2, h * .58); g.textAlign = "left";
+    g.fillStyle = "#fff"; g.font = "italic 800 52px 'Barlow Condensed', Arial"; g.textAlign = "center"; g.fillText("TIMES", w / 2, h * .48); g.font = "600 22px Barlow, Arial"; g.fillText("SQUARE", w / 2, h * .58); g.textAlign = "left";
   } else {
     g.fillStyle = "#0b0d12"; g.fillRect(0, 0, w, h);
     for (let i = 0; i < 40; i++) { const px = (Math.sin(i * 12.9 + T * .7) * .5 + .5) * w, py = ((i * 37 + T * 40) % h); g.fillStyle = `rgba(127,233,255,${.3 + .7 * ((i * 7) % 10) / 10})`; g.fillRect(px, py, 3, 14); }

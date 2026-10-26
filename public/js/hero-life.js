@@ -396,7 +396,7 @@ export function heroDistrict(M, W, x, y, z) {
     for (const p of hx.pits) if (x > p.x0 - 20 && x < p.x1 + 20 && z > p.z0 - 20 && z < p.z1 + 20) return `${p.name} STATION`;
     if (y < -1) return "MERIDIAN TRANSIT";
     for (const d of hx.dirt) if (x > d.x0 && x < d.x1 && z > d.z0 && z < d.z1) return "CONSTRUCTION SITE";
-    if (Math.hypot(x - 100, z - 100) < 70) return "MERIDIAN SQUARE";
+    if (Math.hypot(x - 135, z - 135) < 100) return "TIMES SQUARE · DOWNTOWN";
   }
   return districtAt(x, z, y);
 }

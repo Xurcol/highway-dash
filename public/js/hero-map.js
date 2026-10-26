@@ -4,7 +4,7 @@
 // there (onto the roof or street below it), unless the hero is in a fight, a race or carrying someone.
 const LABELS = [
   ["DOWNTOWN", 0, 0], ["MIDTOWN", 0, 600], ["MIDTOWN", 600, 0], ["INDUSTRIAL DISTRICT", 900, -900], ["EASTGATE RETAIL", 900, 900],
-  ["NORTHWEST HEIGHTS", -900, -900], ["WESTWOOD", -900, 300], ["LAKESIDE PARK", -900, 900], ["MERIDIAN SQUARE", 100, 100],
+  ["NORTHWEST HEIGHTS", -900, -900], ["WESTWOOD", -900, 300], ["LAKESIDE PARK", -900, 900], ["TIMES SQUARE", 140, 140],
 ];
 
 export class WorldMap {

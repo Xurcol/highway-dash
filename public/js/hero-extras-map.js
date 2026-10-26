@@ -30,10 +30,36 @@ export const ADS = [
 const hashOf = (H) => H.hash;
 // a downtown block this module builds itself; returns true if it did
 function block(M, i, j, x0, z0, x1, z1, H) {
+  if (i === 1 && j === 1) { timesSquare(M, x0, z0, x1, z1, H); return true; }
   const st = STATION_BLOCKS.find(([a, b]) => a === i && b === j);
   if (st) { station(M, x0, z0, x1, z1, st[2], H); return true; }
   if (SITE_BLOCKS.some(([a, b]) => a === i && b === j)) { site(M, i, j, x0, z0, x1, z1, H); return true; }
   return false;
+}
+
+// A walkable theater plaza off the junction; surrounding traffic lanes remain open.
+function timesSquare(M, x0, z0, x1, z1, H) {
+  const hx = M.hx, cx = (x0 + x1) / 2;
+  H.slab(x0, z0, x1, z1, "walk");
+  // The narrow screen tower and theater also provide solid swing anchors.
+  H.addBuilding(M, x1 - 23, z1 - 27, x1 - 4, z1 - 4, .15, 115, 1, 0x35475c);
+  H.addBuilding(M, x1 - 22, z0 + 5, x1 - 4, z0 + 32, .15, 26, 3, 0x6c4545);
+  for (let i = 0; i < 8; i++) {
+    const z = z1 - 29 + i * 1.5, h = .15 + (i + 1) * .3;
+    H.addBuilding(M, x0 + 9, z, x0 + 29, z + 1.5, .15, h, 4, 0xb82239);
+    M.roofs.push({x:x0 + 19,y:h,z:z + .75,sx:20,sy:.08,sz:1.5,col:0xdf2946});
+  }
+  for (let i = 0; i < 4; i++) {
+    M.furniture.benches.push({x:x0 + 5,z:z0 + 12 + i * 11,fx:1,fz:0});
+    M.trees.push({x:cx + 5,z:z0 + 10 + i * 10,s:.6});
+  }
+  hx.signs.push({x:x1 - 22.1,y:8,z:z0 + 18,fx:-1,fz:0,w:20,h:3,text:"BROADWAY",sub:"THE NIGHT IS YOURS · LIVE TONIGHT",kind:"theater"});
+  hx.signs.push({x:cx,y:5,z:z1 - 28,fx:0,fz:-1,w:17,h:2.4,text:"TIMES SQUARE",sub:"NEW MERIDIAN · DOWNTOWN",kind:"theater"});
+  for (let i = 0; i < 4; i++) {
+    hx.screens.push({x:x1 - 23.3,y:19 + i * 23,z:z1 - 15.5,fx:-1,fz:0,w:20,h:21,seed:i});
+    hx.screens.push({x:x1 - 13.5,y:19 + i * 23,z:z1 - 27.3,fx:0,fz:-1,w:17,h:21,seed:i + 4});
+  }
+  hx.screens.push({x:x1 - 22.3,y:13,z:z0 + 18,fx:-1,fz:0,w:25,h:2.5,seed:108,ticker:true});
 }
 
 // ---------------------------------------------------------------- subway stations
@@ -134,13 +160,13 @@ function finish(M, H) {
       hx.boards.push({ x: cx, y: b.y1 + 4 + 3, z: cz, fx: f.nx, fz: f.nz, w: 14, h: 6, ad: ad++ % ADS.length, legs: b.y1 });
     }
   }
-  // ---- Meridian Square: the junction at (100, 100), wrapped in screens ----
+  // ---- Times Square: downtown plaza and surrounding screen-lined junction ----
   const SX = 100, SZ = 100;
   for (const b of M.buildings) {
-    if (b.y0 > 16 || b.y1 - b.y0 < 14) continue;
+    if (hx.screens.length >= 30 || b.y0 > 16 || b.y1 - b.y0 < 14) continue;
     const cx = (b.x0 + b.x1) / 2, cz = (b.z0 + b.z1) / 2;
     const qx = Math.max(b.x0, Math.min(b.x1, SX)), qz = Math.max(b.z0, Math.min(b.z1, SZ));
-    if (Math.hypot(qx - SX, qz - SZ) > 40) continue;
+    if (Math.hypot(qx - SX, qz - SZ) > 90) continue;
     // the face nearest the junction
     const faces = [[b.x1, cz, 1, 0, b.z1 - b.z0], [b.x0, cz, -1, 0, b.z1 - b.z0], [cx, b.z1, 0, 1, b.x1 - b.x0], [cx, b.z0, 0, -1, b.x1 - b.x0]];
     const f = faces.filter((q) => (SX - q[0]) * q[2] + (SZ - q[1]) * q[3] > 0).sort((p, q) => Math.hypot(p[0] - SX, p[1] - SZ) - Math.hypot(q[0] - SX, q[1] - SZ))[0];
