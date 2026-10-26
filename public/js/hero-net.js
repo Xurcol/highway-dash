@@ -58,6 +58,7 @@ export class HeroNet {
       h: {
         st: Math.max(0, ST_NAMES.indexOf(H.state)), vy: r2(H.v.y), ph: r2(h.anim.phase % 1e6), fl, sw: (H.webs[0]?.side || H.lastSide) > 0 ? 1 : -1,
         q: [r3(q.x), r3(q.y), r3(q.z), r3(q.w)],
+        wn: H.state === "wall" ? [r3(H.n.x), r3(H.n.y), r3(H.n.z)] : undefined,
         an: [r2(H.stateT), r2(H.airT), r2(h.anim.heightAbove ?? 30), r2(h.anim.swingT || 0), r2(h.anim.swingPhase || 0), r2(h.anim.catch || 0), r2(h.anim.load || 0), r2(Math.min(2, H.releaseT)), H.releaseQuality || 0, r2(Math.min(9, H.landT))],
         wb: wb.length ? wb : undefined, zp: H.state === "zip" && H.zip ? [r2(H.zip.x), r2(H.zip.y), r2(H.zip.z)] : undefined,
         tr: packTrick(tr),
@@ -153,6 +154,8 @@ export class HeroNet {
     if (st === "wall") {
       _p.set(s.vx, s.vy, s.vz).applyQuaternion(_qi.copy(rig.group.quaternion).invert());
       const movement = a.wallMove ||= { x: 0, y: 0 }; movement.x = _p.x; movement.y = _p.y;
+      if (H.wn) (a.wallNormal ||= new V()).set(H.wn[0], H.wn[1], H.wn[2]).applyQuaternion(_qi);
+      else a.wallNormal = null;
     }
     if (fl & (F.vault | F.climb)) a.move = { kind: fl & F.vault ? "vault" : "climb", t: .1, dur: .3 };
     if (st === "air" || st === "swing" || st === "zip") a.trick = unpackTrick(a, H.tr);

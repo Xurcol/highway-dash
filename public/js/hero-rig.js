@@ -472,8 +472,15 @@ function poseWallStyle(rig, a, running) {
       arm(rig, s, 12 - stride * (36 + drive * 18), 12, -sway * 5, 74 + stride * 18);
       hand(rig, s, 65);
     }
-    // Physics keeps the hips near the wall; lift the visual runner so the feet meet it.
-    rig.poseOffset.set(sway * .018, HIP_H - gap + Math.abs(cos(phase)) * .035 * moving, 0);
+    // Side-on sprint: the wall-side hand braces while the free arm keeps its running rhythm.
+    const normal = a.wallNormal;
+    rig.poseOffset.set(sway * .018, .12 + Math.abs(cos(phase)) * .025 * moving, 0);
+    if (normal) {
+      const wallSide = normal.x > 0 ? -1 : 1;
+      _contact.set(wallSide * .38, .4, .06);
+      _contact.addScaledVector(normal, -(gap + rig.poseOffset.dot(normal) + _contact.dot(normal)));
+      plantLimb(rig, wallSide, true, _contact, _pole.set(wallSide * .8, -.25, -.4));
+    }
     return 24;
   }
   for (let s = -1; s <= 1; s += 2) {

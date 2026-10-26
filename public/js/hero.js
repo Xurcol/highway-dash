@@ -608,6 +608,9 @@ export class HeroMode {
       const angle = blend * blend * (3 - 2 * blend) * Math.PI / 2;
       up.copy(this.wallUp).multiplyScalar(Math.cos(angle)).addScaledVector(H.n, Math.sin(angle)).normalize();
       fwd.copy(this.wallUp).multiplyScalar(Math.sin(angle)).addScaledVector(H.n, -Math.cos(angle)).normalize();
+      // Bank onto the wall-side shoulder, keeping the upper body toward world-up on sideways runs.
+      const bankSide = _t2.crossVectors(this.wallUp, H.n).dot(UP) >= 0 ? 1 : -1;
+      up.applyAxisAngle(fwd, bankSide * .85 * blend * blend * (3 - 2 * blend));
       rate = 0;
     } else if (H.state === "air" && H.dive && H.speed > 8) {
       up.copy(H.v).normalize();
@@ -664,6 +667,7 @@ export class HeroMode {
       const wallMove = a.wallMove || (a.wallMove = { x: 0, y: 0 });
       _t.copy(H.v).applyQuaternion(_qi.copy(rig.group.quaternion).invert());
       wallMove.x = _t.x; wallMove.y = _t.y; a.wallDistance = TUNE.r + .02;
+      (a.wallNormal || (a.wallNormal = new V())).copy(H.n).applyQuaternion(_qi);
     }
     // the arm holding a line points at its anchor; the swing's phase decides the legs
     a.anchorLocal = null; a.anchor2Local = null; a.swingSide = H.webs[0]?.side || H.lastSide;
