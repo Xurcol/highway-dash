@@ -451,7 +451,7 @@ function poseWall(rig, a) {
 }
 
 function poseWallStyle(rig, a, running) {
-  const mv = a.wallMove, mx = mv?.x || 0, my = mv?.y || 0, speed = Math.hypot(mx, my);
+  const mv = a.wallMove, mx = mv?.x || 0, my = mv?.y || 0, speed = running ? (a.speed || 0) : Math.hypot(mx, my);
   const moving = smooth(speed / .6), dx = speed > .05 ? mx / speed : 0, dy = speed > .05 ? my / speed : 1;
   const runDrive = running ? cl((speed - 3) / 14, 0, 1) : 0, phase = a.phase || 0;
   const gap = cl(a.wallDistance ?? .44, .3, .65), sway = sin(phase) * moving;
@@ -472,7 +472,8 @@ function poseWallStyle(rig, a, running) {
       arm(rig, s, 12 - stride * (36 + drive * 18), 12, -sway * 5, 74 + stride * 18);
       hand(rig, s, 65);
     }
-    rig.poseOffset.set(sway * .018, Math.abs(cos(phase)) * .035 * moving, 0);
+    // Physics keeps the hips near the wall; lift the visual runner so the feet meet it.
+    rig.poseOffset.set(sway * .018, HIP_H - gap + Math.abs(cos(phase)) * .035 * moving, 0);
     return 24;
   }
   for (let s = -1; s <= 1; s += 2) {

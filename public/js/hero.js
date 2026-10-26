@@ -600,10 +600,14 @@ export class HeroMode {
         const angle = Math.atan2(_t2.crossVectors(this.wallUp, up).dot(H.n), clamp(this.wallUp.dot(up), -1, 1));
         this.wallUp.applyAxisAngle(H.n, angle * (1 - Math.exp(-dt * 9)));
       }
-      up.copy(this.wallUp).normalize();
-      // Up already follows travel along the wall. Forward must be perpendicular to it;
-      // using travel for both axes collapses the body frame and corrupts the running pose.
-      fwd.copy(H.n).negate();
+      // Rotate the whole frame: a runner's feet face the wall and chest faces travel.
+      // A crawler's chest faces the wall. Use the same blend as the limb pose.
+      const wantRun = H.wallMode === "run" ? 1 : 0;
+      const oldBlend = rig.wasOnWall ? rig.wallRunBlend : wantRun;
+      const blend = oldBlend + clamp(wantRun - oldBlend, -Math.min(dt, .1) / .24, Math.min(dt, .1) / .24);
+      const angle = blend * blend * (3 - 2 * blend) * Math.PI / 2;
+      up.copy(this.wallUp).multiplyScalar(Math.cos(angle)).addScaledVector(H.n, Math.sin(angle)).normalize();
+      fwd.copy(this.wallUp).multiplyScalar(Math.sin(angle)).addScaledVector(H.n, -Math.cos(angle)).normalize();
       rate = 0;
     } else if (H.state === "air" && H.dive && H.speed > 8) {
       up.copy(H.v).normalize();

@@ -951,8 +951,10 @@ export class HeroBody {
   wall(dt, inp) {
     const T = TUNE, n = this.n, md = this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
     this.wallT += dt;
-    // the swing button held on a wall runs it, like sprint: a swing into a building carries on as a run
-    const run = !this.ceiling && m > .05 && (inp.sprint || inp.swing);
+    // A swing catch starts a run. Keep that mode while moving, even after releasing Shift;
+    // without movement input, brake to a stop before settling into a crawl.
+    const run = !this.ceiling && ((m > .05 && (inp.sprint || inp.swing))
+      || this.wallMode === "run" && (m > .05 || this.v.lengthSq() > 1));
     this.wallMode = run ? "run" : "crawl";
     // the wall's own axes: up it, and along it to the right as you face it
     let ux, uy, uz, rx, ry, rz;
@@ -975,8 +977,9 @@ export class HeroBody {
     _f.subVectors(want, this.v); const fl = _f.length();
     if (fl > acc) _f.multiplyScalar(acc / fl);
     this.v.add(_f);
-    // a run with no stick bleeds into a slow slide down; a crawl just holds on
-    if (run && il < .05 && !this.ceiling) this.v.y -= 6 * dt;
+    if (il < .05 && this.v.lengthSq() <= 1) {
+      this.v.set(0, 0, 0); this.wallMode = "crawl";
+    }
     this.v.addScaledVector(n, -this.v.dot(n));
     // jump off: launch clearly away from the wall, then blend in the camera-facing tangent.
     if (this.jumpBuf > 0) {
