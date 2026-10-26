@@ -1091,7 +1091,7 @@ h1,h2,.tab,.mode-hud{font-family:var(--display)}
 .hh-mark{position:absolute;left:0;top:0;will-change:transform}
 .hh-mark.zip i{position:absolute;left:-13px;top:-13px;width:26px;height:26px;border:2px solid var(--ink);transform:rotate(45deg);box-shadow:0 0 0 1px rgba(0,0,0,.5)}
 .hh-mark.zip.perch i{border-color:#7fe9ff;width:30px;height:30px;left:-15px;top:-15px}
-.hh-mark.zip::after{content:"E";position:absolute;left:18px;top:-8px;font:700 12px/1 var(--display);color:var(--ink);background:rgba(10,10,11,.7);padding:2px 5px;border-radius:2px}
+.hh-mark.zip::after{content:"C";position:absolute;left:18px;top:-8px;font:700 12px/1 var(--display);color:var(--ink);background:rgba(10,10,11,.7);padding:2px 5px;border-radius:2px}
 .hh-mark.anchor{width:8px;height:8px;margin:-4px 0 0 -4px;border-radius:50%;border:2px solid rgba(255,255,255,.75);background:transparent}
 .hh-mark.target b{position:absolute;left:-60px;width:120px;top:-46px;text-align:center;font:700 12px/1 var(--display);letter-spacing:.08em;text-shadow:0 1px 3px #000}
 .hh-mark.target span{position:absolute;left:-30px;top:-32px;width:60px;height:4px;background:rgba(0,0,0,.55)}
