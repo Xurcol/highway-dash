@@ -24,6 +24,7 @@ export class HeroCam {
     this.combat = null;      // { x, y, z } a point to keep in frame
     this.snapNext = true;
     this.wallK = 0; this.speed = 0;
+    this.wallGrace = 0;
     this.probeT = 0;
     this.contacts = { contacts: [] };
   }
@@ -36,11 +37,13 @@ export class HeroCam {
     dt = clamp(Number.isFinite(dt) ? dt : 0, 0, .1);
     this.t += dt;
     const p = H.p, v = H.v, sp = v.length(), hs = Math.hypot(v.x, v.z), snap = this.snapNext;
+    this.wallGrace = H.state === "wall" ? 1 : snap ? 0 : Math.max(0, this.wallGrace - dt);
     if (snap) { this.idle = 0; this.speed = sp; this.roll = this.trauma = 0; this.kick.set(0, 0, 0); }
     else this.speed += (sp - this.speed) * ease(dt, 5);
     // ---- the player's mouse ----
     const mdx = inp?.mdx || 0, mdy = inp?.mdy || 0;
     if (Math.abs(mdx) + Math.abs(mdy) > .01) this.idle = 0; else this.idle += dt;
+    if (this.wallGrace > 0) this.idle = 0;
     this.yaw -= mdx * this.sens;
     this.pitch -= mdy * this.sens * (this.invertY ? -1 : 1);
     // ---- following on its own when left alone: swing round behind the direction of travel ----
@@ -48,9 +51,7 @@ export class HeroCam {
     // A wall is a deliberate camera state: never auto-orbit while attached, because that makes
     // the surface feel like it is dragging the player's view around.
     if (this.autoFollow && !this.firstPerson && H.state !== "wall" && this.idle > 1.1 && moving && !this.combat && !o.aim && !o.tricking) {
-      // on a wall: look along the run from a little way out; elsewhere: behind the direction of travel
-      let wx = v.x, wz = v.z;
-      if (H.state === "wall" && !H.ceiling) { const al = v.x * -H.n.z + v.z * H.n.x; wx = -H.n.z * al - H.n.x * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; wz = H.n.x * al - H.n.z * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; if (Math.hypot(wx, wz) < .5) { wx = -H.n.x; wz = -H.n.z; } }
+      const wx = v.x, wz = v.z;
       const want = Math.atan2(-wx, -wz), d = wrapA(want - this.yaw);
       // Ease into following after mouse input, even when the hero reverses direction.
       const follow = clamp((this.idle - 1.1) / .7, 0, 1);
@@ -103,7 +104,8 @@ export class HeroCam {
     // on a wall the camera stands off it, so it looks at the hero rather than along the bricks
     const wall = H.state === "wall" && !H.ceiling ? 1 : 0;
     const wallK = this.wallK = snap ? wall : wall ? this.wallK + (1 - this.wallK) * ease(dt, 11) : this.wallK * (1 - ease(dt, 9));
-    if (wallK > .01) { tx += H.n.x * 1.1 * wallK; tz += H.n.z * 1.1 * wallK; }
+    // Preserve the orbit pivot through contact and release. Collision probes pull the
+    // camera closer instead of shifting it sideways when wall normals change at corners.
     // in combat, the pivot slides towards the middle of the fight
     if (this.combat) { const c = this.combat; tx += (c.x - p.x) * .25; tz += (c.z - p.z) * .25; }
     // Leading the hero must not move the camera's pivot through the next building.
@@ -122,11 +124,8 @@ export class HeroCam {
     // ---- orbit ----
     const cp = Math.cos(this.pitch), sp2 = Math.sin(this.pitch);
     let fx = -Math.sin(this.yaw) * cp, fy = sp2, fz = -Math.cos(this.yaw) * cp;
-    // on a wall the boom must stay on the open side of it: tip it out until it points well away
-    if (wallK > .01) {
-      const n = H.n, out = -(fx * n.x + fy * n.y + fz * n.z), need = .45 * wallK;
-      if (out < need) { const a = need - out; fx -= n.x * a * 1.4; fy -= n.y * a * 1.4; fz -= n.z * a * 1.4; const L = Math.hypot(fx, fy, fz); fx /= L; fy /= L; fz /= L; }
-    }
+    // Wall normals must never rewrite the viewing direction: the correction could
+    // reverse a nearly head-on view as it faded in or out after a wall jump.
     this.look.set(fx, fy, fz);
     const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw);   // right of the view
     if (side > 0) {
@@ -171,8 +170,8 @@ export class HeroCam {
     C.lookAt(C.position.x + fx, C.position.y + fy, C.position.z + fz);
     // a little roll into hard turns at speed, and with the trauma
     const turn = H.turnRate || 0;
-    const wallLean = H.state === "wall" && H.wallMode === "run" ? clamp(H.v.y / 18, -1, 1) * .035 : 0;
-    this.roll += (clamp(-turn * .025 * clamp(hs / 35, 0, 1), -.055, .055) + wallLean - this.roll) * ease(dt, 4.5);
+    const turnRoll = this.wallGrace > 0 ? 0 : clamp(-turn * .025 * clamp(hs / 35, 0, 1), -.055, .055);
+    this.roll += (turnRoll - this.roll) * ease(dt, 4.5);
     C.rotateZ(this.roll + (tr > 0 ? noise(this.t * 14, 3) * tr * .035 : 0));
     if (Math.abs(C.fov - this.fov) > .05) { C.fov = this.fov; C.updateProjectionMatrix(); }
   }
