@@ -14,12 +14,12 @@ const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const wrapA = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
 
 export const KINDS = {
-  thug: { hp: 60, speed: 4.8, reach: 2, dmg: 8, windup: .48, cool: [1.2, 2.4], name: "Thug", weapon: null, armor: 0, r: .38 },
-  bat: { hp: 70, speed: 4.6, reach: 2.4, dmg: 12, windup: .55, cool: [1.4, 2.6], name: "Bruiser", weapon: "bat", armor: 0, r: .38, outfit: "thug" },
-  gunner: { hp: 50, speed: 4.2, reach: 22, dmg: 7, windup: .95, cool: [1.8, 3], name: "Gunman", weapon: "pistol", armor: 0, r: .38, ranged: true },
-  rifle: { hp: 55, speed: 4, reach: 32, dmg: 9, windup: 1.2, cool: [2.4, 3.6], name: "Rifleman", weapon: "rifle", armor: 0, r: .38, ranged: true, outfit: "gunner" },
-  brute: { hp: 220, speed: 3.6, reach: 2.8, dmg: 22, windup: .85, cool: [2, 3], name: "Brute", weapon: null, armor: 1, r: .55, scale: 1.28 },
-  boss: { hp: 1400, speed: 5.4, reach: 3.2, dmg: 26, windup: .7, cool: [1.1, 1.9], name: "VANTA", weapon: null, armor: 2, r: .55, scale: 1.18 },
+  thug: { hp: 120, speed: 4.8, reach: 2, dmg: 8, windup: .48, cool: [1.2, 2.4], name: "Thug", weapon: null, armor: 0, r: .38 },
+  bat: { hp: 140, speed: 4.6, reach: 2.4, dmg: 12, windup: .55, cool: [1.4, 2.6], name: "Bruiser", weapon: "bat", armor: 0, r: .38, outfit: "thug" },
+  gunner: { hp: 100, speed: 4.2, reach: 22, dmg: 7, windup: .95, cool: [1.8, 3], name: "Gunman", weapon: "pistol", armor: 0, r: .38, ranged: true },
+  rifle: { hp: 110, speed: 4, reach: 32, dmg: 9, windup: 1.2, cool: [2.4, 3.6], name: "Rifleman", weapon: "rifle", armor: 0, r: .38, ranged: true, outfit: "gunner" },
+  brute: { hp: 440, speed: 3.6, reach: 2.8, dmg: 22, windup: .85, cool: [2, 3], name: "Brute", weapon: null, armor: 1, r: .55, scale: 1.28 },
+  boss: { hp: 2800, speed: 5.4, reach: 3.2, dmg: 26, windup: .7, cool: [1.1, 1.9], name: "VANTA", weapon: null, armor: 2, r: .55, scale: 1.18 },
 };
 let NID = 1;
 export const ST = ["idle", "chase", "circle", "windup", "attack", "recover", "hit", "air", "down", "webbed", "pinned", "ko", "aim", "flee", "getup", "taunt"];
