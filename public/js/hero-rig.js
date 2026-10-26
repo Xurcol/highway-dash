@@ -684,19 +684,22 @@ export function poseBody(rig, a) {
     } else {
       // walk -> run -> sprint: one stride cycle, longer and more bent the faster it goes
       const ph = a.phase, s1 = sin(ph), c1 = cos(ph);
-      const swing = 22 + run * 30 + sprint * 18, kneeK = 18 + run * 55 + sprint * 25;
-      const lean = 5 + run * 9 + sprint * 12 + cl(a.accel || 0, -10, 20) * .4;
-      torso(rig, lean, s1 * (6 + run * 6) - turn * 10, -turn * (5 + run * 9), 2 + sprint * 4, -s1 * (4 + run * 6));
-      headP(rig, -lean * .6, -s1 * 3 + turn * 14, turn * 4);
-      for (const s of [1, -1]) {
+      const swing = 22 + run * 24 + sprint * 10;
+      const lean = 5 + run * 13 + sprint * 6 + cl(a.accel || 0, -10, 20) * .25;
+      torso(rig, lean, s1 * (4 + run * 4) - turn * 10, -turn * (5 + run * 9), 2 + sprint * 3, -s1 * (3 + run * 4));
+      headP(rig, -lean * .8, -s1 * 2 + turn * 14, turn * 4);
+      for (let s = -1; s <= 1; s += 2) {
         const p = s > 0 ? ph : ph + PI, sp = sin(p);
-        const knee = kneeK * Math.max(0, sin(p + 1.4)) + 8;
-        leg(rig, s, sp * swing + run * 8, 4, knee, -sp * 12 - run * 8, 0);
-        arm(rig, s, -sp * (swing * .9 + sprint * 10), 8 + run * 6, 0, 18 + run * 55 + sprint * 15);
+        // Fold the trailing shin toward the hip, then extend the leading leg for its next contact.
+        const recovery = Math.max(0, -sin(p + .35));
+        const knee = 10 + run * 12 + recovery * (18 + run * 48 + sprint * 12);
+        leg(rig, s, sp * swing + run * 4, 4, knee, -sp * 10 + recovery * 12, 0);
+        // Opposite arm and leg lead together; keep the elbows tight rather than flaring outward.
+        arm(rig, s, -sp * (24 + run * 20 + sprint * 8), 6 + run * 3, 0, 22 + run * 60 + sprint * 8 + sp * run * 10);
         hand(rig, s, 40 + run * 40);
       }
       // The hips absorb each footfall; the head stays readable through the stride.
-      if (hero) rig.poseOffset.y = Math.abs(c1) * (.025 + run * .035) - .02;
+      if (hero) rig.poseOffset.y = Math.abs(c1) * (.025 + run * .025) - .02;
       rate = 18;
     }
   } else if (st === "perch") {
