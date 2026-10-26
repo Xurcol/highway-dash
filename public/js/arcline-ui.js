@@ -49,6 +49,7 @@ export class ArclineUI {
   action(action, code) {
     switch (action) {
       case "menu": this.open(); break;
+      case "continue": if (this.ctx.active()) this.close(); else { this.cancelJoining(); this.ctx.enter(false); } break;
       case "resume": this.close(); break;
       case "quick": this.quickPlay(); break;
       case "practice": this.cancelJoining(); this.ctx.enter(false); break;
@@ -65,8 +66,10 @@ export class ArclineUI {
   }
   loading(title, sub = "") { $("loader").hidden = false; $("loaderTitle").textContent = title; $("loaderSub").textContent = sub; }
   loaded() { $("loader").hidden = true; }
-  open(panel = "lobby") {
-    this.panel = panel; this.closeChat(); $("arcPlayers").hidden = true;
+  open(panel = "home") {
+    this.panel = panel; $("arcMenu").dataset.panel = panel;
+    $("arcContinue").textContent = this.ctx.active() ? "Continue" : "Start patrol";
+    this.closeChat(); $("arcPlayers").hidden = true;
     this.ctx.pause(true); $("arcMenu").hidden = false;
     for (const button of document.querySelectorAll("[data-arc-panel]")) button.classList.toggle("on", button.dataset.arcPanel === panel);
     for (const section of document.querySelectorAll("[data-arc-section]")) section.hidden = section.dataset.arcSection !== panel;

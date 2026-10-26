@@ -8,6 +8,7 @@ import { createNet } from "./net.js";
 import { HeroMode } from "./hero.js";
 import { P, save, signOut } from "./arcline-profile.js";
 import { signIn } from "./auth.js";
+import { StartupScene } from "./startup-scene.js";
 import { ArclineUI } from "./arcline-ui.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
 import { RenderPass } from "three/addons/postprocessing/RenderPass.js";
@@ -17,10 +18,10 @@ import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
 const FPS_CAPS = [30, 60, 90, 120, 144, 165, 240];
 const QUALITY = {
-  low: { dpr: .85, lamps: 8, traffic: 20, shadows: false, shadowSize: 512, reflections: 32, view: .8 },
-  medium: { dpr: 1.25, lamps: 12, traffic: 32, shadows: false, shadowSize: 1024, reflections: 48, view: 1 },
-  high: { dpr: 1.5, lamps: 20, traffic: 48, shadows: true, shadowSize: 1024, reflections: 80, view: 1.35, post: true },
-  ultra: { dpr: 2, lamps: 24, traffic: 56, shadows: true, shadowSize: 2048, reflections: 96, view: 1.6, post: true, city: "high" },
+  low: { dpr: .85, lamps: 8, traffic: 36, shadows: false, shadowSize: 512, reflections: 32, view: .8 },
+  medium: { dpr: 1.25, lamps: 12, traffic: 68, shadows: false, shadowSize: 1024, reflections: 48, view: 1 },
+  high: { dpr: 1.5, lamps: 20, traffic: 96, shadows: true, shadowSize: 1024, reflections: 80, view: 1.35, post: true },
+  ultra: { dpr: 2, lamps: 24, traffic: 120, shadows: true, shadowSize: 2048, reflections: 96, view: 1.6, post: true, city: "high" },
 };
 // Speed: the frame smears outwards from the middle and the very edges fringe, only once the hero is
 // really moving (uRush comes from the hero's speed).
@@ -50,6 +51,7 @@ export async function bootArcline() {
   const scene = new THREE.Scene(); scene.fog = new THREE.Fog(0x8b99aa, 60, 1100);
   const camera = new THREE.PerspectiveCamera(66, 1, .1, 2200);
   const sky = new SkySystem(renderer, scene), city = new City(renderer, scene), glows = new Glows(scene, 1200);
+  const startup = new StartupScene();
   const audio = new AudioManager(), net = await createNet(); net.sendRate = 15;
   let ui, active = false, online = false, paused = true, entering = false, wantsOnline = false, pendingPractice = false, roomCode = null, soloTime = 0;
   let composer = null, bloom = null, rush = null;
@@ -75,6 +77,7 @@ export async function bootArcline() {
     } else if (!on && composer) { composer.dispose(); composer = bloom = rush = null; }
   }
   function renderFrame() {
+    if (!active || ui?.menuOpen) { startup.render(renderer, camera.aspect); return; }
     if (composer) {
       const night = sky.night || 0;
       bloom.strength = .32 + night * .3; bloom.threshold = .95 - night * .12;
@@ -283,7 +286,7 @@ export async function bootArcline() {
   ui.loading("ARCLINE ONLINE", "Sign in to join New Meridian.");
   await signIn();
   const savedSuit = P.hero?.suit || "arcline"; hero.suitId = "arcline"; hero.setSuit(savedSuit);
-  applySettings(); net.connect(P.name, "hero"); ui.loaded(); ui.open("lobby");
+  applySettings(); net.connect(P.name, "hero"); ui.loaded(); ui.open("home");
   window.__game = { hero, city, sky, renderer, scene, camera, audio, net, get state() { return active ? "hero" : "lobby"; }, get mode() { return online ? "online" : "practice"; } };
   window.__ui = ui;
 }

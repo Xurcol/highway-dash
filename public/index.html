@@ -88,13 +88,17 @@
       </header>
       <div class="arc-shell">
         <nav class="arc-nav" aria-label="City menu sections">
+          <span class="arc-start-label">MAIN MENU</span>
+          <button id="arcContinue" data-arc-action="continue" type="button">Start patrol</button>
+          <button data-arc-panel="home" type="button">Overview</button>
           <button class="on" data-arc-panel="lobby" type="button"><svg class="ic" aria-hidden="true"><use href="#i-globe"/></svg>Play online<svg class="ic arc-nav-arrow" aria-hidden="true"><use href="#i-arrow"/></svg></button>
           <button data-arc-panel="friends" type="button"><svg class="ic" aria-hidden="true"><use href="#i-users"/></svg>Friends</button>
           <button data-arc-panel="settings" type="button"><svg class="ic" aria-hidden="true"><use href="#i-gear"/></svg>Settings</button>
-          <div class="arc-nav-foot"><span>MAKE THE CITY<br>YOUR OWN.</span><p>Swing. Explore.<br>Stand together.</p></div>
+          <div class="arc-nav-foot"><span>YOUR CITY NEEDS YOU</span><p>Swing into New Meridian.<br>Patrol solo or join other heroes.</p><div class="arc-start-news"><small>ACTIVITY SPOTLIGHT</small><b>WAVE SURVIVAL</b><p>Fight through escalating enemy waves.<br>Start a solo patrol, then press K.</p></div></div>
           <button class="arc-signout" data-arc-action="signout" type="button"><svg class="ic" aria-hidden="true"><use href="#i-logout"/></svg>Sign out</button>
         </nav>
         <main class="arc-content">
+          <section data-arc-section="home" aria-label="Main menu"><h1 class="arc-start-title">ARCLINE<span>NEW MERIDIAN</span></h1></section>
           <section data-arc-section="lobby" aria-label="Join a city">
             <div class="arc-lobby-grid">
               <div class="arc-feature">

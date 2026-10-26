@@ -1155,8 +1155,12 @@ export class CityTraffic {
       this.nearT = 20;
       this.near = this.spawnable.filter((l) => l.bb.x1 > focus.x - R && l.bb.x0 < focus.x + R && l.bb.z1 > focus.z - R && l.bb.z0 < focus.z + R);
       // expressway cars leave the area fast, and matter most when you are up there with them
-      const up = focus.y > 3;
-      this.nearW = this.near.map((l) => l.len * (l.kind === "hwy" ? (up ? 5 : 1.6) : l.kind === "ramp" ? (up ? 2 : 1.2) : 1));
+      const up = !this.streetPriority && focus.y > 3;
+      this.nearW = this.near.map((l) => {
+        const dx = (l.bb.x0 + l.bb.x1) * .5 - focus.x, dz = (l.bb.z0 + l.bb.z1) * .5 - focus.z;
+        const proximity = this.streetPriority ? 1 / (1 + (dx * dx + dz * dz) / 18000) : 1;
+        return l.len * proximity * (l.kind === "hwy" ? (this.streetPriority ? .35 : up ? 5 : 1.6) : l.kind === "ramp" ? (up ? 2 : 1.2) : this.streetPriority ? 2.5 : 1);
+      });
       this.nearLen = this.nearW.reduce((a, w) => a + w, 0);
     }
     if (!this.near.length) return;
@@ -1166,7 +1170,7 @@ export class CityTraffic {
       for (let i = 0; i < this.near.length; i++) { if ((r -= this.nearW[i]) <= 0) { l = this.near[i]; break; } }
       const s = 6 + Math.random() * Math.max(1, l.len - 12);
       sampleLink(l, s, _p);
-      const d = Math.hypot(_p.x - focus.x, _p.y - focus.y, _p.z - focus.z);
+      const d = Math.hypot(_p.x - focus.x, this.streetPriority ? 0 : _p.y - focus.y, _p.z - focus.z);
       if (d > R || d < (initial ? 24 : 110)) continue;
       if (!initial && d < 230 && focus.fx !== undefined && ((_p.x - focus.x) * focus.fx + (_p.z - focus.z) * focus.fz) / d > -.2) continue;
       this.spawnAt(l, s, l.speed * (.6 + Math.random() * .3));

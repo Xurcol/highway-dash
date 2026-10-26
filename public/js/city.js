@@ -559,6 +559,21 @@ export class City {
     const glow = new CInst(G, BOXC, this.glowMat, { shadow: false, colors: true, cell: 320, distance: 650 });
     const K = { metal: 0x4d5258, dark: 0x1b1d20, concrete: 0xb9b5ac, curb: 0xc9c5bc, rail: 0xb4b9bf, wood: 0x6b4a2c, timber: 0x6e4b30, trunk: 0x57412e, head: 0xfff1d6 };
 
+    // Batched facade ledges, rooftop ventilation and entrance canopies for the hero city.
+    if (this.variant === "hero") for (let i = 0; i < M.buildings.length; i++) {
+      const b = M.buildings[i], w = b.x1 - b.x0, d = b.z1 - b.z0, h = b.y1 - b.y0;
+      if (w < 9 || d < 9 || h < 12) continue;
+      const x = (b.x0 + b.x1) / 2, z = (b.z0 + b.z1) / 2;
+      big.add(x, b.y1, z, w + .5, .45, d + .5, 0, 0x777d83);
+      small.add(x - w * .22, b.y1 + .9, z, 2.4, 1.8, 3.2, 0, 0x68747c);
+      small.add(x + w * .22, b.y1 + .6, z + d * .18, 1.5, 1.2, 2, 0, 0x9b9a91);
+      // Keep canopies close to the facade, outside the traffic lanes.
+      small.add(x, b.y0 + 3.4, b.z0 - .45, Math.min(7, w * .55), .22, 1.1, 0, i % 3 ? 0x274957 : 0x8e3436);
+      for (let y = b.y0 + 8; y < b.y1 - 3; y += 12) {
+        small.add(x, y, b.z0 - .08, w, .18, .24, 0, 0x8b9295);
+        small.add(b.x0 - .08, y, z, .24, .18, d, 0, 0x8b9295);
+      }
+    }
     for (const r of M.roofs) big.add(r.x, r.y, r.z, r.sx, r.sy, r.sz, 0, r.col);
     const pitched = new CInst(G, PRISM, lit({ color: 0xffffff, roughness: .85, flatShading: true }), { colors: true });
     for (const p of M.prisms) pitched.add(p.x, p.y, p.z, p.sx, p.sy, p.sz, p.rotY, p.col);
@@ -733,6 +748,7 @@ export class City {
     const sizes = {};
     for (const b of CITY_BODIES) sizes[b] = { L: BODIES[b].L, W: BODIES[b].W };
     this.traffic = new CityTraffic(M, sizes);
+    this.traffic.streetPriority = this.variant === "hero";
     if (M.hx) this.hx = buildHeroExtras(M, G, { mat, tex });
     this.detailMeshes = [];
     G.traverse((m) => {
@@ -867,7 +883,7 @@ export class City {
     this.updateSignals(dt, T, cam);
     const fwd = camera.getWorldDirection(_v);
     const trafficFocus = this.trafficFocus ||= {};
-    trafficFocus.x = focus.x; trafficFocus.y = this.variant === "hero" ? Math.min(DECK_Y, focus.y) : focus.y;
+    trafficFocus.x = focus.x; trafficFocus.y = this.variant === "hero" ? 0 : focus.y;
     trafficFocus.z = focus.z; trafficFocus.fx = fwd.x; trafficFocus.fz = fwd.z;
     const honks = this.traffic.step(dt, T, players, trafficFocus);
 
@@ -877,7 +893,7 @@ export class City {
     const lightCars = this.lightCars ||= []; lightCars.length = 0;
     for (const c of this.traffic.cars) {
       seen.add(c);
-      const d2 = (c.x - cam.x) ** 2 + (c.y + .8 - cam.y) ** 2 + (c.z - cam.z) ** 2;
+      const d2 = (c.x - cam.x) ** 2 + (c.y + .8 - cam.y) ** 2 * (this.variant === "hero" ? .35 : 1) + (c.z - cam.z) ** 2;
       let m = this.meshes.get(c);
       if (d2 > this.detail.traffic ** 2) { if (m) m.visible = false; continue; }
       if (!m) { m = this.acquire(c.body, c.color); this.meshes.set(c, m); }
