@@ -55,7 +55,7 @@ export async function bootArcline() {
   const startup = new StartupScene();
   const audio = new AudioManager(), net = await createNet(); net.sendRate = 15;
   let ui, active = false, online = false, paused = true, entering = false, wantsOnline = false, pendingPractice = false, roomCode = null, soloTime = 0;
-  const music = new GameMusic(P.settings, save, () => active && !ui?.menuOpen ? "game" : "lobby");
+  const music = new GameMusic(P.settings, save, () => active ? "game" : "lobby");
   let composer = null, bloom = null, rush = null;
   let scale = 1, slowT = 0, quality = QUALITY.medium, sendT = 0, mapT = 0, envT = 0, lifeT = 0, adaptiveT = 0, avgDt = 1 / 60;
   const lights = [], ambience = { night: 0, height: 0, rain: 0, traffic: .6, wind: 0, enabled: false };
@@ -79,7 +79,7 @@ export async function bootArcline() {
     } else if (!on && composer) { composer.dispose(); composer = bloom = rush = null; }
   }
   function renderFrame() {
-    if (!active || ui?.menuOpen) { startup.render(renderer, camera.aspect); return; }
+    if (!active) { startup.render(renderer, camera.aspect); return; }
     if (composer) {
       const night = sky.night || 0;
       bloom.strength = .32 + night * .3; bloom.threshold = .95 - night * .12;

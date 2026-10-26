@@ -68,6 +68,10 @@ export class ArclineUI {
   loaded() { $("loader").hidden = true; }
   open(panel = "home") {
     this.panel = panel; $("arcMenu").dataset.panel = panel;
+    const inGame = this.ctx.active();
+    $("arcMenu").dataset.session = inGame ? "game" : "lobby";
+    document.body.classList.toggle("arc-game-menu", inGame);
+    $("arcMenu").querySelector(".arc-start-label").textContent = inGame ? "GAME MENU" : "MAIN MENU";
     $("arcContinue").textContent = this.ctx.active() ? "Continue" : "Start patrol";
     this.closeChat(); $("arcPlayers").hidden = true;
     this.ctx.pause(true); $("arcMenu").hidden = false;
@@ -79,7 +83,7 @@ export class ArclineUI {
   }
   close() {
     if (!this.ctx.active()) return;
-    $("arcMenu").hidden = true; $("arcPlayers").hidden = true; this.ctx.pause(false);
+    $("arcMenu").hidden = true; $("arcPlayers").hidden = true; document.body.classList.remove("arc-game-menu"); this.ctx.pause(false);
   }
   get menuOpen() { return !$("arcMenu").hidden; }
   cancelJoining() { clearTimeout(this.searchTimer); clearTimeout(this.joinTimer); this.joining = this.waitingForConnection = false; }

@@ -324,3 +324,20 @@
 .arc-music-players{display:flex;flex-wrap:wrap;max-width:480px}
 .arc-music-players iframe{display:block;width:240px;height:200px;border:0}
 @media(max-width:520px){.arc-music{right:8px;bottom:8px;max-width:240px}.arc-music-players{flex-direction:column}}
+
+/* In-session menus retain the live city camera; the title tableau belongs only to the lobby. */
+body.arc-game-menu #hud,body.arc-game-menu #arcBar,body.arc-game-menu #arcChat{visibility:hidden}
+.arc-app .arc-menu[data-session=game]{display:flex;align-items:center;justify-content:center;padding:24px;background:rgba(3,12,23,.58)}
+.arc-menu[data-session=game] .arc-menu-wrap{width:min(1050px,100%);min-height:0;max-height:calc(100dvh - 48px);overflow:auto;padding:24px;background:rgba(7,30,49,.96);border:1px solid #6895b2;border-top:3px solid #e84351}
+.arc-menu[data-session=game][data-panel=home] .arc-menu-wrap{width:340px}
+.arc-menu[data-session=game] .arc-menu-head{position:static;width:auto;padding:0 0 20px;border-bottom:1px solid #41647e}
+.arc-menu[data-session=game] .arc-shell{display:grid;grid-template-columns:220px minmax(0,1fr);gap:24px}
+.arc-menu[data-session=game][data-panel=home] .arc-shell{display:block}
+.arc-menu[data-session=game] .arc-nav{position:static;left:auto;top:auto;width:auto;min-height:0;max-height:none;margin:0;padding:20px 0 0;flex-direction:column;border:0;background:none;overflow:visible}
+.arc-menu[data-session=game] .arc-nav>button{justify-content:flex-start}
+.arc-menu[data-session=game] .arc-nav-foot,.arc-menu[data-session=game] .arc-start-title,.arc-menu[data-session=game] .arc-menu-foot{display:none!important}
+.arc-menu[data-session=game] .arc-content{position:static;margin:0;padding:20px 0 0;max-height:none;overflow:visible;border:0;background:none}
+.arc-menu[data-session=game][data-panel=home] .arc-content{display:none}
+.arc-menu[data-session=game] .arc-start-label{display:block!important}
+.arc-menu[data-session=game] .arc-nav>.arc-signout{margin:12px 0 0}
+@media(max-width:680px){.arc-menu[data-session=game] .arc-shell{grid-template-columns:1fr;gap:8px}.arc-app .arc-menu[data-session=game]{padding:12px}.arc-menu[data-session=game] .arc-menu-wrap{max-height:calc(100dvh - 24px);padding:18px}}
