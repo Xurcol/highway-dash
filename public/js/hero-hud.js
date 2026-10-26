@@ -13,7 +13,7 @@ export class HeroHud {
     const el = this.el = document.createElement("div");
     el.id = "heroHud"; el.hidden = true;
     el.innerHTML = `
-      <div class="hh-identity"><small>NEW MERIDIAN / PATROL ACTIVE</small><strong>ARCLINE</strong><span id="hhSuit"></span><b id="hhLevel">LEVEL 1</b></div>
+      <div class="hh-identity"><small>NEW MERIDIAN / PATROL ACTIVE</small><strong>ARCLINE</strong><span id="hhSuit"></span><b id="hhLevel">LEVEL 1</b><small id="hhFps">FPS —</small></div>
       <div class="hh-speedfx"></div>
       <div class="hh-reticle" id="hhRet"><i></i></div>
       <div class="hh-mark zip" id="hhZip" hidden><i></i></div>

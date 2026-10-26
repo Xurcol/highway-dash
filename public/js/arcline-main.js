@@ -203,12 +203,22 @@ export async function bootArcline() {
   renderer.domElement.addEventListener("webglcontextlost", event => { event.preventDefault(); pause(true); ui.toast("Graphics paused. Reload the page to recover.", [], "warn"); });
 
   let lastFrame = performance.now();
+  let fpsFrames = 0, fpsElapsed = 0;
   function frame(now) {
     requestAnimationFrame(frame);
-    if (document.hidden) { lastFrame = now; return; }
+    if (document.hidden) { lastFrame = now; fpsFrames = 0; fpsElapsed = 0; return; }
     // The city is capped at 60 rendered frames; faster displays no longer render the same world hundreds of times.
     if (now - lastFrame < 1000 / 60 - .5) return;
-    const dt = Math.min(.05, Math.max(.001, (now - lastFrame) / 1000)); lastFrame = now;
+    const elapsed = Math.max(.001, (now - lastFrame) / 1000);
+    const dt = Math.min(.05, elapsed); lastFrame = now;
+    // Count rendered frames with real elapsed time, not the capped physics timestep.
+    if (active) {
+      fpsFrames++; fpsElapsed += elapsed;
+      if (fpsElapsed >= .5) {
+        hero.hud.set("hhFps", `${Math.round(fpsFrames / fpsElapsed)} FPS`);
+        fpsFrames = 0; fpsElapsed = 0;
+      }
+    } else { fpsFrames = 0; fpsElapsed = 0; }
     glows.begin(); lights.length = 0;
     if (active) {
       const simDt = online || !paused ? dt : 0;
