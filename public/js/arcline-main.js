@@ -8,6 +8,7 @@ import { createNet } from "./net.js";
 import { HeroMode } from "./hero.js";
 import { P, save, signOut } from "./arcline-profile.js";
 import { signIn } from "./auth.js";
+import { GameMusic } from "./game-music.js";
 import { StartupScene } from "./startup-scene.js";
 import { ArclineUI } from "./arcline-ui.js";
 import { EffectComposer } from "three/addons/postprocessing/EffectComposer.js";
@@ -54,6 +55,7 @@ export async function bootArcline() {
   const startup = new StartupScene();
   const audio = new AudioManager(), net = await createNet(); net.sendRate = 15;
   let ui, active = false, online = false, paused = true, entering = false, wantsOnline = false, pendingPractice = false, roomCode = null, soloTime = 0;
+  const music = new GameMusic(P.settings, save, () => active && !ui?.menuOpen ? "game" : "lobby");
   let composer = null, bloom = null, rush = null;
   let scale = 1, slowT = 0, quality = QUALITY.medium, sendT = 0, mapT = 0, envT = 0, lifeT = 0, adaptiveT = 0, avgDt = 1 / 60;
   const lights = [], ambience = { night: 0, height: 0, rain: 0, traffic: .6, wind: 0, enabled: false };
@@ -105,6 +107,8 @@ export async function bootArcline() {
     }
     audio.vol = { master: unit(settings.volMaster, .8), engine: 0, fx: unit(settings.volFx, .8), wind: unit(settings.volWind, .3) };
     audio.applyVolumes();
+    music.settings = P.settings;
+    if (!key || key === "music") music.configure();
   }
   function pause(on) {
     paused = on;
@@ -181,7 +185,7 @@ export async function bootArcline() {
   });
   applySettings();
   addEventListener("resize", resize);
-  const startAudio = () => { audio.init({ hero: true }).catch(() => {}); };
+  const startAudio = () => { music.gesture(); audio.init({ hero: true }).catch(() => {}); };
   document.addEventListener("pointerdown", startAudio, { passive: true });
   document.addEventListener("keydown", event => {
     if (!active || event.repeat) return;
@@ -201,7 +205,7 @@ export async function bootArcline() {
     startAudio();
   });
   document.addEventListener("visibilitychange", () => {
-    if (document.hidden) { audio.cityAmbience(0); audio.update(0, 0, false, 0); hero.input.clear(); save(); }
+    if (document.hidden) { music.suspend(); audio.cityAmbience(0); audio.update(0, 0, false, 0); hero.input.clear(); save(); }
     lastFrame = performance.now();
   });
   renderer.domElement.addEventListener("webglcontextlost", event => { event.preventDefault(); pause(true); ui.toast("Graphics paused. Reload the page to recover.", [], "warn"); });
@@ -211,6 +215,7 @@ export async function bootArcline() {
   function frame(now) {
     requestAnimationFrame(frame);
     if (document.hidden) { lastFrame = now; nextFrame = 0; fpsFrames = 0; fpsElapsed = 0; return; }
+    music.update(now);
     // Keep a separate render deadline: discarded fractions otherwise lower the effective cap.
     const cap = FPS_CAPS.includes(Number(P.settings.fpsLimit)) ? Number(P.settings.fpsLimit) : 0;
     if (cap !== previousCap) { nextFrame = now; previousCap = cap; }

@@ -453,7 +453,7 @@ function poseWall(rig, a) {
 function poseWallStyle(rig, a, running) {
   const mv = a.wallMove, mx = mv?.x || 0, my = mv?.y || 0, speed = running ? (a.speed || 0) : Math.hypot(mx, my);
   const moving = smooth(speed / .6), dx = speed > .05 ? mx / speed : 0, dy = speed > .05 ? my / speed : 1;
-  const runDrive = running ? cl((speed - 3) / 14, 0, 1) : 0, phase = a.phase || 0;
+  const phase = a.phase || 0;
   const gap = cl(a.wallDistance ?? .44, .3, .65), sway = sin(phase) * moving;
   // Wall run is an upright sprint with the chest open; crawl stays low with four points of contact.
   torso(rig, running ? 3 : 28, sway * (running ? 10 : 4), -dx * (running ? 10 : 5), running ? 2 : 9, -sway * 3);
@@ -483,28 +483,26 @@ function poseWallStyle(rig, a, running) {
     }
     return 24;
   }
+  // Slow weight transfers and a four-beat reach keep the crawl distinct from a wall sprint.
+  const breath = sin((a.t || 0) * 2.1) * .006 * (1 - moving);
+  torso(rig, 20 + Math.abs(sway) * 4, sway * 8, -dx * 7 - sway * 3, 6, -sway * 7);
+  headP(rig, -35 - dy * moving * 6, dx * 20, -sway * 2);
+  rig.poseOffset.set(sway * .025, -.09 + cos(phase * 2) * .012 * moving, -.015 + breath);
   for (let s = -1; s <= 1; s += 2) {
-    const limbPhase = phase + (s > 0 ? 0 : PI), cycle = ((limbPhase / (PI * 2)) % 1 + 1) % 1;
-    const hold = running ? .34 : .72, reach = smooth((cycle - hold) / (1 - hold));
+    const cycle = (((phase + (s > 0 ? 0 : PI)) / (PI * 2)) % 1 + 1) % 1;
+    const hold = .68, reach = smooth((cycle - hold) / (1 - hold));
     const travel = (cycle < hold ? .5 - cycle / hold : -.5 + reach) * moving;
     const lift = cycle < hold ? 0 : sin(reach * PI) * moving;
-    if (running) {
-      // Do not plant hands while running: the arms pump like a sprint instead of falling into crawl IK.
-      arm(rig, s, -18 - sway * s * (48 + runDrive * 16), 12 + runDrive * 6, -sway * 9, 48 + sway * s * 22 + runDrive * 18);
-      hand(rig, s, 20);
-    } else {
-      // Crawl hands reach and plant in alternating rhythm, keeping the body low and close to the wall.
-      _contact.set(s * (.36 + lift * .035) + dx * travel * .46, .56 + dy * travel * .46, gap - .018 - lift * .14);
-      plantLimb(rig, s, true, _contact, _pole.set(s * .8, -.1, -1));
-    }
-    // Each foot plants opposite its arm, giving the body two diagonal supports during a reach.
-    const footCycle = (cycle + .5) % 1, footReach = smooth((footCycle - hold) / (1 - hold));
+    // Hands peel away, arc outward, then settle flat. Offset compensation keeps contact on the wall.
+    _contact.set(s * (.34 + lift * .07) + dx * travel * .54, .51 + dy * travel * .54, gap - .018 - lift * .16).sub(rig.poseOffset);
+    plantLimb(rig, s, true, _contact, _pole.set(s * (.75 + lift * .12), -.16, -1));
+    const footCycle = (cycle + .42) % 1, footReach = smooth((footCycle - hold) / (1 - hold));
     const footTravel = (footCycle < hold ? .5 - footCycle / hold : -.5 + footReach) * moving;
     const footLift = footCycle < hold ? 0 : sin(footReach * PI) * moving;
-    _contact.set(s * (running ? .18 : .3) + dx * footTravel * (running ? .6 : .46), (running ? -.43 : -.36) + dy * footTravel * (running ? .6 : .46), gap - .02 - footLift * (running ? .27 + runDrive * .12 : .13));
-    plantLimb(rig, s, false, _contact, _pole.set(s * (running ? .3 : .9), .1, -1));
+    _contact.set(s * (.32 + footLift * .065) + dx * footTravel * .5, -.36 + dy * footTravel * .5, gap - .02 - footLift * .17).sub(rig.poseOffset);
+    plantLimb(rig, s, false, _contact, _pole.set(s * .95, .15 + footLift * .16, -1));
   }
-  return a.stateT < .2 ? 28 : running ? 24 : 22;
+  return a.stateT < .2 ? 24 : 16;
 }
 
 function poseAir(rig, a) {
