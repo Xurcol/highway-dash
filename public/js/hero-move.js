@@ -60,7 +60,7 @@ export class HeroBody {
     this.wallMode = "crawl"; this.wallT = 0; this.ceiling = false; this.lastSide = 1; this.noWebT = 0;
     this.launchWindow = 0; this.perchAt = null; this.jumpBuf = 0; this.grounded = false; this.skim = 0;
     this.speed = 0; this.height = 0; this.fallStart = y; this.lastWall = null; this.wallCool = 0; this.combatLock = 0;
-    this.webCool = 0; this.chainCool = 0; this.releaseT = Infinity; this.releaseQuality = 0;
+    this.webCool = 0; this.chainCool = 0; this.releaseT = Infinity; this.releaseQuality = 0; this.releaseStyle = 0;
     this.turnRate = 0; this.impactVy = 0; this.cor = null; this.corT = 0;
     this.clearanceT = 0; this.swingFloor = 0; this.swingDrive = 0; this.swingTension = 0;
     this.wallSolid = null; this.wallGap = TUNE.r + .02;
@@ -777,6 +777,8 @@ export class HeroBody {
     if (after > limit) this.v.multiplyScalar(limit / after);
     this.chainCool = jump ? .28 : slack ? .1 : .12;
     this.releaseT = 0; this.releaseQuality = quality;
+    // Pick once per release, excluding the previous pose; never randomize each frame.
+    this.releaseStyle = (this.releaseStyle + 1 + Math.floor(Math.random() * 5)) % 6;
     this.swingDrive = this.swingTension = 0;
     this.ev("letgo", { quality, jump, speed: this.v.length() });
     // The next physical line leaves during the handoff, rather than waiting for the whole arc to fall.

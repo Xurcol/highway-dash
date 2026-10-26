@@ -5,7 +5,7 @@ const KEY = "arc_profile", ACCTS = "arc_accounts", ACTIVE = "arc_active", KEEP =
 const DEFAULTS = {
   name: "", coins: 500, sv: 0,
   hero: { suit: "arcline", owned: ["arcline"], xp: 0, level: 1, best: 0, score: 0, skills: {}, points: 0 },
-  settings: { graphics: "medium", hour: 17.5, flow: false, sky: "Natural", weather: "Clear", volMaster: .8, volFx: .8, volWind: .3, ambience: .65, hideNames: false },
+  settings: { fpsLimit: "0", graphics: "medium", hour: 17.5, flow: false, sky: "Natural", weather: "Clear", volMaster: .8, volFx: .8, volWind: .3, ambience: .65, hideNames: false },
 };
 const cookie = {
   get() { try { const m = document.cookie.match(/(?:^|; )arc_save=([^;]*)/); return m ? JSON.parse(decodeURIComponent(m[1])) : null; } catch { return null; } },

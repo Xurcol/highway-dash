@@ -662,7 +662,7 @@ export class HeroMode {
     a.sling = H.sling ? H.sling.charge : null; a.swingStyle = this.swingStyle;
     a.turn = clamp(H.turnRate || 0, -1, 1);
     a.combat = this.inCombat;
-    a.releaseT = H.releaseT; a.releaseQuality = H.releaseQuality;
+    a.releaseT = H.releaseT; a.releaseQuality = H.releaseQuality; a.releaseStyle = H.releaseStyle;
     if (H.state === "wall") {
       const wallMove = a.wallMove || (a.wallMove = { x: 0, y: 0 });
       _t.copy(H.v).applyQuaternion(_qi.copy(rig.group.quaternion).invert());
@@ -793,7 +793,7 @@ export class HeroMode {
         }
         case "windin": this.sfx("glide"); this.tricks.link(e.kind === "tunnel" ? "wind" : "updraft"); break;
         case "attach": {
-          this.swingStyle = (this.swingStyle + 1 + (Math.random() < .4 ? 1 : 0)) % 3;
+          this.swingStyle = (this.swingStyle + 1 + Math.floor(Math.random() * 4)) % 5;
           const w = H.webs[H.webs.length - 1];
           if (w) { fx.puff(w.a.x, w.a.y, w.a.z, 10, w.n.x, w.n.y, w.n.z); fx.sparks(w.a.x, w.a.y, w.a.z, 8, [1, .65, 1], .55); this.rings.spawn(w.a.x, w.a.y, w.a.z, 1.8, 0xffffff, .28, w.n); }
           this.sfx("attach"); break;

@@ -54,7 +54,7 @@ function sanitizeHero(h) {
   return {
     st: num(h.st, 0, 20) | 0, vy: num(h.vy, -150, 150), ph: num(h.ph, -1e7, 1e7), fl: num(h.fl, 0, 1 << 20) | 0, sw: num(h.sw, -1, 1) | 0,
     q: arr(h.q, 4, -1, 1), zp: arr(h.zp, 3, -6000, 6000), at: arr(h.at, 4, -100, 100), tr: arr(h.tr, 14, -1000, 1000),
-    an: arr(h.an, 10, -1000, 1000),
+    an: arr(h.an, 12, -1000, 1000),
     wb: Array.isArray(h.wb) ? h.wb.slice(0, 2).map((w) => arr(w, 13, -6000, 6000) || []) : undefined,
     em: num(h.em, 0, 16) | 0, su: cleanText(h.su, 12), hp: num(h.hp, 0, 1), cb: num(h.cb, 0, 1e9) | 0, sy: num(h.sy, 0, 1e12), lv: num(h.lv, 0, 999) | 0,
     rc: arr(h.rc, 3, -1, 1e6),

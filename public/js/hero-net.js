@@ -59,7 +59,7 @@ export class HeroNet {
         st: Math.max(0, ST_NAMES.indexOf(H.state)), vy: r2(H.v.y), ph: r2(h.anim.phase % 1e6), fl, sw: (H.webs[0]?.side || H.lastSide) > 0 ? 1 : -1,
         q: [r3(q.x), r3(q.y), r3(q.z), r3(q.w)],
         wn: H.state === "wall" ? [r3(H.n.x), r3(H.n.y), r3(H.n.z)] : undefined,
-        an: [r2(H.stateT), r2(H.airT), r2(h.anim.heightAbove ?? 30), r2(h.anim.swingT || 0), r2(h.anim.swingPhase || 0), r2(h.anim.catch || 0), r2(h.anim.load || 0), r2(Math.min(2, H.releaseT)), H.releaseQuality || 0, r2(Math.min(9, H.landT))],
+        an: [r2(H.stateT), r2(H.airT), r2(h.anim.heightAbove ?? 30), r2(h.anim.swingT || 0), r2(h.anim.swingPhase || 0), r2(h.anim.catch || 0), r2(h.anim.load || 0), r2(Math.min(2, H.releaseT)), H.releaseQuality || 0, r2(Math.min(9, H.landT)), H.releaseStyle || 0, h.swingStyle || 0],
         wb: wb.length ? wb : undefined, zp: H.state === "zip" && H.zip ? [r2(H.zip.x), r2(H.zip.y), r2(H.zip.z)] : undefined,
         tr: packTrick(tr),
         at: at ? [ATKS.indexOf(at.kind), r2(at.k || 0), at.side || 1, at.kind === "emote" ? at.id : at.n || 0] : undefined,
@@ -147,6 +147,7 @@ export class HeroNet {
     a.t += dt; a.phase = H.ph ?? a.phase;
     a.dt = dt; a.stateT = H.an?.[0] ?? 0; a.airT = H.an?.[1] ?? 0; a.heightAbove = H.an?.[2] ?? 30;
     a.swingT = H.an?.[3] ?? 1; a.catch = H.an?.[5] ?? 0; a.load = H.an?.[6] ?? 0;
+    a.releaseStyle = H.an?.[10] ?? 0; a.swingStyle = H.an?.[11] ?? 0;
     a.releaseT = H.an?.[7] ?? 2; a.releaseQuality = H.an?.[8] ?? 0; a.ceiling = !!(fl & F.ceiling); a.wallDistance = .44;
     Object.assign(a, { state: st, speed: Math.hypot(hs, s.vy), hs, vy: s.vy, slide: fl & F.slide ? .5 : 0, roll: fl & F.roll ? .3 : 0, hard: fl & F.hard ? .2 : 0, landT: 9, crouch: !!(fl & F.crouch), dive: !!(fl & F.dive), glide: !!(fl & F.glide), wallMode: fl & F.wallrun ? "run" : "crawl", move: null, trick: null, attack: null, anchorLocal: null, anchor2Local: null, swingSide: H.sw || 1, shootLocal: null, swingPhase: 0, dash: fl & F.dash ? 1 : 0 });
     a.swingPhase = H.an?.[4] ?? 0;

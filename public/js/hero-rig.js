@@ -539,16 +539,41 @@ function poseAir(rig, a) {
   arm(rig, s, 18 + rise * 42 + apex * 14 - fall * 12 + brace * 42 + drift - freefall * 28, 28 + apex * 20 + fall * 34 - brace * 20 + freefall * 58, 0, 30 + rise * 15 + brace * 20 + freefall * 18);
   arm(rig, -s, 7 + rise * 20 + apex * 9 - fall * 8 + brace * 38 - drift - freefall * 20, 39 + apex * 15 + fall * 24 - brace * 18 + freefall * 50, 0, 35 + rise * 12 + brace * 20 - freefall * 14);
   hand(rig, s, 8 + brace * 25 + freefall * 12); hand(rig, -s, 8 + brace * 25 + freefall * 12);
-  if (a.releaseT >= 0 && a.releaseT < .54) {
+  if (a.releaseT >= 0 && a.releaseT < .8) {
     saveBasePose(rig);
-    const k = cl(a.releaseT / .54, 0, 1), open = sin(k * PI), quality = cl(a.releaseQuality || 0, 0, 2);
+    const k = cl(a.releaseT / .8, 0, 1), open = sin(k * PI), quality = cl(a.releaseQuality || 0, 0, 2);
     torso(rig, -12 + open * 18, -s * open * 18, -turn * 12, -8); headP(rig, -18 + open * 11, turn * 20);
     arm(rig, s, 150 - k * 110, 18 + open * 34, 0, 9 + k * 36);
     arm(rig, -s, -20 + k * 45, 50 + open * 26, 0, 19 + open * 20);
     leg(rig, s, 42 + open * (25 + quality * 6), 10, 64 + open * 37, -17);
     leg(rig, -s, -23 + k * 42, 17, 22 + k * 24, 17);
     hand(rig, s, 0); hand(rig, -s, 5);
-    blendBasePose(rig, 1 - smooth((a.releaseT - .14) / .4));
+    // Distinct silhouettes: web-hand follow-through, star, tuck, scissor, archer and corkscrew lean.
+    switch (a.releaseStyle || 0) {
+      case 1:
+        torso(rig, -18 + open * 12, s * 12, s * open * 15, -10);
+        arm(rig, s, 35, 85 + open * 20, 0, 12); arm(rig, -s, 10, 95, 0, 8);
+        leg(rig, s, 20, 32 + open * 15, 22, -12); leg(rig, -s, -18, 36, 18, 15); break;
+      case 2:
+        torso(rig, 20 + open * 24, -s * 15, 0, 12); headP(rig, -24, 0);
+        leg(rig, s, 85 + open * 18, 15, 125, -20); leg(rig, -s, 70 + open * 20, 22, 115, -20);
+        arm(rig, s, 55, 32, 0, 95); arm(rig, -s, 40, 40, 0, 100); break;
+      case 3:
+        torso(rig, 8, s * 30 * open, -s * 14, -12);
+        leg(rig, s, 65 - k * 90, 10, 22 + k * 70, -15); leg(rig, -s, -35 + k * 95, 18, 90 - k * 65, 15);
+        arm(rig, s, -35 + k * 90, 35, 0, 65); arm(rig, -s, 75 - k * 110, 25, 0, 45); break;
+      case 4:
+        torso(rig, -15, -s * 35 * open, s * 16, -12);
+        arm(rig, s, 125 - k * 70, 30, 0, 12); arm(rig, -s, -45, 35, -25, 80);
+        leg(rig, s, 70, 12, 110, -18); leg(rig, -s, -25, 22, 18, 20); break;
+      case 5:
+        torso(rig, 15, s * open * 55, -s * open * 32, -8, s * open * 20);
+        headP(rig, -15, -s * open * 30, s * 12);
+        arm(rig, s, 100 - k * 90, 65, 0, 30); arm(rig, -s, -25, 70, 0, 50);
+        leg(rig, s, 65, 24, 95, -15); leg(rig, -s, -22, 12, 45, 20); break;
+    }
+    // Fade in and out; landing, tricks, wall contact and the next catch retain priority.
+    blendBasePose(rig, smooth(a.releaseT / .09) * (1 - smooth((a.releaseT - .38) / .42)));
   }
   if (a.dash > 0) {
     torso(rig, 32, -s * 9, -turn * 12, 11); headP(rig, -22, turn * 15);
@@ -721,7 +746,7 @@ export function poseBody(rig, a) {
     const flutter = sin(t * 11) * fast * 4, whip = load * load * s * 10;
     torso(rig, -8 - kick * 19, s * (8 + load * 8), -bank, -8 - kick * 7, -s * 6 + whip);
     headP(rig, -12 + kick * 10, turn * 22 - whip * .5, bank * .4);
-    // three ways through a swing, picked per line so a long run never repeats one silhouette
+    // Five silhouettes, selected once per line.
     const style = a.swingStyle || 0;
     if (style === 1) {
       // legs together and long, the free arm thrown wide
@@ -732,6 +757,14 @@ export function poseBody(rig, a) {
       const sc = sin((a.swingPhase || 0) * PI) * 26;
       leg(rig, s, 36 + kick * 46 + sc, 9, 64 + load * 34, -14);
       leg(rig, -s, -6 + kick * 30 - sc, 15, 26 + load * 40, 4);
+    } else if (style === 3) {
+      torso(rig, -15 - kick * 22, s * 22, -bank - s * 10, -12);
+      leg(rig, s, 65 + kick * 20, 18, 105 + load * 20, -22);
+      leg(rig, -s, 55 + kick * 30, 24, 95 + load * 20, -18);
+    } else if (style === 4) {
+      torso(rig, -8 - kick * 18, -s * 22, -bank + s * 12, -8);
+      leg(rig, s, 55 + kick * 35, 24, 85, -18);
+      leg(rig, -s, -30 + kick * 35, 14, 15 + load * 20, 18);
     } else {
       leg(rig, s, 30 + kick * 50 + flutter, 8 + turn * s * 4, 30 + load * (45 + fast * 12), -18 + flutter);
       leg(rig, -s, 8 + kick * 34 - flutter, 15 - turn * s * 4, 48 + load * 34 - flutter * 1.5, -7);
@@ -741,6 +774,8 @@ export function poseBody(rig, a) {
     if (a.anchor2Local) aimArm(rig, -s, a.anchor2Local, 8);
     else if (style === 1) { arm(rig, -s, -6 + kick * 20, 84 + fast * 8, 0, 12); hand(rig, -s, 0, -10); }
     else if (style === 2) { arm(rig, -s, 30 + kick * 40, 30, 0, 40 + load * 30); hand(rig, -s, 30); }
+    else if (style === 3) { arm(rig, -s, 45, 38, 0, 100); hand(rig, -s, 20); }
+    else if (style === 4) { arm(rig, -s, -40 + kick * 20, 70, 0, 18); hand(rig, -s, 0); }
     else { arm(rig, -s, -24 + kick * 35, 45 + fast * 16 - turn * s * 12, 0, 28 + load * 20); hand(rig, -s, 12); }
     rate = 13;
   } else if (st === "zip") {

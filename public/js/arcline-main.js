@@ -15,6 +15,7 @@ import { UnrealBloomPass } from "three/addons/postprocessing/UnrealBloomPass.js"
 import { ShaderPass } from "three/addons/postprocessing/ShaderPass.js";
 import { OutputPass } from "three/addons/postprocessing/OutputPass.js";
 
+const FPS_CAPS = [30, 60, 90, 120, 144, 165, 240];
 const QUALITY = {
   low: { dpr: .85, lamps: 8, traffic: 20, shadows: false, shadowSize: 512, reflections: 32, view: .8 },
   medium: { dpr: 1.25, lamps: 12, traffic: 32, shadows: false, shadowSize: 1024, reflections: 48, view: 1 },
@@ -203,19 +204,27 @@ export async function bootArcline() {
   renderer.domElement.addEventListener("webglcontextlost", event => { event.preventDefault(); pause(true); ui.toast("Graphics paused. Reload the page to recover.", [], "warn"); });
 
   let lastFrame = performance.now();
-  let fpsFrames = 0, fpsElapsed = 0;
+  let fpsFrames = 0, fpsElapsed = 0, measuredFps = 0, nextFrame = 0, previousCap = -1;
   function frame(now) {
     requestAnimationFrame(frame);
-    if (document.hidden) { lastFrame = now; fpsFrames = 0; fpsElapsed = 0; return; }
-    // The city is capped at 60 rendered frames; faster displays no longer render the same world hundreds of times.
-    if (now - lastFrame < 1000 / 60 - .5) return;
+    if (document.hidden) { lastFrame = now; nextFrame = 0; fpsFrames = 0; fpsElapsed = 0; return; }
+    // Keep a separate render deadline: discarded fractions otherwise lower the effective cap.
+    const cap = FPS_CAPS.includes(Number(P.settings.fpsLimit)) ? Number(P.settings.fpsLimit) : 0;
+    if (cap !== previousCap) { nextFrame = now; previousCap = cap; }
+    if (cap) {
+      const interval = 1000 / cap;
+      if (now + .25 < nextFrame) return;
+      nextFrame += interval;
+      if (nextFrame <= now) nextFrame += (Math.floor((now - nextFrame) / interval) + 1) * interval;
+    }
     const elapsed = Math.max(.001, (now - lastFrame) / 1000);
     const dt = Math.min(.05, elapsed); lastFrame = now;
     // Count rendered frames with real elapsed time, not the capped physics timestep.
     if (active) {
       fpsFrames++; fpsElapsed += elapsed;
       if (fpsElapsed >= .5) {
-        hero.hud.set("hhFps", `${Math.round(fpsFrames / fpsElapsed)} FPS`);
+        measuredFps = Math.round(fpsFrames / fpsElapsed);
+        hero.hud.set("hhFps", `${measuredFps} FPS · ${cap ? "CAP " + cap : "UNCAPPED"}`);
         fpsFrames = 0; fpsElapsed = 0;
       }
     } else { fpsFrames = 0; fpsElapsed = 0; }
@@ -252,9 +261,11 @@ export async function bootArcline() {
       }
       if (lifeT >= 1) {
         lifeT = 0; ui.renderStatus(); if (!document.getElementById("arcPlayers").hidden) ui.renderPlayers();
-        document.getElementById("arcPerf").textContent = `${Math.round(1 / avgDt)} FPS · ${P.settings.graphics || "medium"}`;
+        document.getElementById("arcPerf").textContent = `${measuredFps} FPS · ${P.settings.graphics || "medium"}`;
       }
-      avgDt += (dt - avgDt) * .04; adaptiveT += dt;
+      // A deliberate low cap must not trigger automatic quality reductions.
+      const budget = Math.max(1 / 60, cap ? 1 / cap : 0);
+      avgDt += (elapsed * ((1 / 60) / budget) - avgDt) * .04; adaptiveT += dt;
       if (adaptiveT > 2 && !paused) {
         adaptiveT = 0; const next = avgDt > .03 ? Math.max(.6, scale - .14) : avgDt > .024 ? Math.max(.6, scale - .08) : avgDt < .018 ? Math.min(1, scale + .025) : scale;
         if (next !== scale) { scale = next; resize(); }
