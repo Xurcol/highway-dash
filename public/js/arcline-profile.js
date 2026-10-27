@@ -73,6 +73,15 @@ export async function login(name, pass, keep) {
   store.set(KEEP, !!keep);
   return a.name;
 }
+// A separate local save slot keeps guest progress away from account saves.
+export function playGuest(name) {
+  name = String(name || "").trim();
+  if (!/^[A-Za-z0-9_. -]{1,16}$/.test(name) || !/[A-Za-z0-9]/.test(name)) throw new Error("Name: 1 to 16 letters, numbers, spaces, _ . or -");
+  useSave("@guest", name, store.get("arc_save:@guest", null));
+  store.set(KEEP, false);
+  return name;
+}
+export const lastGuestName = () => store.get("arc_save:@guest", null)?.name || "";
 export function resume() {
   const a = keptAccount();
   if (!a) return null;

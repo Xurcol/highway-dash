@@ -62,6 +62,12 @@
           <p class="auth-msg" id="authMsg" role="alert"></p>
           <button class="btn accent xl" id="authGo" type="submit">Sign in</button>
         </form>
+        <form id="authGuestForm" class="arc-guest-form" novalidate>
+          <label class="field" for="authGuestName"><span>Guest name</span><input type="text" id="authGuestName" autocomplete="nickname" maxlength="16" spellcheck="false" required placeholder="Enter your name"></label>
+          <p id="authGuestMsg" class="auth-msg" role="alert"></p>
+          <button id="authGuestGo" class="btn xl" type="submit">Play as guest</button>
+          <p class="arc-help">No password needed. Guest progress stays in a separate save in this browser.</p>
+        </form>
         <p class="arc-save-note"><svg class="ic" aria-hidden="true"><use href="#i-lock"/></svg>Your account and hero progress are saved in this browser. Use this device to keep your progress.</p>
       </div>
     </div>

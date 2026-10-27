@@ -289,7 +289,7 @@ export async function bootArcline() {
     renderFrame();
   }
   requestAnimationFrame(frame);
-  ui.loading("ARCLINE ONLINE", "Sign in to join New Meridian.");
+  ui.loading("ARCLINE ONLINE", "Sign in or enter a guest name to join New Meridian.");
   await signIn();
   const savedSuit = P.hero?.suit || "arcline"; hero.suitId = "arcline"; hero.setSuit(savedSuit);
   applySettings(); net.connect(P.name, "hero"); ui.loaded(); ui.open("home");
