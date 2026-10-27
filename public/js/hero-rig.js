@@ -146,6 +146,7 @@ function bodyGeometry() {
 // ------------------------------------------------------------------ suits
 // Colours are linear-ish hex; style picks the pattern.
 export const SUITS = {
+  flash: { name: "The Flash", base: 0xa91d29, accent: 0xf5bd27, dark: 0x640e18, glow: 0xffc52c, lens: 0xfff5d0, style: 1, price: 0 },
   arcline: { name: "Arcline", base: 0x1b1f27, accent: 0x18d6ff, dark: 0x0c0e12, glow: 0x5be7ff, lens: 0xe9fbff, style: 0, price: 0 },
   crimson: { name: "Crimson Line", base: 0x8e1522, accent: 0x111216, dark: 0x0b0b0e, glow: 0xff5a3c, lens: 0xfff2d8, style: 1, price: 2500 },
   stealth: { name: "Nightshade", base: 0x0d0e12, accent: 0x2a2440, dark: 0x050507, glow: 0x9b6bff, lens: 0xc7b3ff, style: 2, price: 4000 },
@@ -169,7 +170,7 @@ function suitMaterial() {
   const m = new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: .5, metalness: .1 });
   const U = m.userData.u = {
     uBase: { value: new THREE.Color() }, uAccent: { value: new THREE.Color() }, uDark: { value: new THREE.Color() },
-    uGlow: { value: new THREE.Color() }, uLens: { value: new THREE.Color() }, uStyle: { value: 0 }, uGlowAmt: { value: 1 },
+    uGlow: { value: new THREE.Color() }, uLens: { value: new THREE.Color() }, uStyle: { value: 0 }, uSpeedster: { value: 0 }, uGlowAmt: { value: 1 },
     uShoot: { value: new THREE.Vector2() }, uHit: { value: 0 }, uTime: { value: 0 }, uSquint: { value: 0 },
   };
   const extra = (shader) => {
@@ -180,7 +181,7 @@ function suitMaterial() {
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", `#include <common>
         varying vec4 vSuit; varying vec3 vLocal;
-        uniform vec3 uBase, uAccent, uDark, uGlow, uLens; uniform float uStyle, uGlowAmt, uHit, uTime, uSquint; uniform vec2 uShoot;
+        uniform vec3 uBase, uAccent, uDark, uGlow, uLens; uniform float uStyle, uSpeedster, uGlowAmt, uHit, uTime, uSquint; uniform vec2 uShoot;
         float gEm; float gRough; float gMetal; float gHero; float gBump;
         float band(float x, float c, float w) { return 1. - smoothstep(w * .5, w * .5 + .012, abs(x - c)); }`)
       .replace("#include <color_fragment>", `#include <color_fragment>
@@ -225,6 +226,12 @@ function suitMaterial() {
                 float bar = abs(e.y + .2) < .022 && abs(e.x) < .2 ? 1. : 0.;
                 float em = max(arc, bar);
                 if (st == 1.) em = max(em, abs(e.x) < .025 && e.y > -.3 && e.y < .25 ? 1. : 0.);
+                if (uSpeedster > .5) {
+                  float disc = 1. - smoothstep(.215,.225,length(e));
+                  float boltX = e.y > .025 ? e.y * .55 - .045 : e.y * .55 + .045;
+                  em = (1. - smoothstep(.033,.043,abs(e.x - boltX))) * step(abs(e.y),.25);
+                  col = mix(col,vec3(.92,.91,.85),disc);
+                }
                 col = mix(col, uGlow, em); gEm += em * (1.35 + .1 * sin(uTime * 2.4));
                 // collar line
                 gEm += band(v, .93, .02) * .5;
@@ -320,7 +327,7 @@ export class HeroRig {
   setLook(s) {
     const U = this.mat.userData.u;
     U.uBase.value.setHex(s.base); U.uAccent.value.setHex(s.accent); U.uDark.value.setHex(s.dark);
-    U.uGlow.value.setHex(s.glow); U.uLens.value.setHex(s.lens); U.uStyle.value = s.style;
+    U.uGlow.value.setHex(s.glow); U.uLens.value.setHex(s.lens); U.uStyle.value = s.style; U.uSpeedster.value = s.name === "The Flash" ? 1 : 0;
     this.look = s;
   }
   dispose() { this.mat.dispose(); }

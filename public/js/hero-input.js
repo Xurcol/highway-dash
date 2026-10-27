@@ -2,6 +2,9 @@
 // read into one frame-sized snapshot - held buttons, presses and releases since the last frame, mouse
 // travel - and the move keys are turned into a direction on the ground relative to the camera.
 export const HERO_KEYS = [
+  ["N", "Switch ARCLINE / The Flash", "Keyboard shortcut"],
+  ["Flash: Shift / C", "Super-speed / speed burst", "Keyboard"],
+  ["Flash: F / Q / E / X", "Lightning / tornado / phase step / Speed Time", "Keyboard"],
   ["W A S D / arrows", "Move", "Left stick"],
   ["Mouse", "Camera", "Right stick"],
   ["Space", "Jump · wall jump · swing launch · airborne forward zip", "Cross / A"],
@@ -135,7 +138,7 @@ export class HeroInput {
     const emoteHeld = this.held("KeyB");
     const inp = {
       mx: fx * iy + rx * ix, mz: fz * iy + rz * ix, ix, iy,
-      look, camPos, viewToggle: this.pressed("KeyP"),
+      look, camPos, heroSwitch: this.pressed("KeyN"), viewToggle: this.pressed("KeyP"),
       jump: this.pressed("Space") || pdn(0), jumpHeld: this.held("Space") || !!pb[0],
       sprint: this.held("ShiftLeft", "AltLeft", "AltRight") || !!pb[10],
       swing: this.held("ShiftLeft", "ShiftRight") || b(4) || (pad ? pad.rt > .35 : false),

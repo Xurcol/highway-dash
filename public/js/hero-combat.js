@@ -296,7 +296,7 @@ export class HeroCombat {
       if (this.downT <= 0 && this.alive(e) && this.visible(e)) this.applyHit(e, h.hit);
     }
     if (!a) return;
-    a.t += dt;
+    a.t += dt * (this.hero.flash?.on && ["jab", "cross", "hook", "uppercut", "kick", "roundhouse", "air"].includes(a.kind) ? 1.6 : 1);
     const tg = a.target ? this.byId(a.target) : null;
     // the lunge: close the gap to the target over the first part of the move
     if (a.lunge && tg && this.alive(tg) && a.t < (a.hitAt ?? .2)) {
@@ -364,6 +364,7 @@ export class HeroCombat {
   // send a hit where the enemy simulation is (and show it here straight away)
   applyHit(e, h) {
     h.from = this.hero.meId();
+    if (this.hero.flash?.on && h.dmg && h.kind !== "lightning" && h.kind !== "slam") h.dmg *= 1.35;
     e.flash = 1;
     this.hero.hitEnemy(e.id, h);
   }
@@ -559,6 +560,7 @@ export class HeroCombat {
   takeHit(dmg, kx, kz, heavy, kind, fromId) {
     const H = this.H;
     if (this.downT > 0) return "down";
+    if (this.hero.flash?.on && this.hero.flash.phase > 0) return "dodged";
     if (this.hurtGrace > 0 || this.action?.kind === "finisher") return "dodged";
     if (this.parryT > 0 && kind !== "shot") { this.parried(kx, kz, fromId); return "dodged"; }
     // dodging through it

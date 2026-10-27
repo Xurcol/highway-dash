@@ -341,3 +341,10 @@ body.arc-game-menu #hud,body.arc-game-menu #arcBar,body.arc-game-menu #arcChat{v
 .arc-menu[data-session=game] .arc-start-label{display:block!important}
 .arc-menu[data-session=game] .arc-nav>.arc-signout{margin:12px 0 0}
 @media(max-width:680px){.arc-menu[data-session=game] .arc-shell{grid-template-columns:1fr;gap:8px}.arc-app .arc-menu[data-session=game]{padding:12px}.arc-menu[data-session=game] .arc-menu-wrap{max-height:calc(100dvh - 24px);padding:18px}}
+
+.flash-mode .hh-vitals{border-left-color:#ffc52c}
+.flash-mode .hh-identity{border-left-color:#ffc52c}
+.flash-mode .hh-gadgets{flex-wrap:wrap}
+.flash-mode .hh-gadgets small{display:block;font-size:8px;color:#ffe6a2;margin-top:3px}
+.flash-mode .hh-traversal{max-width:min(820px,90vw);white-space:normal;text-align:center;border-left-color:#ffc52c}
+.flash-mode .hh-abilities .ready{border-color:#ffc52c;color:#ffe195}

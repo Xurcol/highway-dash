@@ -90,6 +90,7 @@ export async function bootArcline() {
   hero.ctx.renderFrame = renderFrame;
   function applySettings(key) {
     const settings = P.settings;
+    if (key === "heroMode") hero.flash?.set(settings.heroMode === "flash");
     if (!key || key === "graphics" || key === "noPost") {
       quality = QUALITY[settings.graphics] || QUALITY.medium;
       city.setDetail(quality.city || settings.graphics || "medium"); setLampBudget(quality.lamps);

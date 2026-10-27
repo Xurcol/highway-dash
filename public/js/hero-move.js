@@ -146,7 +146,10 @@ export class HeroBody {
     if (C.length < 8) C.push({ nx: c.nx, ny: c.ny, nz: c.nz, s: c.s, vn });
   }
   feet() { return this.p.y - TUNE.hip; }
-  floorBelow(reach = TUNE.stepUp) { return this.W.groundUnder(this.p.x, this.feet(), this.p.z, .22, reach); }
+  floorBelow(reach = TUNE.stepUp) {
+    const floor = this.W.groundUnder(this.p.x, this.feet(), this.p.z, .22, reach);
+    return this.speedster && Math.hypot(this.v.x,this.v.z)>18 ? Math.max(floor,this.W.waterAt(this.p.x,this.p.z)) : floor;
+  }
   // The floor to land on: the highest top that the feet are at or have passed this frame. Falling
   // fast, the feet can go through a roof's top between two checks; measuring from where they were
   // at the start of the frame still finds it.
@@ -198,10 +201,10 @@ export class HeroBody {
       if (!inp.crouch && this.slideT < .55 || hs < 3.5) this.slideT = 0;
       this.turnFace(this.v.x, this.v.z, 8, dt);
     } else {
-      const target = m < .1 ? 0 : inp.crouch ? T.walk * .8 : sprinting ? T.sprint + (T.sprintMax - T.sprint) * Math.min(1, this.sprintT / T.sprintRamp) : T.run;
+      const target = m < .1 ? 0 : inp.crouch ? T.walk * .8 : this.speedster ? (sprinting ? (this.speedBurst > 0 ? 78 : 52) : 12) : sprinting ? T.sprint + (T.sprintMax - T.sprint) * Math.min(1, this.sprintT / T.sprintRamp) : T.run;
       let ax = md.x * target - this.v.x, az = md.z * target - this.v.z;
       const aL = Math.hypot(ax, az), braking = target < hs - .5 || (hs > 6 && md.x * this.v.x + md.z * this.v.z < 0);
-      const lim = (braking ? T.brake : T.accel) * (this.hardT > 0 ? .25 : 1) * dt;
+      const lim = (braking ? T.brake : T.accel) * (this.speedster ? 3.5 : 1) * (this.hardT > 0 ? .25 : 1) * dt;
       if (aL > lim) { ax *= lim / aL; az *= lim / aL; }
       this.v.x += ax; this.v.z += az;
       if (m > .1) this.turnFace(md.x, md.z, hs > 12 ? 7 : 13, dt);
@@ -971,7 +974,7 @@ export class HeroBody {
       inU = Number.isFinite(inp.iy) ? inp.iy : -(md.x * n.x + md.z * n.z);
     }
     const il = Math.hypot(inR, inU);
-    const spd = (run ? T.wallRun : T.wallCrawl) * Math.min(1, m);
+    const spd = (run ? (this.speedster ? 30 : T.wallRun) : T.wallCrawl) * Math.min(1, m);
     const tR = il > .05 ? inR / il * spd : 0, tU = il > .05 ? inU / il * spd : 0;
     const want = _e.set(rx * tR + ux * tU, ry * tR + uy * tU, rz * tR + uz * tU);
     // keep the momentum we arrived with while running, settle to the stick's speed
@@ -1113,6 +1116,9 @@ export class HeroBody {
   // ------------------------------------------------------------------ water
   checkWater() {
     const wy = this.W.waterAt(this.p.x, this.p.z);
+    if (this.speedster && wy > -Infinity && Math.hypot(this.v.x,this.v.z)>18 && this.feet()<=wy+.2 && this.v.y<=0) {
+      this.p.y=wy+TUNE.hip; this.v.y=0; this.setState("ground"); this.grounded=true; return;
+    }
     if (wy > -Infinity && this.p.y < wy + .3 && this.state !== "water") { this.webs.length = 0; this.setState("water"); this.v.multiplyScalar(.3); this.ev("splash", { y: wy }); }
   }
   water(dt, inp) {

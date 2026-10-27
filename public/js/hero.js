@@ -7,6 +7,7 @@ import * as THREE from "three";
 import { HeroWorld } from "./hero-world.js";
 import { HeroBody, TUNE } from "./hero-move.js";
 import { HeroRig, SUITS, poseBody, EMOTES, HIP_H } from "./hero-rig.js";
+import { FlashMode } from "./hero-flash.js";
 import { HeroCam } from "./hero-cam.js";
 import { HeroInput } from "./hero-input.js";
 import { Tricks } from "./hero-tricks.js";
@@ -67,6 +68,7 @@ export class HeroMode {
     this.enemyView = new EnemyView(scene);
     this.tracers = new Tracers(scene);
     this.combat = new HeroCombat(this);
+    this.flash = new FlashMode(this);
     this.netx = new HeroNet(this);
     this.activities = new Activities(this);
     this.progress = new Progress(this);
@@ -135,7 +137,7 @@ export class HeroMode {
     this.windView?.setVisible(on); this.caches?.setVisible(on); this.skyLife?.setVisible(on);
     for (const S of this.parts.sets) S.pts.visible = on;
     this.trails.mesh.visible = on;
-    if (!on) { this.speedLines.lines.visible = false; this.webs.begin(this.ctx.camera.position); this.webs.end(0); }
+    if (!on) { if(this.flash) this.flash.mesh.visible = false; document.body.classList.remove("flash-mode"); this.speedLines.lines.visible = false; this.webs.begin(this.ctx.camera.position); this.webs.end(0); }
   }
   enter(opt = {}) {
     this.build();
@@ -168,6 +170,7 @@ export class HeroMode {
     this.hud.show(true);
     const sp = opt.spawn || this.spawnPoint(opt.index || 0);
     this.H.reset(sp.x, sp.y, sp.z);
+    this.flash.set(this.P.settings.heroMode === "flash", true);
     this.tricks.reset(); this.poseClearT = 0; this.anim.state = null;
     this.prevV = null; this.prevHeading = undefined; this.emote = null;
     this.anchorPreview = null; this.zipPreview = null; this.previewT = 0;
@@ -236,6 +239,7 @@ export class HeroMode {
     H.clock = this.clock;
     // ---- input ----
     const look = cam.look, inp = this.input.read(cam.yaw, look, camera.position, real);
+    this.flash.input(dt, inp);
     if (inp.viewToggle) {
       cam.firstPerson = !cam.firstPerson; cam.snapNext = true;
       for (const trail of this.trails.t) trail.ready = false;
@@ -250,7 +254,7 @@ export class HeroMode {
     if ((H.state === "ground" || H.state === "perch") && (inp.sling || H.sling)) {
       inp.jump = inp.swing = inp.swingDown = false;
     }
-    if (!inp.pad && H.state === "air" && inp.jump && H.airT > .15) {
+    if (!this.flash.on && !inp.pad && H.state === "air" && inp.jump && H.airT > .15) {
       inp.airZip = true; inp.jump = false;
     }
     // Spider-Man 2 uses Square + a direction for air tricks.  Keep the keyboard T/F shortcut,
@@ -299,7 +303,7 @@ export class HeroMode {
       if (this.authority()) {
         const pl = this.players();
         // Solo bullet time slows the whole fight; online rooms retain the host's shared world clock.
-        this.sim.step(this.online ? dt : bdt, pl); this.simEvents(this.sim.events);
+        this.sim.step(this.online ? dt : bdt * (this.flash.on && this.flash.time > 0 ? .3 : 1), pl); this.simEvents(this.sim.events);
         this.events.direct(dt, pl); this.events.step(dt, pl);
       }
       this.updateCarry(dt);
@@ -344,6 +348,7 @@ export class HeroMode {
     if (fxDt > 0 && !cam.firstPerson) this.trailsUpdate(fxDt);
     if (fxDt > 0) this.parts.update(fxDt, this.ctx.renderer.domElement.height);
     this.speedLines.update(real, camera.position, H.v);
+    this.flash.effects(dt);
     this.traversalFxT -= real;
     if (this.traversalFxT <= 0 && H.state === "wall" && H.speed > 3) {
       this.traversalFxT = H.wallMode === "run" ? .055 : .12;
@@ -882,7 +887,7 @@ export class HeroMode {
   updateHud(dt, inp) {
     const H = this.H, hud = this.hud, cam = this.ctx.camera;
     if (H.webs.length) this.noteWebs();
-    const preview = this.previewInput, enabled = this.frameDt > 0 && this.input.wantLock;
+    const preview = this.previewInput, enabled = !this.flash.on && this.frameDt > 0 && this.input.wantLock;
     const canSwing = H.state === "air" || H.state === "ground" || H.state === "wall" || H.state === "perch";
     this.anchorAge += dt;
     // Previews are advisory; the real shot still chooses its anchor immediately when the player acts.
@@ -971,6 +976,7 @@ export class HeroMode {
   }
   traversalHint(inp, releaseReady = this.releaseReady()) {
     const H = this.H, cb = this.combat, pad = inp.pad;
+    if (this.flash.on) return this.flash.hint();
     const jump = pad ? "A" : "Space", swing = pad ? "RT" : "Shift", zip = pad ? "LB" : "C";
     if (cb.downT > 0) return "Recovering";
     if (H.sling) return `${pad ? "Release LB + RB" : "Release right mouse or Space"} · Launch (${Math.round(H.sling.charge * 100)}%)`;
@@ -1242,6 +1248,7 @@ export class HeroMode {
     }
   }
   gadgetBar() {
+    if (this.flash.on) return this.flash.bar();
     const cb = this.combat;
     const k = GADGETS.slice(1).map((G, i) => {
       const n = i + 1, c = cb.cool[n], ready = G.id === "shot" ? cb.ammo >= 1 : c <= 0;
@@ -1251,6 +1258,7 @@ export class HeroMode {
     return k;
   }
   abilityBar() {
+    if (this.flash.on) return `<span class="ready"><b>SPEED ENERGY ${Math.floor(this.flash.energy)}%</b><i style="--f:${this.flash.energy / 100}"></i></span>`;
     const cb = this.combat;
     return ABILITIES.slice(1).map((A, i) => {
       const n = i + 1, c = cb.acool[n], fill = 1 - c / (A.cool * (cb.coolK || 1));
