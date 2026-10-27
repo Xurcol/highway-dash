@@ -714,23 +714,24 @@ export function poseBody(rig, a) {
     } else {
       // walk -> run -> sprint: one stride cycle, longer and more bent the faster it goes
       const ph = a.phase, s1 = sin(ph), c1 = cos(ph);
-      const swing = 22 + run * 24 + sprint * 10;
-      const lean = 5 + run * 13 + sprint * 6 + cl(a.accel || 0, -10, 20) * .25;
+      const flash = U.uSpeedster.value * cl((hs - 10) / 45, 0, 1);
+      const swing = 22 + run * 24 + sprint * 10 + flash * 20;
+      const lean = 5 + run * 13 + sprint * 6 + flash * 20 + cl(a.accel || 0, -10, 20) * .25;
       torso(rig, lean, s1 * (4 + run * 4) - turn * 10, -turn * (5 + run * 9), 2 + sprint * 3, -s1 * (3 + run * 4));
       headP(rig, -lean * .8, -s1 * 2 + turn * 14, turn * 4);
       for (let s = -1; s <= 1; s += 2) {
         const p = s > 0 ? ph : ph + PI, sp = sin(p);
         // Fold the trailing shin toward the hip, then extend the leading leg for its next contact.
         const recovery = Math.max(0, -sin(p + .35));
-        const knee = 10 + run * 12 + recovery * (18 + run * 48 + sprint * 12);
-        leg(rig, s, sp * swing + run * 4, 4, knee, -sp * 10 + recovery * 12, 0);
+        const knee = 10 + run * 12 + recovery * (18 + run * 48 + sprint * 12 + flash * 28);
+        leg(rig, s, sp * swing + run * 4 + flash * 8, 4, knee, -sp * 10 + recovery * 12, 0);
         // Opposite arm and leg lead together; keep the elbows tight rather than flaring outward.
-        arm(rig, s, -sp * (24 + run * 20 + sprint * 8), 6 + run * 3, 0, 22 + run * 60 + sprint * 8 + sp * run * 10);
+        arm(rig, s, -sp * (24 + run * 20 + sprint * 8 + flash * 18), 6 + run * 3 - flash * 5, 0, 22 + run * 60 + sprint * 8 + sp * run * 10 + flash * 12);
         hand(rig, s, 40 + run * 40);
       }
       // The hips absorb each footfall; the head stays readable through the stride.
-      if (hero) rig.poseOffset.y = Math.abs(c1) * (.025 + run * .025) - .02;
-      rate = 18;
+      if (hero) rig.poseOffset.y = Math.abs(c1) * (.025 + run * .025 + flash * .025) - .02 - flash * .07;
+      rate = 18 + flash * 18;
     }
   } else if (st === "perch") {
     // crouched on the edge, on the toes, a hand between the feet

@@ -4,9 +4,11 @@ export class FlashMode {
   constructor(hero) {
     this.hero = hero; this.on = false; this.energy = 100; this.burst = 0; this.phase = 0; this.time = 0;
     this.cool = {burst:0, bolt:0, tornado:0, phase:0, time:0};
-    this.positions = new Float32Array(72 * 6); this.history = new Float32Array(25 * 3); this.samples = 0; this.tick = 0;
-    this.geometry = new THREE.BufferGeometry(); this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions,3).setUsage(THREE.DynamicDrawUsage));
-    this.mesh = new THREE.LineSegments(this.geometry,new THREE.LineBasicMaterial({color:0xffae24,transparent:true,opacity:.85,blending:THREE.AdditiveBlending,depthWrite:false}));
+    this.positions = new Float32Array(144 * 6); this.history = new Float32Array(25 * 3); this.samples = 0; this.tick = 0;
+    this.colors = new Float32Array(this.positions.length);
+    this.geometry = new THREE.BufferGeometry();
+    this.geometry.setAttribute("color", new THREE.BufferAttribute(this.colors,3).setUsage(THREE.DynamicDrawUsage)); this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions,3).setUsage(THREE.DynamicDrawUsage));
+    this.mesh = new THREE.LineSegments(this.geometry,new THREE.LineBasicMaterial({color:0xffffff,vertexColors:true,transparent:true,opacity:.95,blending:THREE.AdditiveBlending,depthWrite:false}));
     this.mesh.frustumCulled=false; this.mesh.visible=false; hero.ctx.scene.add(this.mesh);
     this.probe=new THREE.Vector3(); this.result={contacts:[]}; this.hudTime=0;
   }
@@ -70,18 +72,27 @@ export class FlashMode {
     const h=this.hero,H=h.H;
     this.mesh.visible=this.on&&h.on&&!h.cam.firstPerson&&H.speed>12;
     if(!this.mesh.visible){this.samples=0;return;}
-    this.tick+=dt;if(this.tick<.035)return;this.tick=0;
+    this.tick+=dt;if(this.tick<.025)return;this.tick%=.025;
+    // Fixed buffers keep six branching ribbons cheap even at maximum speed.
     if(this.samples&&Math.hypot(this.history[0]-H.p.x,this.history[1]-H.p.y,this.history[2]-H.p.z)>15)this.samples=0;
     this.history.copyWithin(3,0,72);this.history[0]=H.p.x;this.history[1]=H.p.y;this.history[2]=H.p.z;this.samples=Math.min(25,this.samples+1);
+    const speed=Math.min(1,H.speed/85), fx=H.face.x,fz=H.face.z;
     let n=0;
-    for(let strand=0;strand<3;strand++)for(let k=0;k<this.samples-1;k++)for(let end=0;end<2;end++){
-      const j=k+end,seed=Math.sin(j*7.3+strand*13+h.clock*24)*.18;
-      this.positions[n++]=this.history[j*3]+(strand-1)*.25+seed;
-      this.positions[n++]=this.history[j*3+1]+.25+strand*.18+seed;
-      this.positions[n++]=this.history[j*3+2]-seed;
+    for(let strand=0;strand<6;strand++)for(let k=0;k<this.samples-1;k++)for(let end=0;end<2;end++){
+      const j=k+end, fade=Math.pow(1-j/24,1.7);
+      const seed=Math.sin(j*7.3+strand*13+h.clock*24)*(.12+speed*.16);
+      const spread=(strand-2.5)*.17+seed, bright=strand%2===0;
+      this.positions[n]=this.history[j*3]+fz*spread;
+      this.colors[n++]=fade*(bright?1:.9);
+      this.positions[n]=this.history[j*3+1]-.65+(strand%3)*.58+seed;
+      this.colors[n++]=fade*(bright?.82:.28);
+      this.positions[n]=this.history[j*3+2]-fx*spread;
+      this.colors[n++]=fade*(bright?.35:.015);
     }
-    this.geometry.setDrawRange(0,n/3);this.geometry.attributes.position.needsUpdate=true;
+    this.mesh.material.opacity=this.burst>0?1:.85;
+    this.geometry.setDrawRange(0,n/3);this.geometry.attributes.position.needsUpdate=true;this.geometry.attributes.color.needsUpdate=true;
   }
+
   bar(){return [["C","Burst","burst",18],["F","Lightning","bolt",20],["Q","Tornado","tornado",35],["E","Phase","phase",25],["X","Speed Time","time",40]].map(([key,name,id,cost])=>`<span class="${this.cool[id]<=0&&this.energy>=cost?"ready":""}">${key} ${name}<small>${this.cool[id]>0?Math.ceil(this.cool[id])+"s":cost+" energy"}</small></span>`).join("");}
   hint(){return `FLASH · ${Math.floor(this.energy)}% ENERGY · Shift Speed · C Burst ${Math.ceil(this.cool.burst)}s · F Lightning · Q Tornado · E Phase · X Speed Time · N Switch`;}
 }

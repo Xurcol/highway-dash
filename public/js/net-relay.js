@@ -34,7 +34,7 @@ function sanitizeState(m) {
   if (!m || typeof m !== "object" || !Number.isFinite(+m.T) || !Number.isFinite(+m.x) || !Number.isFinite(+m.z)) return null;
   const o = {
     T: +m.T, x: num(m.x, -6000, 6000), z: num(m.z, -1e7, 1e7), y: num(m.y, -60, 900), ry: num(m.ry, -7, 7), pitch: num(m.pitch, -7, 7), roll: num(m.roll, -7, 7),
-    w: num(m.w, 0, 1e15), rd: num(m.rd, 0, 1e9), tp: num(m.tp, 0, 1e9), vx: num(m.vx, -80, 80), vz: num(m.vz, -80, 80), v: num(m.v, -80, 220),
+    w: num(m.w, 0, 1e15), rd: num(m.rd, 0, 1e9), tp: num(m.tp, 0, 1e9), vx: num(m.vx, -160, 160), vz: num(m.vz, -160, 160), v: num(m.v, -80, 220),
     rpm: num(m.rpm, 0, 20000), thr: num(m.thr, 0, 1), ld: num(m.ld, 0, 2), g: num(m.g, -1, 20) | 0, sh: m.sh ? 1 : 0, bo: num(m.bo, 0, 200),
     brk: m.brk ? 1 : 0, sl: m.sl ? 1 : 0, sr: m.sr ? 1 : 0, cr: m.cr ? 1 : 0, sc: num(m.sc, 0, 1e9) | 0,
   };

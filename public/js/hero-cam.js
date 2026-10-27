@@ -71,7 +71,7 @@ export class HeroCam {
       this.W.collide?.(this.pos, .2, this.contacts, 2);
       this.cam.position.copy(this.pos); this.cam.up.set(0, 1, 0);
       this.cam.lookAt(this.pos.x + this.look.x, this.pos.y + this.look.y, this.pos.z + this.look.z);
-      const target = 78 + clamp((this.speed - 15) / 50, 0, 1) * 8;
+      const target = 78 + clamp((this.speed - 15) / (H.speedster ? 100 : 50), 0, 1) * (H.speedster ? 14 : 8);
       this.fov = snap ? target : this.fov + (target - this.fov) * ease(dt, 4);
       if (Math.abs(this.cam.fov - this.fov) > .05) { this.cam.fov = this.fov; this.cam.updateProjectionMatrix(); }
       this.snapNext = false;
@@ -80,6 +80,7 @@ export class HeroCam {
 
     // ---- how far back and how wide, from speed and what the body is doing ----
     let dist = 4.7 + clamp((this.speed - 8) / 46, 0, 1) * 2.9, fov = 65 + clamp((this.speed - 10) / 52, 0, 1) * 17, up = .65, side = .35;
+    if (H.speedster) { fov += clamp((this.speed - 25) / 100, 0, 1) * 10; }
     if (H.state === "swing") { dist += .45; up = .8; }
     if (H.state === "zip") { dist += .25; up = .7; }
     if (H.state === "wall") { dist = 5.15; up = .45; side = 0; }
