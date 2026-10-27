@@ -348,3 +348,8 @@ body.arc-game-menu #hud,body.arc-game-menu #arcBar,body.arc-game-menu #arcChat{v
 .flash-mode .hh-gadgets small{display:block;font-size:8px;color:#ffe6a2;margin-top:3px}
 .flash-mode .hh-traversal{max-width:min(820px,90vw);white-space:normal;text-align:center;border-left-color:#ffc52c}
 .flash-mode .hh-abilities .ready{border-color:#ffc52c;color:#ffe195}
+
+.flash-mode .hh-vitals{width:min(320px,42vw)}
+.flash-mode .hh-abilities{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:4px}
+.flash-mode .hh-abilities span{display:block;transform:none;font-size:9px;white-space:normal;min-width:0;padding:5px 3px}
+.flash-mode .hh-abilities small{display:block;transform:none;color:#ffe6a2;font-size:8px;margin-top:2px}

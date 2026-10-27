@@ -377,6 +377,6 @@ const clamp = (v, m) => (Number.isFinite(v) ? Math.max(-m, Math.min(m, v)) : 0);
 // a hit sent by another player: numbers clamped, nothing it shouldn't carry
 function cleanHit(h, from) {
   const n = (v, m) => clamp(+v, m);
-  return { from, dmg: Math.max(0, Math.min(60, +h.dmg || 0)), kind: String(h.kind || "hit").slice(0, 12), kx: n(h.kx, 1), kz: n(h.kz, 1), web: Math.max(0, Math.min(1.5, +h.web || 0)), launch: Math.max(0, Math.min(14, +h.launch || 0)), slam: !!h.slam, heavy: !!h.heavy, pull: !!h.pull, disarm: !!h.disarm, x: n(h.x, 6000), z: n(h.z, 6000), knock: h.knock === undefined ? undefined : Math.max(0, Math.min(15, +h.knock)), finisher: !!h.finisher };
+  return { from, dmg: Math.max(0, Math.min(60, +h.dmg || 0)), kind: String(h.kind || "hit").slice(0, 12), kx: n(h.kx, 1), kz: n(h.kz, 1), web: Math.max(0, Math.min(1.5, +h.web || 0)), launch: Math.max(0, Math.min(14, +h.launch || 0)), slam: !!h.slam, heavy: !!h.heavy, pull: !!h.pull, disarm: !!h.disarm, x: n(h.x, 6000), z: n(h.z, 6000), knock: h.knock === undefined ? undefined : Math.max(0, Math.min(15, +h.knock)), speedSlow: Math.max(0, Math.min(4, +h.speedSlow || 0)), finisher: !!h.finisher };
 }
 const _q = new Q(), _qa = new Q(), _qb = new Q(), _qi = new Q(), _o = new V(), _p = new V(), _y = new V(0, 1, 0), _t2 = new V(), _t3 = new V();

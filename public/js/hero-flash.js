@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { FlashPowers } from "./hero-flash-powers.js";
 const GOLD = [1, .55, .05];
 export class FlashMode {
   constructor(hero) {
@@ -10,6 +11,7 @@ export class FlashMode {
     this.geometry.setAttribute("color", new THREE.BufferAttribute(this.colors,3).setUsage(THREE.DynamicDrawUsage)); this.geometry.setAttribute("position", new THREE.BufferAttribute(this.positions,3).setUsage(THREE.DynamicDrawUsage));
     this.mesh = new THREE.LineSegments(this.geometry,new THREE.LineBasicMaterial({color:0xffffff,vertexColors:true,transparent:true,opacity:.95,blending:THREE.AdditiveBlending,depthWrite:false}));
     this.mesh.frustumCulled=false; this.mesh.visible=false; hero.ctx.scene.add(this.mesh);
+    this.powers=new FlashPowers(this);
     this.probe=new THREE.Vector3(); this.result={contacts:[]}; this.hudTime=0;
   }
   set(on, quiet=false) {
@@ -21,7 +23,7 @@ export class FlashMode {
     if(on!==this.on) {
       if(on) h.P.settings.webSuit=h.suitId==="flash"?"arcline":h.suitId;
       if(h.on) { H.releaseWebs("switch"); H.zip=null; H.sling=null; H.move=null; H.glide=H.dive=false; H.toAir(); h.tricks.reset(); h.combat.action=null; H.combatLock=0; }
-      this.burst=this.phase=this.time=0; this.samples=0;
+      this.burst=this.phase=this.time=0; this.samples=0; this.powers.reset();
     }
     this.on=on; H.speedster=on; H.speedBurst=0;
     h.P.settings.heroMode=on?"flash":"arcline";
@@ -31,7 +33,7 @@ export class FlashMode {
     h.gadgetT=0;
     const select=document.querySelector('[data-arc-setting="heroMode"]');if(select)select.value=h.P.settings.heroMode;
     if(!on)this.mesh.visible=false;
-    if(!quiet&&h.on)h.hud.center(on?"THE FLASH":"ARCLINE",on?"Shift · Speed   C · Burst   E · Phase   N · Switch":"Web abilities restored · N switches hero",3);
+    if(!quiet&&h.on)h.hud.center(on?"THE FLASH":"ARCLINE",on?"Shift · Speed   C · Burst   E · Phase   H · All powers · N Switch":"Web abilities restored · N switches hero",3);
   }
   use(name,cost,cooldown) {
     if(this.cool[name]>0||this.energy<cost){this.hero.hud.center("SPEED FORCE",this.cool[name]>0?`${name.toUpperCase()} ready in ${Math.ceil(this.cool[name])}s`:"Build more speed energy",1,"small");return false;}
@@ -41,6 +43,7 @@ export class FlashMode {
     const h=this.hero,H=h.H,cb=h.combat;
     if(i.heroSwitch&&dt>0)this.set(!this.on);
     if(!this.on)return;
+    const slot=i.gadget>1?i.gadget:i.ability?i.ability+6:0;
     const burst=i.zip,bolt=i.strike,tornado=i.throwObj,phase=i.gadget===1,time=i.trickDown;
     i.swing=i.swingDown=i.swingUp=i.zip=i.sling=i.wings=i.strike=i.throwObj=i.trick=i.trickDown=false;i.gadget=i.ability=0;
     if(dt<=0)return;
@@ -48,6 +51,7 @@ export class FlashMode {
     this.burst=Math.max(0,this.burst-dt);this.phase=Math.max(0,this.phase-dt);this.time=Math.max(0,this.time-dt);
     this.energy=Math.min(100,this.energy+dt*(H.speed>20?9:5));
     H.speedBurst=this.burst;
+    this.powers.update(dt,i,slot);
     if(cb.downT>0||h.carry||H.combatLock>0)return;
     if(burst&&this.use("burst",18,3)){this.burst=1.2;H.speedBurst=1.2;h.sfx("whoosh",1.2);}
     if(phase&&this.use("phase",25,6)) {
@@ -61,8 +65,8 @@ export class FlashMode {
       if(moved){this.phase=1;this.samples=0;h.sfx("whoosh",1);}
       else {this.energy+=25;this.cool.phase=0;h.hud.center("NO CLEAR EXIT","Aim past a thinner obstacle",1.2,"small");}
     }
-    if(bolt){const e=cb.pickTarget(i);if(e&&cb.visible(e)&&cb.dist(e)<36){if(this.use("bolt",20,2.5)){cb.applyHit(e,{dmg:65,kind:"lightning",heavy:true,kx:H.face.x,kz:H.face.z});h.parts.energy(e.x,e.y+1,e.z,20,GOLD);h.sfx("launch",.8);}}else h.hud.center("NO LIGHTNING TARGET","Aim at an enemy within 36 metres",1,"small");}
-    if(tornado&&this.use("tornado",35,8)){cb.impact(H.p.x,H.p.y-1,H.p.z,11,55,{launch:10});h.parts.energy(H.p.x,H.p.y,H.p.z,50,GOLD);h.sfx("boom",.7);}
+    if(bolt){const e=cb.pickTarget(i);if(e&&cb.visible(e)&&cb.dist(e)<36){if(this.use("bolt",20,2.5)){cb.applyHit(e,{dmg:65,kind:"lightning",heavy:true,kx:H.face.x,kz:H.face.z});this.powers.arc(e.x,e.y+1,e.z);h.parts.energy(e.x,e.y+1,e.z,20,GOLD);h.sfx("launch",.8);}}else h.hud.center("NO LIGHTNING TARGET","Aim at an enemy within 36 metres",1,"small");}
+    if(tornado&&this.use("tornado",35,8)){this.powers.startTornado();cb.impact(H.p.x,H.p.y-1,H.p.z,11,55,{launch:10});h.parts.energy(H.p.x,H.p.y,H.p.z,50,GOLD);h.sfx("boom",.7);}
     if(time&&this.use("time",40,14)){this.time=4;h.hud.center("SPEED TIME",h.online?"Enhanced reflexes · shared world stays at normal speed":"Enemy movement slowed for 4 seconds",1.5,"small");}
     if(this.time>0){cb.iframes=Math.max(cb.iframes,.12);}
     // Speed healing is gradual and only works after the normal damage recovery delay.
@@ -70,6 +74,7 @@ export class FlashMode {
   }
   effects(dt) {
     const h=this.hero,H=h.H;
+    this.powers.effects(dt);
     this.mesh.visible=this.on&&h.on&&!h.cam.firstPerson&&H.speed>12;
     if(!this.mesh.visible){this.samples=0;return;}
     this.tick+=dt;if(this.tick<.025)return;this.tick%=.025;
@@ -94,5 +99,5 @@ export class FlashMode {
   }
 
   bar(){return [["C","Burst","burst",18],["F","Lightning","bolt",20],["Q","Tornado","tornado",35],["E","Phase","phase",25],["X","Speed Time","time",40]].map(([key,name,id,cost])=>`<span class="${this.cool[id]<=0&&this.energy>=cost?"ready":""}">${key} ${name}<small>${this.cool[id]>0?Math.ceil(this.cool[id])+"s":cost+" energy"}</small></span>`).join("");}
-  hint(){return `FLASH · ${Math.floor(this.energy)}% ENERGY · Shift Speed · C Burst ${Math.ceil(this.cool.burst)}s · F Lightning · Q Tornado · E Phase · X Speed Time · N Switch`;}
+  hint(){return `FLASH · ${Math.floor(this.energy)}% ENERGY · Shift Speed · C Burst ${Math.ceil(this.cool.burst)}s · F Lightning · Q Tornado · E Phase · X Speed Time · 2–9 Powers · H Controls · N Switch`;}
 }

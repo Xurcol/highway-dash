@@ -137,7 +137,7 @@ export class HeroMode {
     this.windView?.setVisible(on); this.caches?.setVisible(on); this.skyLife?.setVisible(on);
     for (const S of this.parts.sets) S.pts.visible = on;
     this.trails.mesh.visible = on;
-    if (!on) { if(this.flash) this.flash.mesh.visible = false; document.body.classList.remove("flash-mode"); this.speedLines.lines.visible = false; this.webs.begin(this.ctx.camera.position); this.webs.end(0); }
+    if (!on) { if(this.flash) { this.flash.mesh.visible = false; this.flash.powers.reset(); } document.body.classList.remove("flash-mode"); this.speedLines.lines.visible = false; this.webs.begin(this.ctx.camera.position); this.webs.end(0); }
   }
   enter(opt = {}) {
     this.build();
@@ -686,7 +686,7 @@ export class HeroMode {
     a.load = H.state === "swing" && H.webs[0]?.taut ? clamp(H.speed * H.speed / Math.max(1, H.webs[0].L * 80), 0, 1) : 0;
     a.shootLocal = null;
     if (this.shootFlash > 0) { this.shootFlash -= dt; a.shootLocal = this.toBody(this.shootAt, this.shootSide, this.posePoints[2]); a.shootSide = this.shootSide; }
-    a.attack = this.combat.downT > 0 ? { kind: "down", k: .5 } : this.combat.attackPose() || (this.emote ? { kind: "emote", id: this.emote.id, t: this.emote.t, k: .5 } : null);
+    a.attack = this.combat.downT > 0 ? { kind: "down", k: .5 } : (this.flash.on && this.flash.powers.pose()) || this.combat.attackPose() || (this.emote ? { kind: "emote", id: this.emote.id, t: this.emote.t, k: .5 } : null);
     if (inp.emote && !this.inCombat) this.emote = { id: inp.emote - 1, t: 0 };
     if (this.emote) { this.emote.t += dt; if (H.speed > 1.5 || H.state !== "ground" || this.emote.t > 8) this.emote = null; }
     const r = poseBody(rig, a);
@@ -1111,7 +1111,7 @@ export class HeroMode {
   }
   hitEnemy(id, h) {
     if (this.authority()) this.sim.hit(id, h);
-    else this.sendWorld?.({ k: "hit", id, h: { dmg: h.dmg || 0, kind: h.kind, kx: +(h.kx || 0).toFixed(2), kz: +(h.kz || 0).toFixed(2), web: h.web || 0, launch: h.launch || 0, slam: h.slam ? 1 : 0, heavy: h.heavy ? 1 : 0, pull: h.pull ? 1 : 0, disarm: h.disarm ? 1 : 0, x: h.x, z: h.z, knock: h.knock, finisher: h.finisher ? 1 : 0 } });
+    else this.sendWorld?.({ k: "hit", id, h: { dmg: h.dmg || 0, kind: h.kind, kx: +(h.kx || 0).toFixed(2), kz: +(h.kz || 0).toFixed(2), web: h.web || 0, launch: h.launch || 0, slam: h.slam ? 1 : 0, heavy: h.heavy ? 1 : 0, pull: h.pull ? 1 : 0, disarm: h.disarm ? 1 : 0, x: h.x, z: h.z, knock: h.knock, speedSlow: h.speedSlow || 0, finisher: h.finisher ? 1 : 0 } });
   }
   holdAt(h, pos) {
     if (h.prop) { const p = this.propList().find((q) => q.id === h.prop); if (p) { p.x = pos.x; p.y = pos.y; p.z = pos.z; p.held = this.meId(); p.rest = false; p.vx = p.vy = p.vz = 0; } }
@@ -1162,7 +1162,7 @@ export class HeroMode {
     else { const sp = this.spawnPoint(); H.reset(sp.x, sp.y, sp.z); }
     H.state = "ground";
     this.tricks.reset(); this.poseClearT = 0; this.anim.state = null;
-    this.combat.reset();
+    this.combat.reset(); this.flash.powers.reset(); this.flash.burst=this.flash.phase=this.flash.time=0;
     this.prevV = null; this.prevHeading = undefined; this.emote = null;
     this.lastWebs.length = 0; this.lines.length = 0; this.shootFlash = 0; this.dashT = 0;
     this.anchorPreview = null; this.zipPreview = null; this.previewT = 0; this.firstFrames = 3;
@@ -1258,7 +1258,7 @@ export class HeroMode {
     return k;
   }
   abilityBar() {
-    if (this.flash.on) return `<span class="ready"><b>SPEED ENERGY ${Math.floor(this.flash.energy)}%</b><i style="--f:${this.flash.energy / 100}"></i></span>`;
+    if (this.flash.on) return this.flash.powers.bar();
     const cb = this.combat;
     return ABILITIES.slice(1).map((A, i) => {
       const n = i + 1, c = cb.acool[n], fill = 1 - c / (A.cool * (cb.coolK || 1));

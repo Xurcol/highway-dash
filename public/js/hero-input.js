@@ -4,7 +4,11 @@
 export const HERO_KEYS = [
   ["N", "Switch ARCLINE / The Flash", "Keyboard shortcut"],
   ["Flash: Shift / C", "Super-speed / speed burst", "Keyboard"],
-  ["Flash: F / Q / E / X", "Lightning / tornado / phase step / Speed Time", "Keyboard"],
+  ["Flash: F / Q / E or 1 / X", "Lightning / tornado / phase step / Speed Time", "Keyboard"],
+  ["Flash: 2 / 3 / 4", "Speed mirages (3s evasion) / punch barrage / mass punch (within 5m)", "Keyboard"],
+  ["Flash: 5 / 6 / 7 / 8", "Steal nearby speed / accelerated healing / sonic boom / chain lightning", "Keyboard"],
+  ["Flash: 9", "Set time anchor on ground; press again within 8s to return and recover saved health", "Keyboard"],
+  ["Flash passives", "Fast healing, water running at speed, wall running, faster melee; X slows solo enemies (online: reflex protection)", "Automatic"],
   ["W A S D / arrows", "Move", "Left stick"],
   ["Mouse", "Camera", "Right stick"],
   ["Space", "Jump · wall jump · swing launch · airborne forward zip", "Cross / A"],

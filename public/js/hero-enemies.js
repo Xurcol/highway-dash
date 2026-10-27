@@ -93,8 +93,11 @@ export class EnemySim {
         if (best) set.add(best.id);
       }
     }
-    for (const e of this.list) this.think(e, dt, players);
-    for (const e of this.list) this.move(e, dt);
+    for (const e of this.list) {
+      e.speedSlow = Math.max(0, (e.speedSlow || 0) - dt);
+      this.think(e, dt * (e.speedSlow > 0 ? .35 : 1), players);
+    }
+    for (const e of this.list) this.move(e, dt * (e.speedSlow > 0 ? .35 : 1));
     this.stepShots(dt, players);
     this.stepProps(dt);
     // the knocked out are cleared away after a while, out of sight
@@ -355,6 +358,7 @@ export class EnemySim {
     }
     if (h.disarm && e.weapon) { const w = e.weapon; e.weapon = null; this.ev("disarm", { e: e.id, weapon: w, from: h.from }); }
     if (h.pull) { const dx = h.x - e.x, dz = h.z - e.z, d = Math.hypot(dx, dz) || 1; const k = Math.min(16, d * 2.4) / (1 + K.armor); e.vx = dx / d * k; e.vz = dz / d * k; e.vy = 4 / (1 + K.armor); e.air = true; if (e.st !== "webbed") this.set(e, "hit"); e.stun = .7; }
+    if (h.speedSlow) e.speedSlow = Math.max(e.speedSlow || 0, Math.min(4, h.speedSlow));
     if (h.dmg) this.damage(e, h.dmg, h.kind, h.kx || 0, h.kz || 0, h);
     return e;
   }
