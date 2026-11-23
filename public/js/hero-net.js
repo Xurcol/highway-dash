@@ -31,9 +31,8 @@ export class HeroNet {
     this.views = new Map();
     this.snapT = 0; this.fx = [];
     this.remoteEnemies = []; this.enemyMap = new Map(); this.props = [];
-    this.chaseCar = null; this.carState = null;
-    this.wasHost = this.everClient = false;
-    this.idT = 0; this.suitSent = null;
+    this.chaseCar = null;
+    this.wasHost = false;
     const net = hero.ctx.net;
     net.addEventListener("world", (e) => { if (this.hero.on && this.hero.online) this.onWorld(e.detail.from, e.detail.w); });
     net.addEventListener("peerLeft", (e) => this.drop(e.detail));
@@ -58,10 +57,8 @@ export class HeroNet {
       h: {
         st: Math.max(0, ST_NAMES.indexOf(H.state)), vy: r2(H.v.y), ph: r2(h.anim.phase % 1e6), fl, sw: (H.webs[0]?.side || H.lastSide) > 0 ? 1 : -1,
         q: [r3(q.x), r3(q.y), r3(q.z), r3(q.w)],
-        wn: H.state === "wall" ? [r3(H.n.x), r3(H.n.y), r3(H.n.z)] : undefined,
-        an: [r2(H.stateT), r2(H.airT), r2(h.anim.heightAbove ?? 30), r2(h.anim.swingT || 0), r2(h.anim.swingPhase || 0), r2(h.anim.catch || 0), r2(h.anim.load || 0), r2(Math.min(2, H.releaseT)), H.releaseQuality || 0, r2(Math.min(9, H.landT)), H.releaseStyle || 0, h.swingStyle || 0],
         wb: wb.length ? wb : undefined, zp: H.state === "zip" && H.zip ? [r2(H.zip.x), r2(H.zip.y), r2(H.zip.z)] : undefined,
-        tr: packTrick(tr),
+        tr: tr ? [SHAPES.indexOf(tr.shape) + 1, r2(tr.k)] : undefined,
         at: at ? [ATKS.indexOf(at.kind), r2(at.k || 0), at.side || 1, at.kind === "emote" ? at.id : at.n || 0] : undefined,
         em: h.emote ? h.emote.id + 1 : 0, su: h.suitId, hp: r2(cb.hp), cb: h.tricks.combo ? Math.round(h.tricks.combo.pts * h.tricks.combo.mult) : 0, sy: Math.floor(h.tricks.score), lv: h.profile().level || 1,
         rc: h.activities?.raceProgress?.(),
@@ -118,16 +115,7 @@ export class HeroNet {
     sc.remove(v.rig.group); v.rig.dispose(); sc.remove(v.tag); v.tag.material.map.dispose(); v.tag.material.dispose();
     this.views.delete(id);
   }
-  clear() {
-    for (const id of this.views.keys()) this.drop(id);
-    this.remoteEnemies.length = 0; this.enemyMap.clear(); this.props.length = 0;
-    if (this.chaseCar) { this.hero.ctx.scene.remove(this.chaseCar); this.chaseCar = null; }
-    this.carState = null;
-    // A new city must not inherit the last room's effects, host history or send timers.
-    this.fx.length = 0; this.snapT = 0;
-    this.wasHost = this.everClient = false;
-    this.idT = 0; this.suitSent = null;
-  }
+  clear() { for (const id of [...this.views.keys()]) this.drop(id); this.remoteEnemies = []; this.enemyMap.clear(); this.props = []; if (this.chaseCar) { this.hero.ctx.scene.remove(this.chaseCar); this.chaseCar = null; } }
   draw(v, s, dt, cam) {
     const h = this.hero, H = s.h || {}, rig = v.rig;
     if (H.su && H.su !== v.suit && SUITS[H.su]) { v.suit = H.su; rig.setLook(SUITS[H.su]); }
@@ -145,21 +133,10 @@ export class HeroNet {
     // the limbs: the same pose function, fed from the packet
     const a = v.anim, fl = H.fl | 0, hs = Math.hypot(s.vx, s.vz);
     a.t += dt; a.phase = H.ph ?? a.phase;
-    a.dt = dt; a.stateT = H.an?.[0] ?? 0; a.airT = H.an?.[1] ?? 0; a.heightAbove = H.an?.[2] ?? 30;
-    a.swingT = H.an?.[3] ?? 1; a.catch = H.an?.[5] ?? 0; a.load = H.an?.[6] ?? 0;
-    a.releaseStyle = H.an?.[10] ?? 0; a.swingStyle = H.an?.[11] ?? 0;
-    a.releaseT = H.an?.[7] ?? 2; a.releaseQuality = H.an?.[8] ?? 0; a.ceiling = !!(fl & F.ceiling); a.wallDistance = .44;
     Object.assign(a, { state: st, speed: Math.hypot(hs, s.vy), hs, vy: s.vy, slide: fl & F.slide ? .5 : 0, roll: fl & F.roll ? .3 : 0, hard: fl & F.hard ? .2 : 0, landT: 9, crouch: !!(fl & F.crouch), dive: !!(fl & F.dive), glide: !!(fl & F.glide), wallMode: fl & F.wallrun ? "run" : "crawl", move: null, trick: null, attack: null, anchorLocal: null, anchor2Local: null, swingSide: H.sw || 1, shootLocal: null, swingPhase: 0, dash: fl & F.dash ? 1 : 0 });
-    a.swingPhase = H.an?.[4] ?? 0;
-    a.landT = H.an?.[9] ?? 9;
-    if (st === "wall") {
-      _p.set(s.vx, s.vy, s.vz).applyQuaternion(_qi.copy(rig.group.quaternion).invert());
-      const movement = a.wallMove ||= { x: 0, y: 0 }; movement.x = _p.x; movement.y = _p.y;
-      if (H.wn) (a.wallNormal ||= new V()).set(H.wn[0], H.wn[1], H.wn[2]).applyQuaternion(_qi);
-      else a.wallNormal = null;
-    }
+    if (st === "wall") a.wallMove = { x: hs, y: s.vy };
     if (fl & (F.vault | F.climb)) a.move = { kind: fl & F.vault ? "vault" : "climb", t: .1, dur: .3 };
-    if (st === "air" || st === "swing" || st === "zip") a.trick = unpackTrick(a, H.tr);
+    if (H.tr && H.tr[0] > 0) a.trick = { shape: SHAPES[H.tr[0] - 1], k: H.tr[1] };
     if (H.at && H.at[0] >= 0) a.attack = { kind: ATKS[H.at[0]], k: H.at[1], side: H.at[2], n: H.at[3], id: H.at[3], t: a.t };
     if (fl & F.down) a.attack = { kind: "down", k: .5 };
     if (H.em && !a.attack) a.attack = { kind: "emote", id: H.em - 1, t: a.t, k: .5 };
@@ -310,27 +287,6 @@ export class HeroNet {
 }
 
 // ---- helpers ----
-function packTrick(trick) {
-  if (!trick) return undefined;
-  const previous = trick.previous;
-  return [SHAPES.indexOf(trick.shape) + 1, r2(trick.k), r2(trick.blend ?? 1), trick.side || 1,
-    r2(trick.dirX || 0), r2(trick.dirY || 0), Math.min(1000, trick.turns || 0),
-    previous ? SHAPES.indexOf(previous.shape) + 1 : 0, r2(previous?.k || 0), r2(previous?.blend || 0), previous?.side || 1,
-    r2(previous?.dirX || 0), r2(previous?.dirY || 0), r2(trick.transition ?? 1)];
-}
-function unpackTrick(anim, packet) {
-  const shape = packet && SHAPES[(packet[0] | 0) - 1];
-  if (!shape) return null;
-  const pose = anim.trickPose ||= {}, previous = anim.previousTrickPose ||= {};
-  pose.shape = shape; pose.k = THREE.MathUtils.clamp(packet[1] || 0, 0, 1); pose.blend = THREE.MathUtils.clamp(packet[2] ?? 1, 0, 1);
-  pose.side = packet[3] < 0 ? -1 : 1; pose.dirX = THREE.MathUtils.clamp(packet[4] || 0, -1, 1); pose.dirY = THREE.MathUtils.clamp(packet[5] || 0, -1, 1);
-  pose.turns = Math.max(0, packet[6] | 0); pose.transition = THREE.MathUtils.clamp(packet[13] ?? 1, 0, 1);
-  previous.shape = SHAPES[(packet[7] | 0) - 1]; previous.k = THREE.MathUtils.clamp(packet[8] || 0, 0, 1);
-  previous.blend = THREE.MathUtils.clamp(packet[9] || 0, 0, 1); previous.side = packet[10] < 0 ? -1 : 1;
-  previous.dirX = THREE.MathUtils.clamp(packet[11] || 0, -1, 1); previous.dirY = THREE.MathUtils.clamp(packet[12] || 0, -1, 1);
-  pose.previous = previous.shape && pose.transition < 1 ? previous : null;
-  return pose;
-}
 function sample(b, T, out) {
   if (!b.length) return null;
   let i = b.length - 1;
@@ -377,6 +333,6 @@ const clamp = (v, m) => (Number.isFinite(v) ? Math.max(-m, Math.min(m, v)) : 0);
 // a hit sent by another player: numbers clamped, nothing it shouldn't carry
 function cleanHit(h, from) {
   const n = (v, m) => clamp(+v, m);
-  return { from, dmg: Math.max(0, Math.min(60, +h.dmg || 0)), kind: String(h.kind || "hit").slice(0, 12), kx: n(h.kx, 1), kz: n(h.kz, 1), web: Math.max(0, Math.min(1.5, +h.web || 0)), launch: Math.max(0, Math.min(14, +h.launch || 0)), slam: !!h.slam, heavy: !!h.heavy, pull: !!h.pull, disarm: !!h.disarm, x: n(h.x, 6000), z: n(h.z, 6000), knock: h.knock === undefined ? undefined : Math.max(0, Math.min(15, +h.knock)), speedSlow: Math.max(0, Math.min(4, +h.speedSlow || 0)), finisher: !!h.finisher };
+  return { from, dmg: Math.max(0, Math.min(60, +h.dmg || 0)), kind: String(h.kind || "hit").slice(0, 12), kx: n(h.kx, 1), kz: n(h.kz, 1), web: Math.max(0, Math.min(1.5, +h.web || 0)), launch: Math.max(0, Math.min(14, +h.launch || 0)), slam: !!h.slam, heavy: !!h.heavy, pull: !!h.pull, disarm: !!h.disarm, x: n(h.x, 6000), z: n(h.z, 6000), knock: h.knock === undefined ? undefined : Math.max(0, Math.min(15, +h.knock)), finisher: !!h.finisher };
 }
 const _q = new Q(), _qa = new Q(), _qb = new Q(), _qi = new Q(), _o = new V(), _p = new V(), _y = new V(0, 1, 0), _t2 = new V(), _t3 = new V();

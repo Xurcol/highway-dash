@@ -2,41 +2,24 @@
 // read into one frame-sized snapshot - held buttons, presses and releases since the last frame, mouse
 // travel - and the move keys are turned into a direction on the ground relative to the camera.
 export const HERO_KEYS = [
-  ["N", "Switch ARCLINE / The Flash", "Keyboard shortcut"],
-  ["Flash: Shift / C", "Super-speed / speed burst", "Keyboard"],
-  ["Flash: F / Q / E or 1 / X", "Lightning / tornado / phase step / Speed Time", "Keyboard"],
-  ["Flash: 2 / 3 / 4", "Speed mirages (3s evasion) / punch barrage / mass punch (within 5m)", "Keyboard"],
-  ["Flash: 5 / 6 / 7 / 8", "Steal nearby speed / accelerated healing / sonic boom / chain lightning", "Keyboard"],
-  ["Flash: 9", "Set time anchor on ground; press again within 8s to return and recover saved health", "Keyboard"],
-  ["Flash passives", "Fast healing, water running at speed, wall running, faster melee; X slows solo enemies (online: reflex protection)", "Automatic"],
-  ["W A S D / arrows", "Move", "Left stick"],
+  ["W A S D", "Move", "Left stick"],
   ["Mouse", "Camera", "Right stick"],
-  ["Space", "Jump · wall jump · swing launch · airborne forward zip", "Cross / A"],
-  ["Shift", "Web swing / parkour (hold; release to let go)", "R2 / RT"],
-  ["Shift / Alt", "Sprint / parkour; L3 also dives/perches in the air", "L3"],
-  ["Right mouse", "Hold to swing; aim at surfaces in first person", "R2 / RT"],
-  ["P", "Toggle first-person camera", "Keyboard shortcut"],
-  ["C", "Web zip to the point you aim at", "L2 + R2 / LT + RT"],
-  ["Ctrl", "Crouch · slide · dive · drop off a wall · hold before Space = super jump", "B"],
-  ["Hold X + direction", "Repeat flips, side rolls and diagonal corkscrews; change direction to blend into the next trick", "Air: hold Square + left stick"],
-  ["X + Alt / Ctrl", "Layout / barrel variations, or pike / scissor variations", "Keyboard shortcut"],
-  ["Left mouse", "Attack chain (hold = launcher, in the air = air combo)", "X"],
-  ["R", "Dodge / air dash · perfect dodge opens a counter", "Circle / B"],
-  ["V", "Parry - block just before a blow lands, then counter", "L1 / LB"],
-  ["Right mouse + Space", "Slingshot - pull back on two lines and fling yourself where you look", "Hold LB + RB"],
-  ["7 · 8 · 9", "Arc abilities: Arc Burst · Tether Storm · Overcharge", "RB + X / Y / R3"],
-  ["F", "Web Wings in the air / web strike - zip-kick the target", "Triangle / Y"],
-  ["E / 1 - 6", "Web shooter and gadgets", "R1 / RB + D-pad"],
-  ["Q", "Web throw - hurl an object or a stunned enemy", "R3"],
+  ["Space", "Jump · wall jump · release-jump · point launch · hold to glide", "A"],
+  ["Shift", "Sprint / parkour: vault, wall run, run up buildings", "L3"],
+  ["Right mouse", "Web swing (hold; holding keeps swinging)", "RT"],
+  ["E", "Web zip to the point you aim at (Space on arrival = point launch)", "LB"],
+  ["Ctrl / C", "Crouch · slide · dive · drop off a wall · hold before Space = super jump", "B"],
+  ["F + WASD", "Tricks (F alone spins; F + mouse sideways twists)", "RB + stick"],
+  ["Left mouse", "Attack (hold = launcher, in the air = air combo)", "X"],
+  ["Q", "Dodge / air dash", "LT"],
+  ["R", "Web strike - zip-kick the target", "Y"],
+  ["1 - 6", "Web shot · pull/disarm · launch · bomb · trap · impact web", "D-pad"],
+  ["G", "Web throw - hurl an object or a stunned enemy", "R3"],
   ["Z", "Finisher (tap) · heal (hold)", "-"],
   ["Wheel / middle mouse", "Next target / lock target", "-"],
   ["B (hold) + 1-8", "Emotes", "-"],
-  ["Tab / M", "World map · click a spot to fast travel", "View"],
-  ["O", "Photo mode", "-"],
-  ["E (photo mode)", "Take photo; Q / PageUp move camera down / up", "-"],
-  ["Esc", "Pause / city menu", "-"],
-  ["Enter", "Online chat", "-"],
-  ["K", "Activities: wave survival, races, trick attack, suits and skills", "-"],
+  ["M", "City map", "View"],
+  ["K", "Activities: races, trick attack, crimes", "-"],
   ["H", "Show / hide these controls", "-"],
 ];
 const MOVE = { KeyW: [0, 1], ArrowUp: [0, 1], KeyS: [0, -1], ArrowDown: [0, -1], KeyA: [-1, 0], ArrowLeft: [-1, 0], KeyD: [1, 0], ArrowRight: [1, 0] };
@@ -56,7 +39,7 @@ export class HeroInput {
       if (!this.active || !this.wantLock || this.typing()) return;
       if (e.repeat) return;
       this.keys.add(e.code); this.down.add(e.code);
-      if (["Space", "Tab", "KeyT", "KeyF", "ControlLeft", "ControlRight", "AltLeft"].includes(e.code) || /^Digit/.test(e.code) || e.code.startsWith("Arrow")) e.preventDefault();
+      if (["Space", "Tab", "KeyF", "ControlLeft", "AltLeft"].includes(e.code) || /^Digit/.test(e.code) || e.code.startsWith("Arrow")) e.preventDefault();
     }, true);
     addEventListener("keyup", (e) => { if (!this.active) return; this.keys.delete(e.code); this.up.add(e.code); });
     addEventListener("blur", () => { this.focused = false; this.clear(); });
@@ -131,40 +114,27 @@ export class HeroInput {
     const fx = -Math.sin(camYaw), fz = -Math.cos(camYaw), rx = -fz, rz = fx;
     const b = (bit) => !!(this.mb & bit), bd = (bit) => !!(this.mDown & bit), bu = (bit) => !!(this.mUp & bit);
     const pb = pad?.b || [], pp = this.padPrev, pdn = (i) => !!pb[i] && !pp[i], pup = (i) => !pb[i] && !!pp[i];
-    const digit = [1, 2, 3, 4, 5, 6, 7, 8, 9].find((n) => this.pressed("Digit" + n, "Numpad" + n));
-    // L1 held turns the face buttons into abilities; R1 held selects gadgets.
-    const lb = !!pb[4], rb = !!pb[5];
-    const padAbility = lb ? (pdn(2) ? 1 : pdn(3) ? 2 : pdn(11) ? 3 : 0) : 0;
-    const padGadget = rb ? (pdn(2) ? 1 : pdn(3) ? 2 : pdn(1) ? 3 : pdn(0) ? 4 : 0) : 0;
-    const padFinisher = !!pb[1] && !!pb[3] && !(this.padPrev[1] && this.padPrev[3]);
-    // Spider-Man 2 reserves D-pad down for healing; left/right stay available as gadget shortcuts.
-    const dpad = pdn(14) ? 3 : pdn(15) ? 4 : 0;
+    const digit = [1, 2, 3, 4, 5, 6, 7, 8].find((n) => this.pressed("Digit" + n, "Numpad" + n));
+    const dpad = pdn(12) ? 1 : pdn(15) ? 2 : pdn(14) ? 3 : pdn(13) ? 4 : 0;
     const emoteHeld = this.held("KeyB");
     const inp = {
       mx: fx * iy + rx * ix, mz: fz * iy + rz * ix, ix, iy,
-      look, camPos, heroSwitch: this.pressed("KeyN"), viewToggle: this.pressed("KeyP"),
+      look, camPos,
       jump: this.pressed("Space") || pdn(0), jumpHeld: this.held("Space") || !!pb[0],
-      sprint: this.held("ShiftLeft", "AltLeft", "AltRight") || !!pb[10],
-      swing: this.held("ShiftLeft", "ShiftRight") || b(4) || (pad ? pad.rt > .35 : false),
-      swingDown: this.pressed("ShiftLeft", "ShiftRight") || bd(4) || (pad ? pad.rt > .35 && !(this.prevRT > .35) : false),
-      swingUp: this.released("ShiftLeft", "ShiftRight") || bu(4) || (!(pad?.rt > .35) && this.prevRT > .35),
-      zip: this.pressed("KeyC") || (!!pad && pad.lt > .35 && pad.rt > .35 && !(this.prevLT > .35 && this.prevRT > .35)),
-      sling: b(4) && this.held("Space"), wings: this.pressed("KeyF"),
-      parry: this.pressed("KeyV") || pdn(4) && !padAbility, parryKey: this.pressed("KeyV"),
-      ability: emoteHeld ? 0 : digit && digit >= 7 ? digit - 6 : padAbility,
-      crouch: this.held("ControlLeft", "ControlRight"), crouchDown: this.pressed("ControlLeft", "ControlRight"),
-      trick: this.held("KeyX", "KeyT"), trickDown: this.pressed("KeyX", "KeyT"),
-      trickX: ix, trickY: iy,
-      trickStyle: this.held("ControlLeft", "ControlRight", "KeyC") ? "pike" : this.held("AltLeft", "AltRight") ? "layout" : "base",
-      attack: bd(1) || pdn(2) && !lb && !rb, attackHeld: b(1) || !!pb[2] && !lb && !rb, attackDown: bd(1) || pdn(2) && !lb && !rb, attackUp: bu(1) || pup(2),
-      dodge: this.pressed("KeyR") || pdn(1) && !padFinisher && !padGadget,
-      strike: this.pressed("KeyF") || pdn(3) && !lb && !rb && !padFinisher,
-      gadget: emoteHeld ? 0 : this.pressed("KeyE") ? 1 : digit && digit <= 6 ? digit : padGadget || dpad || (pdn(5) ? 1 : 0),
-      emote: emoteHeld && digit && digit <= 8 ? digit : 0, emoteMenu: emoteHeld,
-      throwObj: this.pressed("KeyQ", "KeyG") || pdn(11) && !rb,
-      finisher: this.pressed("KeyZ") || padFinisher, finisherHeld: this.held("KeyZ") || !!pb[13],
-      cycle: this.wheel ? Math.sign(this.wheel) : 0, lockTarget: bd(2) || pdn(11),
-      map: this.pressed("Tab", "KeyM") || pdn(8), activities: this.pressed("KeyK"), help: this.pressed("KeyH"), photo: this.pressed("KeyO"),
+      sprint: this.held("ShiftLeft", "ShiftRight") || !!pb[10],
+      swing: b(4) || (pad ? pad.rt > .35 : false), swingDown: bd(4) || (pad ? pad.rt > .35 && !(this.prevRT > .35) : false), swingUp: bu(4) || (!(pad?.rt > .35) && this.prevRT > .35),
+      zip: this.pressed("KeyE") || pdn(4),
+      crouch: this.held("ControlLeft", "ControlRight", "KeyC") || !!pb[1], crouchDown: this.pressed("ControlLeft", "ControlRight", "KeyC") || pdn(1),
+      trick: this.held("KeyF") || !!pb[5], trickDown: this.pressed("KeyF") || pdn(5),
+      attack: bd(1) || pdn(2), attackHeld: b(1) || !!pb[2], attackDown: bd(1) || pdn(2), attackUp: bu(1) || pup(2),
+      dodge: this.pressed("KeyQ") || (pad ? pad.lt > .5 && !(this.prevLT > .5) : false),
+      strike: this.pressed("KeyR") || pdn(3),
+      gadget: emoteHeld ? 0 : digit && digit <= 6 ? digit : dpad,
+      emote: emoteHeld && digit ? digit : 0, emoteMenu: emoteHeld,
+      throwObj: this.pressed("KeyG") || pdn(11),
+      finisher: this.pressed("KeyZ"), finisherHeld: this.held("KeyZ"),
+      cycle: this.wheel ? Math.sign(this.wheel) : 0, lockTarget: bd(2),
+      map: this.pressed("KeyM") || pdn(8), activities: this.pressed("KeyK"), help: this.pressed("KeyH"),
       mdx: this.dx, mdy: this.dy,
       pad: !!pad,
     };

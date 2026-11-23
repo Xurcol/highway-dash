@@ -6,7 +6,6 @@
 // and the player's steering do the rest. Pure logic (three.js only for its vector maths), so it runs
 // headless under Node for the movement tests.
 import * as THREE from "three";
-import { WIND } from "./hero-wind.js";
 
 const V = THREE.Vector3;
 export const TUNE = {
@@ -15,8 +14,8 @@ export const TUNE = {
   accel: 58, brake: 42, airAccel: 11, airMax: 14, airSteer: 1.5,
   jumpV: 10.5, superJumpV: 26, coyote: .16, jumpBuffer: .18, stepUp: .55,
   drag: .0011, diveDrag: .00042, diveG: 17, maxFall: 85,
-  swingMax: 58, swingPump: 16, swingSteer: 24, webRange: 118, webSpeed: 950, swingG: 24,
-  releaseBoost: 5, swingJumpV: 9,
+  swingMax: 52, swingPump: 12, swingSteer: 18, webRange: 110, webSpeed: 700, swingG: 24,
+  releaseBoost: 4, swingJumpV: 8,
   wallRun: 16, wallCrawl: 4.2, wallAccel: 45,
   zipSpeed: 60, launchFwd: 26, launchUp: 15.5,
   glideG: 4.5, glideMin: 15, glideMax: 34,
@@ -60,11 +59,8 @@ export class HeroBody {
     this.wallMode = "crawl"; this.wallT = 0; this.ceiling = false; this.lastSide = 1; this.noWebT = 0;
     this.launchWindow = 0; this.perchAt = null; this.jumpBuf = 0; this.grounded = false; this.skim = 0;
     this.speed = 0; this.height = 0; this.fallStart = y; this.lastWall = null; this.wallCool = 0; this.combatLock = 0;
-    this.webCool = 0; this.chainCool = 0; this.releaseT = Infinity; this.releaseQuality = 0; this.releaseStyle = 0;
+    this.webCool = 0; this.chainCool = 0; this.releaseT = Infinity; this.releaseQuality = 0;
     this.turnRate = 0; this.impactVy = 0; this.cor = null; this.corT = 0;
-    this.clearanceT = 0; this.swingFloor = 0; this.swingDrive = 0; this.swingTension = 0;
-    this.wallSolid = null; this.wallGap = TUNE.r + .02;
-    this.sling = null; this.inWind = null;
   }
   ev(type, o = {}) { o.type = type; this.events.push(o); return o; }
   setState(s) { if (s !== this.state) { this.prevState = this.state; this.state = s; this.stateT = 0; } }
@@ -89,7 +85,6 @@ export class HeroBody {
     this.landT += dt; this.hardT = Math.max(0, this.hardT - dt); this.rollT = Math.max(0, this.rollT - dt);
     this.launchWindow = Math.max(0, this.launchWindow - dt);
     this.updateShots(dt, inp);
-    if (this.sling && this.state !== "ground" && this.state !== "perch") this.sling = null;
     if (this.move) this.stepMove(dt, inp);
     else switch (this.state) {
       case "ground": this.ground(dt, inp); break;
@@ -101,7 +96,6 @@ export class HeroBody {
       case "perch": this.perchStep(dt, inp); break;
       case "water": this.water(dt, inp); break;
     }
-    if (this.state !== "air") this.inWind = null;
     this.keepInBounds();
     this.speed = this.v.length();
     const turning = wasMoving && Math.hypot(this.v.x, this.v.z) > 3 ? clamp(wrapA(Math.atan2(this.v.x, this.v.z) - heading) / dt, -5, 5) : 0;
@@ -146,10 +140,7 @@ export class HeroBody {
     if (C.length < 8) C.push({ nx: c.nx, ny: c.ny, nz: c.nz, s: c.s, vn });
   }
   feet() { return this.p.y - TUNE.hip; }
-  floorBelow(reach = TUNE.stepUp) {
-    const floor = this.W.groundUnder(this.p.x, this.feet(), this.p.z, .22, reach);
-    return this.speedster && Math.hypot(this.v.x,this.v.z)>18 ? Math.max(floor,this.W.waterAt(this.p.x,this.p.z)) : floor;
-  }
+  floorBelow(reach = TUNE.stepUp) { return this.W.groundUnder(this.p.x, this.feet(), this.p.z, .22, reach); }
   // The floor to land on: the highest top that the feet are at or have passed this frame. Falling
   // fast, the feet can go through a roof's top between two checks; measuring from where they were
   // at the start of the frame still finds it.
@@ -178,7 +169,6 @@ export class HeroBody {
     this.sprintT = sprinting ? this.sprintT + dt : Math.max(0, this.sprintT - dt * 3);
     this.crouchT = inp.crouch ? this.crouchT + dt : 0;
     this.dashUsed = false; this.dashN = 0; this.glide = false; this.dive = false;
-    if (this.combatLock <= 0 && this.slingStep(dt, inp)) return;
     if (this.combatLock > 0) {
       // a punch, a lunge, a dodge: the fight moves the body; it slows on the ground by itself
       const k = Math.exp(-dt * 4);
@@ -201,10 +191,10 @@ export class HeroBody {
       if (!inp.crouch && this.slideT < .55 || hs < 3.5) this.slideT = 0;
       this.turnFace(this.v.x, this.v.z, 8, dt);
     } else {
-      const target = m < .1 ? 0 : inp.crouch ? T.walk * .8 : this.speedster ? (sprinting ? (this.speedBurst > 0 ? 125 : 85) : 12) : sprinting ? T.sprint + (T.sprintMax - T.sprint) * Math.min(1, this.sprintT / T.sprintRamp) : T.run;
+      const target = m < .1 ? 0 : inp.crouch ? T.walk * .8 : sprinting ? T.sprint + (T.sprintMax - T.sprint) * Math.min(1, this.sprintT / T.sprintRamp) : T.run;
       let ax = md.x * target - this.v.x, az = md.z * target - this.v.z;
       const aL = Math.hypot(ax, az), braking = target < hs - .5 || (hs > 6 && md.x * this.v.x + md.z * this.v.z < 0);
-      const lim = (braking ? T.brake : T.accel) * (this.speedster ? (braking ? 7 : 5.5) : 1) * (this.hardT > 0 ? .25 : 1) * dt;
+      const lim = (braking ? T.brake : T.accel) * (this.hardT > 0 ? .25 : 1) * dt;
       if (aL > lim) { ax *= lim / aL; az *= lim / aL; }
       this.v.x += ax; this.v.z += az;
       if (m > .1) this.turnFace(md.x, md.z, hs > 12 ? 7 : 13, dt);
@@ -294,7 +284,7 @@ export class HeroBody {
 
   // ------------------------------------------------------------------ air
   air(dt, inp) {
-    const T = TUNE, md = inp.trick ? _d.set(0, 0, 0) : this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
+    const T = TUNE, md = this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
     this.airT += dt; this.coyote = Math.max(0, this.coyote - dt);
     if (this.p.y > this.fallStart) this.fallStart = this.p.y;
     if (this.jumpBuf > 0 && this.coyote > 0) { this.jumpBuf = 0; this.coyote = 0; this.v.y = T.jumpV; this.ev("jump", { charge: 0 }); }
@@ -309,26 +299,13 @@ export class HeroBody {
     const hAbove = this.heightAbove();
     // dive: head first, heavier and slicker
     const wasDive = this.dive;
-    const diving = inp.crouch && !inp.trick;
-    if (diving) this.glide = false;
-    this.dive = diving && this.airT > .12 && hAbove > 5 && !this.glide;
+    if (inp.crouch) this.glide = false;
+    this.dive = inp.crouch && this.airT > .12 && hAbove > 5 && !this.glide;
     if (this.dive && !wasDive) { this.diveT = 0; this.ev("dive"); }
     if (this.dive) this.diveT += dt;
-    // Keyboard wings toggle with F; the controller retains its hold-to-glide input.
-    if (inp.wings && !inp.trick && !inp.crouch && hAbove > 3) { this.glide = !this.glide; if (this.glide) this.ev("glide"); }
-    if (inp.pad && !this.glide && !inp.trick && !inp.crouch && inp.jumpHeld && this.v.y < -4 && this.airT > .3 && hAbove > 6 && this.jumpBuf <= 0) { this.glide = true; this.ev("glide"); }
-    if (inp.airZip && this.webCool <= 0 && !inp.trick) {
-      const len = Math.hypot(inp.look.x, inp.look.z) || 1;
-      this.v.x += inp.look.x / len * 10; this.v.z += inp.look.z / len * 10;
-      this.v.y = Math.max(this.v.y, 1); this.webCool = .8; this.ev("airdash");
-    }
-    // flying into a current or an updraft opens the wings by itself, and the air holds them open
-    const wind = this.winds && !inp.crouch && !inp.trick && this.airT > .2 ? this.winds.at(this.p) : null;
-    const wasWind = this.inWind;
-    this.inWind = wind ? wind.kind : null;
-    if (wind && !this.glide && !this.dive) { this.glide = true; this.ev("glide"); }
-    if (this.inWind && this.inWind !== wasWind) this.ev("windin", { kind: this.inWind });
-    if (this.glide && (inp.pad && !inp.jumpHeld && !wind || hAbove < 1.5)) this.glide = false;
+    // web wings: hold jump while falling
+    if (!this.glide && !inp.crouch && inp.jumpHeld && this.v.y < -4 && this.airT > .3 && hAbove > 6 && this.jumpBuf <= 0) { this.glide = true; this.ev("glide"); }
+    if (this.glide && (!inp.jumpHeld || hAbove < 1.5)) this.glide = false;
     // air dash
     if (inp.dodge && (this.dashN || 0) < (this.dashes || 1) && this.combatLock <= 0) {
       this.dashN = (this.dashN || 0) + 1; this.dashUsed = this.dashN >= (this.dashes || 1);
@@ -336,7 +313,7 @@ export class HeroBody {
       this.v.x += dx / L * T.dash; this.v.z += dz / L * T.dash; this.v.y = Math.max(this.v.y, 0) + 3;
       this.ev("airdash");
     }
-    if (this.glide) this.glideStep(dt, inp, md, wind);
+    if (this.glide) this.glideStep(dt, inp, md);
     else {
       // steering: accelerate towards the stick and swing the heading round to it
       const hs = Math.hypot(this.v.x, this.v.z);
@@ -371,27 +348,16 @@ export class HeroBody {
     this.checkLedge(inp);
     this.checkWater();
   }
-  glideStep(dt, inp, md, wind) {
+  glideStep(dt, inp, md) {
     const T = TUNE, hs = Math.max(.1, Math.hypot(this.v.x, this.v.z));
-    const tunnel = wind?.kind === "tunnel" ? wind.w : null, vmax = tunnel ? WIND.speed + 8 : T.glideMax;
     let hx = this.v.x / hs, hz = this.v.z / hs;
     // bank towards the stick
     const side = md.x * hz - md.z * hx;   // + is to the left
-    let a = Math.atan2(hx, hz) + clamp(side, -1, 1) * 1.6 * dt;
-    // a current turns the wings down its length (steering hard still breaks out of it)
-    if (tunnel && Math.abs(side) < .6) a += clamp(wrapA(Math.atan2(tunnel.dx, tunnel.dz) - a), -1, 1) * 2.4 * dt;
+    const a = Math.atan2(hx, hz) + clamp(side, -1, 1) * 1.6 * dt;
     hx = Math.sin(a); hz = Math.cos(a);
     const pitch = -(md.x * hx + md.z * hz);   // pulling back climbs (and bleeds speed)
-    let s = clamp(hs + (-pitch * 9 - 1.5) * dt, T.glideMin * .7, vmax);
-    if (tunnel) s += (WIND.speed - s) * Math.min(1, dt * 1.4);
+    let s = clamp(hs + (-pitch * 9 - 1.5) * dt, T.glideMin * .7, T.glideMax);
     this.v.x = hx * s; this.v.z = hz * s;
-    if (tunnel) {
-      // drawn in towards the middle of the current, and held at its height
-      this.v.x += (wind.cx - this.p.x) * WIND.pull * dt * 2; this.v.z += (wind.cz - this.p.z) * WIND.pull * dt * 2;
-      this.v.y += ((wind.cy - this.p.y) * WIND.hold - this.v.y) * Math.min(1, dt * 3);
-      return;
-    }
-    if (wind?.kind === "draft") { this.v.y += (WIND.lift - this.v.y) * Math.min(1, dt * 1.8); return; }
     const sink = T.glideG * (1.2 - Math.min(1, s / T.glideMax) * .6) + Math.max(0, -pitch) * -5;
     this.v.y += (-sink - this.v.y) * Math.min(1, dt * 2.5) + (pitch > 0 ? pitch * 6 * dt * Math.min(1, s / 20) : 0);
     if (s < T.glideMin * .75) this.v.y -= T.g * .5 * dt;
@@ -433,11 +399,11 @@ export class HeroBody {
     }
     // Holding the swing button keeps swinging: past the top of each arc the next line goes out by itself.
     const chain = inp.swing && this.chainCool <= 0 && !this.shots.length &&
-      ((this.state === "air" && this.airT > .08 && (this.v.y < 6 || this.speed > 12)) ||
+      ((this.state === "air" && this.airT > .12 && (this.v.y < 6 || this.speed > 12)) ||
        ((this.state === "ground" || this.state === "perch") && this.stateT > .18));
     if ((inp.swingDown || chain) && this.webCool <= 0 && this.combatLock <= 0) {
       const ok = this.shootSwing(inp, !inp.swingDown);
-      if (!ok) { this.webCool = chain ? .24 : .12; return false; }
+      if (!ok) { this.webCool = chain ? .35 : .15; return false; }
       if (this.state === "ground") {
         // from the street: a hop up into the swing
         this.v.y = Math.max(this.v.y, 7); this.toAir(); this.ev("jump", { charge: 0, web: true });
@@ -451,8 +417,7 @@ export class HeroBody {
   corridor(fx, fz) {
     const W = this.W, p = this.p, rx = -fz, rz = fx, out = _hit3;
     let dl = 60, dr = 60;
-    for (let k = 0; k < 2; k++) {
-      const ah = k * 8;
+    for (const ah of [0, 8]) {
       const ox = p.x + fx * ah, oz = p.z + fz * ah;
       const hl = W.raycast(ox, p.y, oz, -rx, 0, -rz, 60, 2, out); if (hl) dl = Math.min(dl, hl.t);
       const hr = W.raycast(ox, p.y, oz, rx, 0, rz, 60, 2, out); if (hr) dr = Math.min(dr, hr.t);
@@ -461,7 +426,7 @@ export class HeroBody {
   }
   // the way the player wants to go: the stick (camera relative), else the camera, blended with momentum
   travelDir(inp, out) {
-    const hv = Math.hypot(this.v.x, this.v.z), md = inp.trick && (this.state === "air" || this.state === "swing") ? _a.set(0, 0, 0) : this.moveDir(inp, _a);
+    const hv = Math.hypot(this.v.x, this.v.z), md = this.moveDir(inp, _a);
     let fx = Math.hypot(md.x, md.z) > .1 ? md.x : inp.look.x, fz = Math.hypot(md.x, md.z) > .1 ? md.z : inp.look.z;
     let L = Math.hypot(fx, fz) || 1; fx /= L; fz /= L;
     if (hv > 6) { const k = Math.min(.5, hv / 70); fx = fx * (1 - k) + this.v.x / hv * k; fz = fz * (1 - k) + this.v.z / hv * k; L = Math.hypot(fx, fz) || 1; fx /= L; fz /= L; }
@@ -474,24 +439,11 @@ export class HeroBody {
   // which swings us back towards the middle; and lines alternate hands.
   findAnchor(inp, avoidSide = 0, wantSide = 0, relaxed = false) {
     const T = TUNE, W = this.W, p = this.p;
-    if (inp.aimWeb) {
-      const c = inp.camPos, d = inp.look;
-      const h = W.raycast(c.x, c.y, c.z, d.x, d.y, d.z, T.webRange, 1, _hit2);
-      if (!h || h.kind === "ground") return null;
-      const dx = h.x - p.x, dy = h.y - p.y, dz = h.z - p.z, dist = Math.hypot(dx, dy, dz);
-      if (dist < 2 || dist > T.webRange) return null;
-      const block = W.raycast(p.x, p.y, p.z, dx / dist, dy / dist, dz / dist, Math.max(0, dist - .2), 1, _hit3);
-      if (block) return null;
-      const horizontal = Math.hypot(dx, dz) || 1;
-      return { x: h.x, y: h.y, z: h.z, nx: h.nx, ny: h.ny, nz: h.nz, s: h.s,
-        dist, side: -this.lastSide, ground: W.groundUnder(p.x, p.y - T.hip, p.z, 0, .2),
-        fx: dx / horizontal, fz: dz / horizontal };
-    }
     const hv = Math.hypot(this.v.x, this.v.z);
     const f = this.travelDir(inp, _tdir), fx = f.x, fz = f.z;
     const cor = this.corridor(fx, fz);
     const ground = this.W.groundUnder(p.x, p.y - T.hip, p.z, 0, .2);
-    const idealD = 26 + Math.min(hv, 60) * .6;
+    const idealD = 30 + Math.min(hv, 50) * .45;
     let best = null, bs = -Infinity;
     const out = _hit2;
     for (const az of relaxed ? AZ_WIDE : AZ) {
@@ -527,7 +479,7 @@ export class HeroBody {
         if (lside && (lside > 0 ? cor.dr : cor.dl) < 4) sc -= 1.2;
         if (wantSide && lside === wantSide) sc += 1;
         else if (lside && lside === -this.lastSide) sc += .35;            // left hand, right hand
-        if (sc > bs) { bs = sc; best = { x: h.x, y: h.y, z: h.z, nx: h.nx, ny: h.ny, nz: h.nz, s: h.s, dist, side: lside || side || -this.lastSide, low, ground, cor, fx, fz }; }
+        if (sc > bs) { bs = sc; best = { x: h.x, y: h.y, z: h.z, nx: h.nx, ny: h.ny, nz: h.nz, s: h.s, dist, side: lside || side || -this.lastSide, low, ground, cor }; }
       }
     }
     if (!best && !relaxed && !avoidSide && !wantSide) return this.findAnchor(inp, 0, 0, true);
@@ -536,15 +488,15 @@ export class HeroBody {
   shootSwing(inp, quiet = false) {
     const a = this.findAnchor(inp);
     if (!a) { if (!quiet) { this.noWebT = .5; this.ev("noweb"); } return false; }
-    this.webCool = .1;
+    this.webCool = .12;
     this.lastSide = a.side;
-    this.shots.push({ side: a.side, to: new V(a.x, a.y, a.z), n: new V(a.nx, a.ny, a.nz), s: a.s, t: 0, travel: Math.max(.025, a.dist / TUNE.webSpeed), kind: "swing", ground: a.ground, fx: a.fx, fz: a.fz });
+    this.shots.push({ side: a.side, to: new V(a.x, a.y, a.z), n: new V(a.nx, a.ny, a.nz), s: a.s, t: 0, travel: Math.max(.03, a.dist / TUNE.webSpeed), kind: "swing", ground: a.ground });
     this.ev("shoot", { side: a.side, x: a.x, y: a.y, z: a.z, kind: "swing" });
-    // A deliberate power swing can use both hands; ordinary catches keep one clean pendulum arc.
-    if (inp.sprint && !inp.trick && this.speed > 24 && !this.webs.length && a.cor?.canyon) {
+    // a second line into the facing wall, in a street canyon at speed: a steadier, faster double swing
+    if (this.speed > 16 && !this.webs.length && a.cor?.canyon) {
       const b = this.findAnchor(inp, a.side, -a.side);
       if (b && Math.abs(b.y - a.y) < 14 && b.dist > a.dist * .6 && b.dist < a.dist * 1.6 && Math.hypot(b.x - a.x, b.z - a.z) > 12) {
-        this.shots.push({ side: b.side, to: new V(b.x, b.y, b.z), n: new V(b.nx, b.ny, b.nz), s: b.s, t: 0, travel: Math.max(.025, b.dist / TUNE.webSpeed), kind: "swing", ground: b.ground, second: true, fx: b.fx, fz: b.fz });
+        this.shots.push({ side: b.side, to: new V(b.x, b.y, b.z), n: new V(b.nx, b.ny, b.nz), s: b.s, t: 0, travel: Math.max(.03, b.dist / TUNE.webSpeed), kind: "swing", ground: b.ground, second: true });
         this.ev("shoot", { side: b.side, x: b.x, y: b.y, z: b.z, kind: "swing", second: true });
       }
     }
@@ -566,7 +518,6 @@ export class HeroBody {
   attach(s) {
     const d = this.p.distanceTo(s.to);
     if (d < 3) return;
-    const first = !this.webs.length;
     if (this.state === "wall" || this.state === "ledge" || this.state === "perch" || this.state === "ground") {
       if (this.state === "wall") { this.v.addScaledVector(this.n, 5); this.wallCool = .35; }
       this.toAir();
@@ -577,23 +528,22 @@ export class HeroBody {
     this.webs.push(w);
     if (this.webs.length > 2) this.webs.shift();
     this.setState("swing"); this.glide = false; this.dive = false;
-    if (first) {
+    if (!s.second) {
       // Turn part of a falling catch into forward swing momentum without adding kinetic energy.
       _b.subVectors(this.p, s.to).normalize();
       const radial = this.v.dot(_b);
       if (radial > 0) {
         const speed = this.v.length();
         this.v.addScaledVector(_b, -radial);
-        _c.set(s.fx ?? this.face.x, 0, s.fz ?? this.face.z);
-        _c.addScaledVector(_b, -_c.dot(_b));
+        _c.copy(this.face).addScaledVector(_b, -this.face.dot(_b));
         if (this.v.lengthSq() < 1 && _c.lengthSq() > .01) this.v.copy(_c.normalize());
-        const tangent = this.v.length(), carry = Math.sqrt(tangent * tangent + radial * radial * .92);
+        const tangent = this.v.length(), carry = Math.min(TUNE.swingMax * 1.15, Math.sqrt(tangent * tangent + radial * radial * .65));
         if (tangent > .01) this.v.multiplyScalar(Math.min(speed, carry) / tangent);
       }
     }
     this.dashUsed = false; this.dashN = 0;
-    if (first) { this.swingT = 0; this.skim = 0; this.clearanceT = 0; this.corT = 0; }
-    this.ev("attach", { side: s.side, second: !first, d });
+    this.swingT = 0; this.skim = 0;
+    this.ev("attach", { side: s.side, second: !!s.second, d });
   }
   releaseWebs(reason = "let go") {
     // A slower shot from the other wrist must not reconnect after a launch, combat move or zip.
@@ -605,7 +555,7 @@ export class HeroBody {
 
   // ------------------------------------------------------------------ swinging
   swing(dt, inp) {
-    const T = TUNE, md = inp.trick ? _d.set(0, 0, 0) : this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
+    const T = TUNE, md = this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
     this.swingT += dt;
     if (this.jumpBuf > 0) { this.jumpBuf = 0; return this.letGo(inp, true); }
     if (!inp.swing && !this.shots.length) return this.letGo(inp, false);
@@ -615,21 +565,23 @@ export class HeroBody {
     this.wrapWebs();
     if (!this.webs.length) { this.toAir(); return; }
     const w0 = this.webs[0], P = w0.pivot();
-    // Anticipate the street ahead without scanning the ground once per rope on every physics step.
-    if ((this.clearanceT -= dt) <= 0) {
-      this.clearanceT = .05;
-      const feet = this.feet();
-      this.swingFloor = Math.max(this.W.groundUnder(this.p.x, feet, this.p.z, 0, .5),
-        this.W.groundUnder(this.p.x + this.v.x * .12, feet, this.p.z + this.v.z * .12, 0, .5));
-    }
-    const skimH = inp.crouch && !inp.trick ? .35 : .95;
+    // reel in a touch right after the catch: that tug is what makes each swing feel like it grabs
+    if (this.swingT < .25) for (const w of this.webs) w.L = Math.max(4, w.L - w.L0 * .26 * dt);
+    // ground skim: never let the bottom of the arc go into the street - shorten the line so it passes
+    // just over it (lower still while diving)
+    const skimH = inp.crouch ? .55 : 1.25;
     for (const w of this.webs) {
-      const floor = Math.max(w.ground ?? 0, this.swingFloor), maxL = w.pivot().y - floor - T.hip - skimH;
-      if (w.L > maxL && maxL > 3) w.L = Math.max(maxL, w.L - 18 * dt);
+      const pv = w.pivot(), floor = Math.max(w.ground ?? 0, this.W.groundUnder(this.p.x, this.p.y - TUNE.hip, this.p.z, 0, .5));
+      const maxL = pv.y - floor - TUNE.hip * .2 - skimH;
+      if (w.L > maxL && maxL > 3) w.L = Math.max(maxL, w.L - 30 * dt);
     }
-    // Gravity drives the pendulum; steering rotates its tangent instead of adding sideways speed.
+    // forces: gravity, pumping through the bottom, steering across the swing, a little drag
     const rx = this.p.x - P.x, ry = this.p.y - P.y, rz = this.p.z - P.z, rl = Math.hypot(rx, ry, rz) || 1;
     const nx = rx / rl, ny = ry / rl, nz = rz / rl;
+    const vn = this.v.x * nx + this.v.y * ny + this.v.z * nz;
+    let tx = this.v.x - nx * vn, ty = this.v.y - ny * vn, tz = this.v.z - nz * vn;
+    const tl = Math.hypot(tx, ty, tz);
+    if (tl > .5) { tx /= tl; ty /= tl; tz /= tl; } else { tx = this.face.x; ty = 0; tz = this.face.z; }
     this.v.y -= T.swingG * dt;
     // keep off the walls: a gentle pull towards the middle of the street we're swinging down, unless
     // the player is steering across it themselves
@@ -645,49 +597,35 @@ export class HeroBody {
       // the middle of the street.
       let a = clamp((cor.dr - cor.dl) * .5 * .9, -8, 8);
       if (w0.taut) {
-        const radial = this.v.x * nx + this.v.y * ny + this.v.z * nz;
-        const tangent2 = Math.max(0, this.v.lengthSq() - radial * radial);
-        const tension = T.swingG * Math.max(0, -ny) + tangent2 / Math.max(4, w0.L);
-        a += clamp(tension * (nx * cor.rx + nz * cor.rz) * .65, -10, 10);
+        const tension = T.swingG * Math.max(0, -ny) + (tl * tl) / Math.max(4, w0.L);
+        a -= tension * (-(nx * cor.rx + nz * cor.rz)) * .8;
       }
-      a = clamp(a, -14, 14);
       this.v.x += cor.rx * a * dt; this.v.z += cor.rz * a * dt;
     }
-    const vn = this.v.x * nx + this.v.y * ny + this.v.z * nz;
-    const tangent = _e.set(this.v.x - nx * vn, this.v.y - ny * vn, this.v.z - nz * vn);
-    let tl = tangent.length();
-    if (tl > .01) tangent.multiplyScalar(1 / tl);
-    else { tangent.copy(this.face); const d = tangent.x * nx + tangent.y * ny + tangent.z * nz; tangent.x -= nx * d; tangent.y -= ny * d; tangent.z -= nz * d; tangent.normalize(); }
-    let drive = inp.trick ? 0 : .28;
     if (m > .1) {
-      const dot = md.x * nx + md.z * nz, desired = _f.set(md.x - nx * dot, -ny * dot, md.z - nz * dot);
-      drive = 0;
-      if (desired.lengthSq() > .01) {
-        desired.normalize();
-        const alignment = clamp(tangent.dot(desired), -1, 1);
-        if (alignment < -.25 && tl > 5) tl *= Math.exp(-dt * -alignment * 1.15);
-        else {
-          const angle = Math.acos(alignment), turn = T.swingSteer * m * dt / Math.max(14, tl);
-          if (tl < .5) tangent.copy(desired);
-          else tangent.lerp(desired, Math.min(1, turn / Math.max(.001, angle))).normalize();
-          drive = clamp((alignment + .15) / 1.15, 0, 1) * m;
-        }
+      const fwd = md.x * tx + md.z * tz;
+      // below the anchor and heading forward: pump
+      if (ny < -.15 && fwd > 0 && this.speed < T.swingMax) {
+        const k = T.swingPump * fwd * (-ny) * dt;
+        this.v.x += tx * k; this.v.y += ty * k; this.v.z += tz * k;
       }
+      // steering: the part of the stick across the swing plane (horizontal) turns it
+      let px = ny * tz - nz * ty, pz = nx * ty - ny * tx;   // (n x t) projected
+      const pl = Math.hypot(px, pz);
+      if (pl > .1) {
+        px /= pl; pz /= pl;
+        const lat = md.x * px + md.z * pz;
+        this.v.x += px * lat * T.swingSteer * dt; this.v.z += pz * lat * T.swingSteer * dt;
+      }
+      if (fwd < -.5 && this.speed > 8) this.v.multiplyScalar(1 - .6 * dt);
     }
-    const headroom = clamp((T.swingMax - this.v.length()) / 18, 0, 1);
-    if (ny < -.12 && drive > 0) tl += T.swingPump * drive * -ny * headroom * (this.webs.length > 1 ? 1.1 : 1) * dt;
-    this.v.set(tangent.x * tl + nx * vn, tangent.y * tl + ny * vn, tangent.z * tl + nz * vn);
-    this.swingDrive += (drive - this.swingDrive) * (1 - Math.exp(-dt * 8));
-    this.swingTension = w0.taut ? clamp((T.swingG * Math.max(0, -ny) + tl * tl / Math.max(4, w0.L)) / 90, 0, 2) : 0;
     const sp = this.v.length();
     this.v.multiplyScalar(Math.max(0, 1 - T.drag * .6 * sp * dt));
     // integrate, then hold the body on the rope's sphere (one or two ropes)
     const C = this.integrate(dt);
-    let correction = 0;
-    for (let it = 0; it < (this.webs.length > 1 ? 3 : 1); it++) for (const w of this.webs) correction = Math.max(correction, this.constrain(w));
-    if (correction > .025 && this.W.collide(this.p, T.r, this.res, 2)) for (const c of this.res.contacts) this.contact(c, C);
-    const speed = this.v.length(), limit = T.swingMax * 1.25;
-    if (speed > limit) this.v.multiplyScalar((limit + (speed - limit) * Math.exp(-dt * 2)) / speed);
+    for (let it = 0; it < (this.webs.length > 1 ? 3 : 1); it++) for (const w of this.webs) this.constrain(w);
+    if (this.webs.length > 1) this.v.multiplyScalar(1 + .25 * dt);   // the double line slings you on
+    if (this.speed > T.swingMax * 1.15) this.v.multiplyScalar(1 - .8 * dt);
     if (this.v.x * this.v.x + this.v.z * this.v.z > 1) this.turnFace(this.v.x, this.v.z, 6, dt);
     // touching things: a wall is a wall run, the street at speed is a skim, slow is a landing
     const wc = this.wallContact(C);
@@ -695,7 +633,7 @@ export class HeroBody {
     const fy = this.landFloor();
     if (this.feet() <= fy + .05 && this.v.y <= .5) {
       const hs = Math.hypot(this.v.x, this.v.z);
-      if (hs > 11) { this.p.y = fy + T.hip + .3; this.v.y = Math.max(this.v.y, 0); if (!this.skim) this.ev("skim"); this.skim = .2; }
+      if (hs > 11) { this.p.y = fy + TUNE.hip; this.v.y = Math.max(this.v.y, 0); if (!this.skim) this.ev("skim"); this.skim = .2; }
       else { this.releaseWebs("ground"); this.land(fy, inp); return; }
     } else this.skim = Math.max(0, this.skim - dt);
     // swung up level with the anchor: the line goes slack
@@ -705,18 +643,17 @@ export class HeroBody {
     // swinging back and forth on one line.
     const P2 = this.webs[0].pivot(), ox = this.p.x - P2.x, oz = this.p.z - P2.z;
     const oh = Math.hypot(ox, oz), rlen = Math.max(1, this.p.distanceTo(P2));
-    if (this.swingT > .4 && ox * this.v.x + oz * this.v.z > 0 && (oh / rlen > .84 && this.v.y > 1 || oh / rlen > .74 && this.v.y < .8 && this.v.y > -2)) return this.letGo(inp, false, true);
+    if (this.swingT > .45 && ox * this.v.x + oz * this.v.z > 0 && (oh / rlen > .66 && this.v.y > 0 || oh / rlen > .5 && this.v.y < .6)) return this.letGo(inp, false, true);
     this.checkWater();
   }
   constrain(w) {
     const P = w.pivot(), dx = this.p.x - P.x, dy = this.p.y - P.y, dz = this.p.z - P.z, d = Math.hypot(dx, dy, dz);
     w.taut = d >= w.L - .05;
-    if (d <= w.L || d < 1e-6) return 0;
+    if (d <= w.L || d < 1e-6) return;
     const nx = dx / d, ny = dy / d, nz = dz / d;
     this.p.set(P.x + nx * w.L, P.y + ny * w.L, P.z + nz * w.L);
     const vr = this.v.x * nx + this.v.y * ny + this.v.z * nz;
     if (vr > 0) { this.v.x -= nx * vr; this.v.y -= ny * vr; this.v.z -= nz * vr; }
-    return d - w.L;
   }
   // the rope catches on whatever comes between the body and its pivot (a corner on the way round),
   // and lets go of the corner again when the body swings back past it
@@ -754,38 +691,30 @@ export class HeroBody {
   }
   // letting go: momentum carries on; timing it on the up-swing adds a kick, and jump adds a big one
   letGo(inp, jump, slack = false) {
-    const T = TUNE, P = this.webs[0]?.pivot(), before = this.v.length();
+    const T = TUNE, P = this.webs[0]?.pivot();
     let quality = 0;
     if (P) {
       const rx = this.p.x - P.x, ry = this.p.y - P.y, rz = this.p.z - P.z, rl = Math.hypot(rx, ry, rz) || 1;
       const ang = Math.acos(clamp(-ry / rl, -1, 1));           // 0 = hanging straight down
       const away = (rx * this.v.x + rz * this.v.z) > 0;          // swinging out past the anchor
-      if (this.v.y > 0 && away && ang > .45 && ang < 1.45) quality = ang > .75 && ang < 1.25 && before > 22 ? 2 : 1;
+      if (this.v.y > 0 && away && ang > .45 && ang < 1.45) quality = ang > .75 && ang < 1.25 && this.speed > 22 ? 2 : 1;
     }
     this.releaseWebs(jump ? "jump" : slack ? "slack" : "let go");
     this.toAir();
     const hs = Math.max(.1, Math.hypot(this.v.x, this.v.z));
     if (slack) quality = 0;
     if (quality) {
-      const room = clamp((T.swingMax * 1.15 - before) / 20, 0, 1), boost = (quality === 2 ? 4 : 2) * room;
-      if (hs > 1) { this.v.x *= 1 + boost / hs; this.v.z *= 1 + boost / hs; }
-      this.v.y += (quality === 2 ? 4 : 2.5) * room;
+      const k = quality === 2 ? .12 : .06;
+      this.v.x *= 1 + k; this.v.z *= 1 + k; this.v.y += quality === 2 ? 4 : 2.5;
     }
     if (jump) {
       this.v.y = Math.max(this.v.y, 0) + T.swingJumpV;
       this.v.x += (hs > 1 ? this.v.x / hs : this.face.x) * T.releaseBoost;
       this.v.z += (hs > 1 ? this.v.z / hs : this.face.z) * T.releaseBoost;
     }
-    const after = this.v.length(), limit = Math.max(before, T.swingMax * 1.3);
-    if (after > limit) this.v.multiplyScalar(limit / after);
-    this.chainCool = jump ? .28 : slack ? .1 : .12;
+    this.chainCool = jump ? .3 : slack ? .22 : .14;
     this.releaseT = 0; this.releaseQuality = quality;
-    // Pick once per release, excluding the previous pose; never randomize each frame.
-    this.releaseStyle = (this.releaseStyle + 1 + Math.floor(Math.random() * 5)) % 6;
-    this.swingDrive = this.swingTension = 0;
     this.ev("letgo", { quality, jump, speed: this.v.length() });
-    // The next physical line leaves during the handoff, rather than waiting for the whole arc to fall.
-    if (slack && inp.swing && this.webCool <= 0 && this.combatLock <= 0 && !this.shootSwing(inp, true)) this.webCool = .16;
   }
 
   // ------------------------------------------------------------------ zip / point launch
@@ -873,36 +802,8 @@ export class HeroBody {
     this.toAir(); this.dashUsed = false; this.dashN = 0;
     this.ev("launch");
   }
-  // The slingshot: hold to pull back on two lines, let go to be flung where the camera looks - harder
-  // the longer it was held. Works from the street and from a perch.
-  slingStep(dt, inp) {
-    const s = this.sling;
-    if (!s) {
-      if (!inp.sling) return false;
-      this.sling = { t: 0, charge: 0 };
-      this.ev("slingstart");
-      return true;
-    }
-    s.t += dt; s.charge = clamp((s.t - .1) / 1.1, 0, 1);
-    const k = Math.exp(-dt * 10);
-    this.v.x *= k; this.v.z *= k; this.v.y = 0;
-    this.turnFace(inp.look.x, inp.look.z, 9, dt);
-    if (inp.sling) return true;
-    this.sling = null;
-    if (s.charge < .12) { this.ev("slingcancel"); return false; }
-    const L = inp.look, hx = L.x, hz = L.z, hl = Math.hypot(hx, hz) || 1;
-    // aim where the camera looks, but never flatter than a climbing arc
-    const up = clamp(L.y + .45, .32, .95), across = Math.sqrt(1 - up * up);
-    const sp = 30 + s.charge * 34;
-    this.v.set(hx / hl * across * sp, up * sp, hz / hl * across * sp);
-    this.perchAt = null; this.jumpBuf = 0;
-    this.toAir(); this.dashUsed = false; this.dashN = 0;
-    this.ev("slingshot", { charge: s.charge });
-    return true;
-  }
   perchStep(dt, inp) {
     const md = this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
-    if (this.slingStep(dt, inp)) { if (this.state === "perch") this.v.set(0, 0, 0); return; }
     this.v.set(0, 0, 0);
     if (m > .1) this.turnFace(md.x, md.z, 6, dt);
     else this.turnFace(inp.look.x, inp.look.z, 3, dt);
@@ -914,52 +815,45 @@ export class HeroBody {
 
   // ------------------------------------------------------------------ walls and ceilings
   toWall(c, mode) {
-    const n = this.n.set(c.nx, 0, c.nz);
+    const n = this.n.set(c.nx, this.ceiling ? c.ny : 0, c.nz);
     if (n.lengthSq() < 1e-4) return;
     n.normalize();
     this.ceiling = false;
     this.wallSolid = c.s;
     const vn = this.v.dot(n);
-    const impact = Math.max(0, -(c.vn ?? vn));
     this.v.addScaledVector(n, -vn);
     // momentum along the wall carries into the run; a straight-on hit turns into running up it
-    if (mode === "run" && impact > 4) this.v.y = Math.max(this.v.y, Math.min(TUNE.wallRun, impact * .65));
+    if (mode === "run" && -vn > 4) this.v.y = Math.max(this.v.y, Math.min(14, -vn * .6));
     this.wallMode = mode;
-    this.releaseWebs("wall"); this.glide = false; this.dive = false; this.dashUsed = false; this.dashN = 0;
+    this.webs.length = 0; this.glide = false; this.dive = false; this.dashUsed = false; this.dashN = 0;
     this.setState("wall"); this.wallT = 0;
-    if (!this.snapWall(1.2)) { this.toAir(); this.wallCool = .15; return; }
+    this.snapWall(1.5);
     this.ev("wall", { mode, speed: this.v.length() });
   }
   toCeiling(c) {
     this.n.set(0, -1, 0);
     this.ceiling = true;
     this.v.y = 0;
-    this.releaseWebs("ceiling"); this.glide = false; this.dive = false;
+    this.webs.length = 0; this.glide = false; this.dive = false;
     this.setState("wall"); this.wallT = 0; this.wallMode = "crawl";
     this.ev("ceiling");
   }
   // find the wall behind us again (it may have turned a little: a curved tower, a ramp's side)
   snapWall(reach = .9) {
     const n = this.n, W = this.W;
-    const along = -n.z * this.v.x + n.x * this.v.z, oldX = n.x, oldZ = n.z;
     const h = W.raycast(this.p.x + n.x * .2, this.p.y + n.y * .2, this.p.z + n.z * .2, -n.x, -n.y, -n.z, reach + .2 + TUNE.r, 2, _hit3);
     if (!h) return false;
     if (this.ceiling ? h.ny > -.7 : Math.abs(h.ny) > .5) return false;
     n.set(h.nx, this.ceiling ? h.ny : 0, h.nz).normalize();
-    this.wallGap = TUNE.r + .02;
-    this.p.set(h.x + n.x * this.wallGap, h.y + n.y * this.wallGap, h.z + n.z * this.wallGap);
-    if (!this.ceiling && n.x * oldX + n.z * oldZ > .5) { this.v.x = -n.z * along; this.v.z = n.x * along; }
-    else this.v.addScaledVector(n, -this.v.dot(n));
+    this.p.set(h.x + n.x * (TUNE.r + .02), h.y + n.y * (TUNE.r + .02), h.z + n.z * (TUNE.r + .02));
     this.wallSolid = h.s;
     return true;
   }
   wall(dt, inp) {
     const T = TUNE, n = this.n, md = this.moveDir(inp, _d), m = Math.hypot(md.x, md.z);
     this.wallT += dt;
-    // A swing catch starts a run. Keep that mode while moving, even after releasing Shift;
-    // without movement input, brake to a stop before settling into a crawl.
-    const run = !this.ceiling && ((m > .05 && (inp.sprint || inp.swing))
-      || this.wallMode === "run" && (m > .05 || this.v.lengthSq() > 1));
+    // the swing button held on a wall runs it, like sprint: a swing into a building carries on as a run
+    const run = inp.sprint || inp.swing;
     this.wallMode = run ? "run" : "crawl";
     // the wall's own axes: up it, and along it to the right as you face it
     let ux, uy, uz, rx, ry, rz;
@@ -969,12 +863,12 @@ export class HeroBody {
     let inR, inU;
     if (this.ceiling) { inR = md.x * rx + md.z * rz; inU = md.x * ux + md.z * uz; }
     else {
-      const right = rx * -inp.look.z + rz * inp.look.x;
-      inR = Number.isFinite(inp.ix) ? inp.ix * (right >= 0 ? 1 : -1) : md.x * rx + md.z * rz;
-      inU = Number.isFinite(inp.iy) ? inp.iy : -(md.x * n.x + md.z * n.z);
+      inR = md.x * rx + md.z * rz; inU = -(md.x * n.x + md.z * n.z);
+      if (m > .1 && inp.look.y > .55 && inU > -.3) inU = Math.max(inU, .8);      // looking up the wall
+      if (m > .1 && inp.look.y < -.6 && inU < .3) inU = Math.min(inU, -.8);      // looking down it
     }
     const il = Math.hypot(inR, inU);
-    const spd = (run ? (this.speedster ? 48 : T.wallRun) : T.wallCrawl) * Math.min(1, m);
+    const spd = (run ? T.wallRun : T.wallCrawl) * Math.min(1, m);
     const tR = il > .05 ? inR / il * spd : 0, tU = il > .05 ? inU / il * spd : 0;
     const want = _e.set(rx * tR + ux * tU, ry * tR + uy * tU, rz * tR + uz * tU);
     // keep the momentum we arrived with while running, settle to the stick's speed
@@ -982,16 +876,15 @@ export class HeroBody {
     _f.subVectors(want, this.v); const fl = _f.length();
     if (fl > acc) _f.multiplyScalar(acc / fl);
     this.v.add(_f);
-    if (il < .05 && this.v.lengthSq() <= 1) {
-      this.v.set(0, 0, 0); this.wallMode = "crawl";
-    }
+    // a run with no stick bleeds into a slow slide down; a crawl just holds on
+    if (run && il < .05 && !this.ceiling) this.v.y -= 6 * dt;
     this.v.addScaledVector(n, -this.v.dot(n));
-    // jump off: launch clearly away from the wall, then blend in the camera-facing tangent.
+    // jump off: away from the wall, up, and towards where the camera points
     if (this.jumpBuf > 0) {
       this.jumpBuf = 0;
       if (this.ceiling) { this.v.set(this.v.x, -4, this.v.z); this.ceiling = false; this.toAir(); this.wallCool = .3; this.ev("drop"); return; }
       const lx = inp.look.x - n.x * (inp.look.x * n.x + inp.look.z * n.z), lz = inp.look.z - n.z * (inp.look.x * n.x + inp.look.z * n.z);
-      this.v.set(n.x * 14 + lx * 9 + this.v.x * .4, 12.5 + Math.max(0, this.v.y * .45), n.z * 14 + lz * 9 + this.v.z * .4);
+      this.v.set(n.x * 10.5 + lx * 7 + this.v.x * .4, 9.5 + Math.max(0, this.v.y * .45), n.z * 10.5 + lz * 7 + this.v.z * .4);
       this.toAir(); this.wallCool = .28; this.lastWall = this.wallSolid;
       this.face.set(this.v.x, 0, this.v.z).normalize();
       this.ev("walljump");
@@ -1013,7 +906,7 @@ export class HeroBody {
         let wx = ox - n.x * (ox * n.x + oz * n.z), wz = oz - n.z * (ox * n.x + oz * n.z);
         const wl = Math.hypot(wx, wz) || 1;
         wx /= wl; wz /= wl;
-        if (Math.abs(along) > .25) { this.v.x = wx * sp; this.v.z = wz * sp; }
+        if (Math.abs(along) > 1.5) { this.v.x = wx * sp; this.v.z = wz * sp; }
         this.ev("corner", { inside: true });
         break;
       }
@@ -1040,11 +933,11 @@ export class HeroBody {
     }
     // hold onto the surface; if it has gone (the corner of a building), try round the corner, else let go
     if (!this.snapWall()) {
-      if (!this.ceiling && Math.abs(along) > .25) {
+      if (!this.ceiling && Math.abs(along) > 2) {
         const dir = Math.sign(along), ax = rx * dir, az = rz * dir;
         // from just past the corner, look back at the building for the face round the corner
-        const ox = this.p.x + ax * .25 - n.x * (T.r + .12), oz = this.p.z + az * .25 - n.z * (T.r + .12);
-        const h = this.W.raycast(ox + ax * .8, this.p.y, oz + az * .8, -ax, 0, -az, 2, 2, _hit3);
+        const ox = this.p.x + ax * .6 - n.x * (T.r + .6), oz = this.p.z + az * .6 - n.z * (T.r + .6);
+        const h = this.W.raycast(ox + ax * 1.2, this.p.y, oz + az * 1.2, -ax, 0, -az, 2.5, 2, _hit3);
         if (h && Math.abs(h.ny) < .4 && h.nx * ax + h.nz * az > .7) {
           // an outside corner: round onto the next face, still running - the way on is the old face's
           // inward normal (round the back of the building)
@@ -1116,9 +1009,6 @@ export class HeroBody {
   // ------------------------------------------------------------------ water
   checkWater() {
     const wy = this.W.waterAt(this.p.x, this.p.z);
-    if (this.speedster && wy > -Infinity && Math.hypot(this.v.x,this.v.z)>18 && this.feet()<=wy+.2 && this.v.y<=0) {
-      this.p.y=wy+TUNE.hip; this.v.y=0; this.setState("ground"); this.grounded=true; return;
-    }
     if (wy > -Infinity && this.p.y < wy + .3 && this.state !== "water") { this.webs.length = 0; this.setState("water"); this.v.multiplyScalar(.3); this.ev("splash", { y: wy }); }
   }
   water(dt, inp) {

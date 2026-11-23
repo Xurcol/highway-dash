@@ -6,7 +6,6 @@
 import * as THREE from "three";
 
 const V = THREE.Vector3;
-const OPTIONS = {};
 const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
 const ease = (dt, rate) => 1 - Math.exp(-dt * rate);
 const wrapA = (a) => { while (a > Math.PI) a -= Math.PI * 2; while (a < -Math.PI) a += Math.PI * 2; return a; };
@@ -24,8 +23,6 @@ export class HeroCam {
     this.combat = null;      // { x, y, z } a point to keep in frame
     this.snapNext = true;
     this.wallK = 0; this.speed = 0;
-    this.wallGrace = 0;
-    this.probeT = 0;
     this.contacts = { contacts: [] };
   }
   shake(a) { this.trauma = Math.min(1, this.trauma + a); }
@@ -33,25 +30,23 @@ export class HeroCam {
   // where the camera looks, flattened onto the ground: what "forward" means for the move keys
   get heading() { return this.yaw; }
 
-  update(dt, H, inp, o = OPTIONS) {
+  update(dt, H, inp, o = {}) {
     dt = clamp(Number.isFinite(dt) ? dt : 0, 0, .1);
     this.t += dt;
     const p = H.p, v = H.v, sp = v.length(), hs = Math.hypot(v.x, v.z), snap = this.snapNext;
-    this.wallGrace = H.state === "wall" ? 1 : snap ? 0 : Math.max(0, this.wallGrace - dt);
     if (snap) { this.idle = 0; this.speed = sp; this.roll = this.trauma = 0; this.kick.set(0, 0, 0); }
     else this.speed += (sp - this.speed) * ease(dt, 5);
     // ---- the player's mouse ----
     const mdx = inp?.mdx || 0, mdy = inp?.mdy || 0;
     if (Math.abs(mdx) + Math.abs(mdy) > .01) this.idle = 0; else this.idle += dt;
-    if (this.wallGrace > 0) this.idle = 0;
     this.yaw -= mdx * this.sens;
     this.pitch -= mdy * this.sens * (this.invertY ? -1 : 1);
     // ---- following on its own when left alone: swing round behind the direction of travel ----
     const moving = (H.state === "swing" || H.state === "air" || H.state === "zip") && hs > 9 || H.state === "ground" && hs > 12 || H.state === "wall" && sp > 3;
-    // A wall is a deliberate camera state: never auto-orbit while attached, because that makes
-    // the surface feel like it is dragging the player's view around.
-    if (this.autoFollow && !this.firstPerson && H.state !== "wall" && this.idle > 1.1 && moving && !this.combat && !o.aim && !o.tricking) {
-      const wx = v.x, wz = v.z;
+    if (this.autoFollow && this.idle > 1.1 && moving && !this.combat && !o.aim) {
+      // on a wall: look along the run from a little way out; elsewhere: behind the direction of travel
+      let wx = v.x, wz = v.z;
+      if (H.state === "wall" && !H.ceiling) { const al = v.x * -H.n.z + v.z * H.n.x; wx = -H.n.z * al - H.n.x * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; wz = H.n.x * al - H.n.z * 1.2 * Math.abs(v.y) / Math.max(1, sp) * 6; if (Math.hypot(wx, wz) < .5) { wx = -H.n.x; wz = -H.n.z; } }
       const want = Math.atan2(-wx, -wz), d = wrapA(want - this.yaw);
       // Ease into following after mouse input, even when the hero reverses direction.
       const follow = clamp((this.idle - 1.1) / .7, 0, 1);
@@ -63,36 +58,15 @@ export class HeroCam {
     this.pitch = clamp(this.pitch, -1.38, 1.15);
     this.yaw = wrapA(this.yaw);
 
-    if (this.firstPerson) {
-      // Keep the horizon under mouse control even during flips and wall traversal.
-      const cp = Math.cos(this.pitch);
-      this.look.set(-Math.sin(this.yaw) * cp, Math.sin(this.pitch), -Math.cos(this.yaw) * cp);
-      this.pos.copy(p); this.pos.y += .55;
-      this.W.collide?.(this.pos, .2, this.contacts, 2);
-      this.cam.position.copy(this.pos); this.cam.up.set(0, 1, 0);
-      this.cam.lookAt(this.pos.x + this.look.x, this.pos.y + this.look.y, this.pos.z + this.look.z);
-      const target = 78 + clamp((this.speed - 15) / (H.speedster ? 100 : 50), 0, 1) * (H.speedster ? 14 : 8);
-      this.fov = snap ? target : this.fov + (target - this.fov) * ease(dt, 4);
-      if (Math.abs(this.cam.fov - this.fov) > .05) { this.cam.fov = this.fov; this.cam.updateProjectionMatrix(); }
-      this.snapNext = false;
-      return;
-    }
-
     // ---- how far back and how wide, from speed and what the body is doing ----
     let dist = 4.7 + clamp((this.speed - 8) / 46, 0, 1) * 2.9, fov = 65 + clamp((this.speed - 10) / 52, 0, 1) * 17, up = .65, side = .35;
-    if (H.speedster) { fov += clamp((this.speed - 25) / 100, 0, 1) * 10; }
     if (H.state === "swing") { dist += .45; up = .8; }
     if (H.state === "zip") { dist += .25; up = .7; }
-    if (H.state === "wall") { dist = 5.15; up = .45; side = 0; }
-    if (H.state === "wall" && H.wallMode === "run") { dist += .35; fov += 4; }
+    if (H.state === "wall") { dist = 5.6; up = .6; side = 0; }
     if (H.state === "perch") { dist = 4.6; up = .9; }
     if (H.state === "ledge") { dist = 4.2; up = .7; }
     if (H.dive) { fov += 8; dist += .6; }
-    if (H.state === "air" && H.v.y < -18) { fov += 5; dist += .45; up = .5; }
     if (H.glide) { dist += 1.2; fov += 4; }
-    if (o.dashing) { dist += .35; fov += 5; }
-    // Keep the whole flip readable without orbiting the camera with the hero's rotation.
-    if (o.tricking) { dist += 1.1; up = .55; side = .15; fov += 3; }
     if (H.state === "ground" && H.slideT > 0) { up = .2; dist = 3.8; }
     if (this.combat) { dist = Math.max(dist, 5.8 + Math.min(4, this.combat.d * .25)); up = 1.0; side = .15; fov = Math.max(fov, 66); }
     if (o.aim) { dist = 2.6; side = .7; up = .45; fov = 52; }
@@ -104,9 +78,8 @@ export class HeroCam {
     let tx = p.x + v.x * lead, ty = p.y + up + clamp(v.y * .025, -.7, .65), tz = p.z + v.z * lead;
     // on a wall the camera stands off it, so it looks at the hero rather than along the bricks
     const wall = H.state === "wall" && !H.ceiling ? 1 : 0;
-    const wallK = this.wallK = snap ? wall : wall ? this.wallK + (1 - this.wallK) * ease(dt, 11) : this.wallK * (1 - ease(dt, 9));
-    // Preserve the orbit pivot through contact and release. Collision probes pull the
-    // camera closer instead of shifting it sideways when wall normals change at corners.
+    const wallK = this.wallK = snap ? wall : this.wallK + (wall - this.wallK) * ease(dt, 5);
+    if (wallK > .01) { tx += H.n.x * 1.1 * wallK; tz += H.n.z * 1.1 * wallK; }
     // in combat, the pivot slides towards the middle of the fight
     if (this.combat) { const c = this.combat; tx += (c.x - p.x) * .25; tz += (c.z - p.z) * .25; }
     // Leading the hero must not move the camera's pivot through the next building.
@@ -125,8 +98,11 @@ export class HeroCam {
     // ---- orbit ----
     const cp = Math.cos(this.pitch), sp2 = Math.sin(this.pitch);
     let fx = -Math.sin(this.yaw) * cp, fy = sp2, fz = -Math.cos(this.yaw) * cp;
-    // Wall normals must never rewrite the viewing direction: the correction could
-    // reverse a nearly head-on view as it faded in or out after a wall jump.
+    // on a wall the boom must stay on the open side of it: tip it out until it points well away
+    if (wallK > .01) {
+      const n = H.n, out = -(fx * n.x + fy * n.y + fz * n.z), need = .45 * wallK;
+      if (out < need) { const a = need - out; fx -= n.x * a * 1.4; fy -= n.y * a * 1.4; fz -= n.z * a * 1.4; const L = Math.hypot(fx, fy, fz); fx /= L; fy /= L; fz /= L; }
+    }
     this.look.set(fx, fy, fz);
     const rx = Math.cos(this.yaw), rz = -Math.sin(this.yaw);   // right of the view
     if (side > 0) {
@@ -135,12 +111,9 @@ export class HeroCam {
     }
     const ox = this.pivot.x + rx * side, oz = this.pivot.z + rz * side, oy = this.pivot.y;
     let want = this.dist;
-    // Keep the centre ray current every frame; repeat edge rays more often beside a wall or during a fast orbit.
-    this.probeT += dt;
-    const edges = snap || this.probeT >= 1 / 30 || wallK > .01 || this.curDist < this.dist - .1 || Math.abs(mdx) + Math.abs(mdy) > 2;
-    if (edges) this.probeT %= 1 / 30;
+    // Probe the camera's width as well as its centre so roof edges do not clip the lens.
     const ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
-    for (let i = 0; i < (edges ? 5 : 1); i++) {
+    for (let i = 0; i < 5; i++) {
       const sx = i === 1 ? rx * .22 : i === 2 ? -rx * .22 : i === 3 ? ux * .22 : i === 4 ? -ux * .22 : 0;
       const sy = i === 3 ? uy * .22 : i === 4 ? -uy * .22 : 0;
       const sz = i === 1 ? rz * .22 : i === 2 ? -rz * .22 : i === 3 ? uz * .22 : i === 4 ? -uz * .22 : 0;
@@ -154,26 +127,25 @@ export class HeroCam {
     const floor = this.W.topAt(cx, cz, cy + .35);
     cy = Math.max(cy, floor + .3);
     this.pos.set(cx, cy, cz);
+    this.W.collide?.(this.pos, .28, this.contacts, 2);
     this.snapNext = false;
 
     // ---- shake, kicks, sway at speed ----
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
     const tr = this.trauma * this.trauma, spd = clamp((this.speed - 28) / 42, 0, 1);
-    const sx = (tr > 0 ? noise(this.t * 12, 1) * tr * .23 : 0) + (spd > 0 ? noise(this.t * 1.3, 4) * spd * .035 : 0);
-    const sy = (tr > 0 ? noise(this.t * 12, 7) * tr * .2 : 0) + (spd > 0 ? noise(this.t * 1.1, 9) * spd * .025 : 0);
+    const sx = (noise(this.t * 12, 1) * tr * .23) + noise(this.t * 1.3, 4) * spd * .035;
+    const sy = (noise(this.t * 12, 7) * tr * .2) + noise(this.t * 1.1, 9) * spd * .025;
     this.kick.multiplyScalar(Math.exp(-dt * 7));
     const C = this.cam;
     C.position.set(this.pos.x + rx * sx + this.kick.x, this.pos.y + sy + this.kick.y, this.pos.z + rz * sx + this.kick.z);
-    // One sphere correction after shake also covers the unshaken boom endpoint.
-    this.W.collide?.(C.position, .28, this.contacts, 2);
+    this.W.collide?.(C.position, .25, this.contacts, 2);
     C.position.y = Math.max(C.position.y, this.W.topAt(C.position.x, C.position.z, C.position.y + .3) + .25);
     C.up.set(0, 1, 0);
     C.lookAt(C.position.x + fx, C.position.y + fy, C.position.z + fz);
     // a little roll into hard turns at speed, and with the trauma
     const turn = H.turnRate || 0;
-    const turnRoll = this.wallGrace > 0 ? 0 : clamp(-turn * .025 * clamp(hs / 35, 0, 1), -.055, .055);
-    this.roll += (turnRoll - this.roll) * ease(dt, 4.5);
-    C.rotateZ(this.roll + (tr > 0 ? noise(this.t * 14, 3) * tr * .035 : 0));
+    this.roll += (clamp(-turn * .025 * clamp(hs / 35, 0, 1), -.055, .055) - this.roll) * ease(dt, 4.5);
+    C.rotateZ(this.roll + noise(this.t * 14, 3) * tr * .035);
     if (Math.abs(C.fov - this.fov) > .05) { C.fov = this.fov; C.updateProjectionMatrix(); }
   }
 }
