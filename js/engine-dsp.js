@@ -1,0 +1,602 @@
+// Procedural combustion-engine synth (pure DSP, runs in an AudioWorklet or ScriptProcessor).
+//
+// Model, per sample:
+//   crank angle -> each cylinder fires a pressure pulse (fast rise, exponential decay) scaled by the
+//   engine's real LOAD (not raw pedal), with cycle-to-cycle variation, per-cylinder strength and
+//   runner delay
+//   -> each cylinder is routed to ITS bank's exhaust (V engines: two banks, by the engine's real
+//      firing order; inline engines: one collector feeding two tailpipes), each with its own header
+//      + main pipe (quarter-wave waveguides: negative-reflection combs, damped) and its own tone
+//      chain -> stereo. A cross-plane V8's burble comes from its uneven per-bank firing gaps (see
+//      gapStrength), so it is heard in mono too, not only as a stereo effect.
+//   -> muffler (2-pole lowpass whose cutoff opens with load / sport mode)
+//   -> three rpm-weighted resonators (chest rumble -> mid growl -> top-end bark) + sub rumble
+//   -> intake: runner resonance gated by the same firing events, plus induction roar with boost
+//   -> turbo whistle / compressor surge (T51R = deep, slow, loud) / blow-off, supercharger whine
+//   -> afterfire pops and bangs from the decel-fuel-cut model in burbleIntensity()
+//   -> tailpipe air: turbulence at the pipe exit, gated by the exhaust pulses, bypassing the muffler
+//   -> gentle saturation -> DC block
+// Noise only ever appears gated by combustion events, never as a continuous bed.
+//
+// Tuned against real recordings (BMW B58 and S58 on-throttle loops at matching rpm): spectral shape
+// per 1/3 octave, the engine-order structure and the level of the top octaves.
+
+function biquad(type, f, q, sr) {
+  const w = (2 * Math.PI * Math.min(f, sr * .45)) / sr, a = Math.sin(w) / (2 * q), c = Math.cos(w), n = 1 + a;
+  if (type === "bp") return { b0: a / n, b1: 0, b2: -a / n, a1: (-2 * c) / n, a2: (1 - a) / n, x1: 0, x2: 0, y1: 0, y2: 0 };
+  return { b0: (1 - c) / 2 / n, b1: (1 - c) / n, b2: (1 - c) / 2 / n, a1: (-2 * c) / n, a2: (1 - a) / n, x1: 0, x2: 0, y1: 0, y2: 0 }; // lp
+}
+function setLP(s, f, q, sr) { const t = biquad("lp", f, q, sr); s.b0 = t.b0; s.b1 = t.b1; s.b2 = t.b2; s.a1 = t.a1; s.a2 = t.a2; }
+// re-tunes a resonator's centre frequency without touching its history (x1/x2/y1/y2), so the
+// formant can drift with load/revs the way a real exhaust's resonance does with gas temperature and
+// velocity, instead of sitting on one fixed note for the whole rev range
+function setBP(s, f, q, sr) { const t = biquad("bp", f, q, sr); s.b0 = t.b0; s.b1 = t.b1; s.b2 = t.b2; s.a1 = t.a1; s.a2 = t.a2; }
+function run(s, x) {
+  const y = s.b0 * x + s.b1 * s.x1 + s.b2 * s.x2 - s.a1 * s.y1 - s.a2 * s.y2;
+  s.x2 = s.x1; s.x1 = x; s.y2 = s.y1; s.y1 = y;
+  return y;
+}
+const even = (n) => Array.from({ length: n }, (_, i) => (720 / n) * i);
+const V8X = [1, .7, .74, 1, .76, 1, .72, 1];
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+// Which exhaust bank each cylinder feeds, listed in FIRING order (the same order as `fire`).
+// A cross-plane V8 fires its two banks unevenly (per bank: 180-270-180-90 degrees) - that uneven
+// beat in each pipe is the V8 burble, so it comes from the real firing order instead of being faked
+// with volume differences. V6, V10, V12, W16 and flat-six banks each fire evenly.
+const ALT = (n) => Array.from({ length: n }, (_, i) => i & 1);
+const CROSS_V8 = [0, 1, 0, 1, 1, 0, 1, 0];             // GM 1-8-7-2-6-5-4-3; AMG / BMW 1-5-4-8-6-3-7-2
+const LAYOUT = {
+  s63: CROSS_V8, amg: CROSS_V8, lt2: CROSS_V8, v8x: CROSS_V8,
+  hellcat: [0, 1, 1, 0, 1, 0, 0, 1],                   // Chrysler 1-8-4-3-6-5-7-2
+  vr30: ALT(6), vr38: ALT(6), v6: ALT(6), f6: ALT(6), gt3: ALT(6), v10: ALT(10), svj: ALT(12), v12: ALT(12), w16: ALT(16),
+};
+// How much of the other bank's pipe reaches each ear. The pipes are half a metre apart and the
+// listener is metres away, so both ears hear both, and the stereo image is a little width, not two
+// separate engines (with little crossfeed an even-fire V12 turns into an inline-six in each ear, an
+// octave down, because its two banks only become a V12 when they are added together). A hot-vee
+// merges the banks in the manifolds, so it is narrower still.
+const MERGE = { s63: .9, amg: .88 };
+// Pulse strength from the gap since the previous firing IN THE SAME BANK. A cylinder that fires 90
+// degrees after its neighbour exhausts into a pipe still full of that neighbour's pulse, so it comes
+// out weaker; after 270 degrees the pipe has emptied and it is at full strength. On a cross-plane V8
+// the per-bank gaps run 90-270-180-180, and this uneven strength is where the burble comes from - it
+// survives when the two pipes are added together, so it is heard in mono too. Even-fire engines have
+// equal gaps and are not touched.
+const gapStrength = (deg) => 1 - .28 * Math.pow(Math.max(0, Math.min(1, (270 - deg) / 180)), 1.3);
+function bankGaps(fire, bankOf) {
+  const n = fire.length, out = new Array(n).fill(null);
+  for (let i = 0; i < n; i++) {
+    if (bankOf[i] < 0) continue;
+    for (let k = 1; k <= n; k++) { const j = (i - k + n) % n; if (bankOf[j] === bankOf[i]) { out[i] = ((fire[i] - fire[j] + 720) % 720) || 720; break; } }
+  }
+  return out;
+}
+// small, fixed differences between cylinders (flow, compression, injector) - they put stable energy on
+// the half-orders, which is the "chunk" of a real engine; a perfectly even engine is just a buzz
+const imbalance = (n, key) => Array.from({ length: n }, (_, i) => {
+  let h = 0; for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) | 0;
+  h = (h ^ (i * 2654435761)) >>> 0; h = Math.imul(h ^ (h >>> 15), 2246822507) >>> 0;
+  return ((h >>> 8) / 16777216 - .5) * 2;               // -1..1
+});
+// one bank's exhaust: header + main pipe waveguides and the tone chain behind them
+function makeBank(p, sr, detune) {
+  const b = { header: new Delay(1024), main: new Delay(4096), dc: 0, dcIn: 0, lp: 0 };
+  b.header.len = Math.max(4, Math.round(sr / (2 * p.header * detune)));
+  b.main.len = Math.max(8, Math.min(4000, Math.round(sr / (2 * p.pipe * detune))));
+  b.muff = biquad("lp", p.muffler, .7, sr);
+  b.muff2 = biquad("lp", p.muffler * 1.4, .6, sr);
+  b.bodyF = biquad("bp", p.body[0] * detune, p.body[1], sr);
+  b.barkF = biquad("bp", p.bark[0] * detune, p.bark[1] * .72, sr);
+  b.topF = biquad("bp", p.bark[0] * 1.85 * detune, 1.2, sr);
+  b.raspLP = biquad("lp", 850, .7, sr);
+  b.airLo = biquad("bp", 2300 * detune, .75, sr);        // tailpipe turbulence
+  b.airHi = biquad("bp", 5600 * detune, .9, sr);
+  b.soft = biquad("lp", 11000, .6, sr);
+  return b;
+}
+
+// header/pipe: waveguide fundamentals (Hz); muffler: base lowpass (Hz); body/bark: [Hz, Q, gain]
+// rough: combustion grit; var: cycle variation; sub: half-order rumble; turbo/blower: 0..1.2
+// intake: [runner Hz, level]; top: top-end bark multiplier applied above ~65% of the rev range
+export const ENGINE_PROFILES = {
+  b58:     { label: "BMW B58 3.0 Turbo I6", cyl: 6, fire: even(6), amps: [1, .97, .99, .96, 1, .98], var: .04, header: 470, pipe: 104, fb: .55, muffler: 1250, body: [108, .8, 1.15], bark: [330, 1.2, .75], top: 1.35, intake: [220, .8], rough: .08, sub: .22, drive: 1.5, turbo: .9, turboPitch: 2600, crackle: 1, gain: 1 },
+  s58:     { label: "BMW S58 3.0 Twin-Turbo I6", cyl: 6, fire: even(6), amps: [1, .96, .99, .95, 1, .97], var: .05, header: 520, pipe: 116, fb: .52, muffler: 1850, body: [118, .85, 1.05], bark: [410, 1.3, .95], top: 1.5, intake: [240, .9], rough: .14, sub: .2, drive: 1.7, turbo: 1, turboPitch: 2900, crackle: 1.1, gain: .95 },
+  s63:     { label: "BMW S63 4.4 Twin-Turbo V8", cyl: 8, fire: even(8), amps: [1, .9, .93, 1, .92, .98, .9, .97], var: .05, header: 400, pipe: 84, fb: .56, muffler: 1000, body: [82, .8, 1.3], bark: [250, 1.1, .75], top: 1.2, intake: [190, .6], rough: .1, sub: .45, drive: 1.6, turbo: .7, turboPitch: 2300, crackle: .9, gain: 1 },
+  vr30:    { label: "Nissan VR30 3.0 Twin-Turbo V6", cyl: 6, fire: even(6), amps: [1, .86, .95, .88, 1, .85], var: .06, header: 540, pipe: 124, fb: .52, muffler: 1950, body: [125, .9, .95], bark: [450, 1.4, 1], top: 1.4, intake: [250, .75], rough: .16, sub: .3, drive: 1.8, turbo: 1.1, turboPitch: 3000, crackle: 1.1, gain: .95 },
+  vr38:    { label: "Nissan VR38 3.8 Twin-Turbo V6", cyl: 6, fire: even(6), amps: [1, .93, .97, .92, 1, .94], var: .05, header: 560, pipe: 138, fb: .5, muffler: 2100, body: [135, .9, .9], bark: [500, 1.4, .85], top: 1.35, intake: [260, .85], rough: .12, sub: .2, drive: 1.6, turbo: 1.2, turboPitch: 3600, crackle: .7, gain: .95 },
+  amg:     { label: "AMG 4.0 Twin-Turbo V8", cyl: 8, fire: even(8), amps: [1, .8, .82, 1, .82, 1, .8, 1], var: .07, jitter: .012, header: 420, pipe: 86, fb: .58, muffler: 1400, body: [86, .8, 1.35], bark: [280, 1.2, 1.05], top: 1.25, intake: [200, .6], rough: .18, sub: .5, drive: 2, turbo: .5, turboPitch: 2400, crackle: 1.3, gain: .9 },
+  hellcat: { label: "Supercharged 6.2 HEMI V8", cyl: 8, fire: even(8), amps: V8X, var: .08, jitter: .02, header: 360, pipe: 78, fb: .58, muffler: 1300, body: [76, .8, 1.45], bark: [255, 1.1, 1], top: 1.15, intake: [170, .5], rough: .16, sub: .65, drive: 2, blower: 1, crackle: .8, gain: .9 },
+  lt2:     { label: "Chevy LT2 6.2 V8", cyl: 8, fire: even(8), amps: V8X, var: .07, jitter: .015, header: 400, pipe: 88, fb: .56, muffler: 1550, body: [84, .8, 1.35], bark: [300, 1.2, 1], top: 1.3, intake: [185, .7], rough: .15, sub: .55, drive: 1.9, crackle: .8, gain: .92 },
+  i5:      { label: "Audi 2.5 TFSI I5", cyl: 5, fire: even(5), amps: [1, .9, .96, .88, .94], var: .05, header: 500, pipe: 114, fb: .55, muffler: 1800, body: [115, .9, 1.05], bark: [380, 1.3, .9], top: 1.4, intake: [230, .8], rough: .14, sub: .45, drive: 1.7, turbo: .8, turboPitch: 3000, crackle: 1, gain: .95 },
+  b46:     { label: "BMW B46 2.0T I4", cyl: 4, fire: even(4), amps: [1, .96, .98, .94], var: .04, header: 500, pipe: 140, fb: .52, muffler: 1400, body: [130, .9, 1.0], bark: [390, 1.3, .7], top: 1.2, intake: [250, .8], rough: .1, sub: .2, drive: 1.4, turbo: .8, turboPitch: 3000, crackle: .7, gain: 1.05 },
+  ea888:   { label: "Audi EA888 2.0T I4", cyl: 4, fire: even(4), amps: [1, .94, .98, .92], var: .05, header: 540, pipe: 156, fb: .5, muffler: 1700, body: [145, .9, .9], bark: [440, 1.3, .7], top: 1.3, intake: [270, .95], rough: .13, sub: .15, drive: 1.5, turbo: .9, turboPitch: 3300, crackle: .8, gain: 1.05 },
+  m264:    { label: "Mercedes M264 2.0T I4", cyl: 4, fire: even(4), amps: [1, .97, .99, .95], var: .035, header: 480, pipe: 132, fb: .54, muffler: 1250, body: [125, .85, 1.05], bark: [360, 1.2, .6], top: 1.1, intake: [240, .7], rough: .08, sub: .22, drive: 1.3, turbo: .7, turboPitch: 2800, crackle: .6, gain: 1.05 },
+  i4:      { label: "2.0 Turbo I4", cyl: 4, fire: even(4), amps: [1, .95, .98, .93], var: .05, header: 520, pipe: 150, fb: .5, muffler: 1600, body: [140, .9, .9], bark: [420, 1.3, .65], top: 1.3, intake: [265, .85], rough: .12, sub: .15, drive: 1.4, turbo: .8, turboPitch: 3200, crackle: .7, gain: 1.05 },
+  v6:      { label: "3.5 V6", cyl: 6, fire: even(6), amps: [1, .84, .95, .87, 1, .82], var: .05, header: 500, pipe: 120, fb: .52, muffler: 1500, body: [120, .9, 1], bark: [400, 1.3, .7], top: 1.25, intake: [230, .5], rough: .12, sub: .3, drive: 1.5, turbo: .3, turboPitch: 2800, crackle: .6, gain: 1 },
+  v8x:     { label: "Muscle 5.0 V8", cyl: 8, fire: even(8), amps: V8X, var: .08, jitter: .02, header: 380, pipe: 80, fb: .58, muffler: 1100, body: [80, .8, 1.3], bark: [240, 1.1, .9], top: 1.25, intake: [180, .65], rough: .14, sub: .6, drive: 1.8, crackle: .9, gain: .92 },
+  f6:      { label: "Flat-6", cyl: 6, fire: even(6), amps: [1, .95, .98, .93, 1, .96], var: .04, header: 600, pipe: 150, fb: .5, muffler: 2600, body: [150, .9, .8], bark: [560, 1.4, .9], top: 1.6, intake: [300, .95], rough: .12, sub: .15, drive: 1.7, crackle: .5, gain: .95 },
+  v10:     { label: "V10", cyl: 10, fire: even(10), amps: [1, .9, .95, .88, 1, .92, .97, .9, 1, .9], var: .04, header: 620, pipe: 160, fb: .5, muffler: 3000, body: [160, .9, .8], bark: [620, 1.5, 1], top: 1.7, intake: [320, 1], rough: .1, sub: .12, drive: 1.7, crackle: .7, gain: .92 },
+  svj:     { label: "Lamborghini 6.5 V12 (SVJ)", cyl: 12, fire: even(12), amps: [1, .95, .98, .94, 1, .96, .99, .93, 1, .95, .97, .94], var: .035, header: 820, pipe: 205, fb: .5, muffler: 4000, body: [190, .9, .75], bark: [820, 1.7, 1.35], top: 2.5, intake: [380, 1.3], rough: .16, sub: .1, drive: 2.15, crackle: 1.6, gain: .88, scream: [1, .9, 1.75], mech: .6 },
+  gt3:     { label: "Porsche 4.0 flat-six (GT3 RS)", cyl: 6, fire: even(6), amps: [1, .96, .99, .95, 1, .97], var: .03, header: 660, pipe: 172, fb: .48, muffler: 3400, body: [165, .9, .7], bark: [620, 1.6, 1.05], top: 2.1, intake: [340, 1.5], rough: .1, sub: .1, drive: 1.8, crackle: 1.1, gain: .92, scream: [2, .75, .9], mech: 1 },
+  w16:     { label: "Bugatti 8.0 Quad-Turbo W16", cyl: 16, fire: even(16), amps: Array.from({ length: 16 }, (_, i) => [1, .96, .98, .95][i % 4]), var: .03, header: 760, pipe: 200, fb: .5, muffler: 2800, body: [170, .9, .8], bark: [640, 1.4, .9], top: 1.5, intake: [330, 1], rough: .1, sub: .2, drive: 1.8, turbo: 1.1, turboPitch: 3200, crackle: 1.1, gain: .9 },
+  v12:     { label: "V12", cyl: 12, fire: even(12), amps: [1, .97, .99, .96, 1, .98, .99, .96, 1, .97, .99, .96], var: .022, header: 700, pipe: 185, fb: .46, muffler: 3800, body: [180, .9, .62], bark: [760, 1.7, 1.25], top: 2.2, intake: [350, 1.25], rough: .11, sub: .08, drive: 1.75, crackle: .8, gain: .92, scream: [1, .85, 1.55], mech: .7 },
+};
+export const SOUND_KEYS = Object.keys(ENGINE_PROFILES);
+export const SOUND_LABELS = { s58real: "BMW S58 (real recording)", f458real: "Ferrari 458 V8 (real recording)", b58real: "BMW B58 (real recording)", ...Object.fromEntries(Object.entries(ENGINE_PROFILES).map(([k, p]) => [k, p.label])) };
+// audio side of a tune; tuning.js builds the real one from the car's parts
+// which cars get a dual-clutch shift signature
+const SHIFT_STYLE = { b58: "bmw", s58: "bmw", s63: "bmw", b46: "bmw", i5: "audi", ea888: "audi", amg: "merc", m264: "merc" };
+export const DEFAULT_TUNE = { burble: .75, burbleVol: 1, aggr: 1, drive: 1, eth: 0, shiftHard: 1, decay: 1.1, mix: .2, brap: true, turbo: .8, exhaust: .9, rasp: .7, release: "flutter", intake: .35, flutter: .7, lag: 1, t51r: false, redline: 7000, boostMax: 18, burbleRpm: 3000 };
+// How far the afterfire pops, cracks and bangs sit above the exhaust note. This lifts only the
+// transients - the steady engine tone is untouched, so the mix gets punchier, not louder overall.
+const POP_GAIN = 1.85;
+// Level of the tailpipe air band, and one output trim so the reworked engines sit at the same overall
+// loudness in the game mix as the old ones did (measured, see the tuning notes at the top).
+// Values found by searching against the real recordings (mean 1/3-octave shape error 10.0 -> 7.7 dB).
+// pipeFb / headFb: how hard the pipe resonances ring - the old values made them peak ~9 dB above a
+// real exhaust at 3x and 5x the pipe frequency. air: tailpipe turbulence, which rises steeply with
+// revs (airExp) because it follows gas velocity. trim: keeps the overall loudness where it was.
+// Loudness calibration (A-weighted, per ear, against the old engines at full load, cruise and idle):
+// two pipes carry half the pulses each, so a V engine is lifted to sit level with an inline one.
+const VEE_GAIN = 1.076;
+// Where the listener is. Each camera hears a different mix of the same engine: outside behind the car
+// the exhaust dominates; in front of it the exhaust is metres behind you and the intake and turbo are
+// nearer; in the cabin the firewall and glass take the top off the exhaust, the intake and turbo come
+// through the bulkhead, the body booms, and both ears hear nearly the same thing.
+//   ex: exhaust tone  pop: pops/bangs  in: intake  turbo: turbo/blower  mech: valvetrain + whine
+//   boom: sub/chest   width: stereo    lp: low-pass on the whole engine (Hz)
+const VIEWS = {
+  exterior: { ex: 1,   pop: 1,   in: 1,   turbo: 1,   mech: 1,   boom: 1,    width: 1,   lp: 11000 },
+  far:      { ex: .95, pop: 1,   in: .75, turbo: .8,  mech: .8,  boom: .9,   width: .8,  lp: 8000 },
+  front:    { ex: .55, pop: .6,  in: 1.5, turbo: 1.35, mech: 1.35, boom: .9, width: .7,  lp: 9000 },
+  interior: { ex: .55, pop: .5,  in: 1.45, turbo: 1.5, mech: 1.5, boom: 1.4,  width: .35, lp: 3200 },
+};
+// Straight-cut gears whine at the mesh frequency: shaft speed x tooth count. The input shaft turns
+// at engine speed, so the whine climbs through each gear and steps down on every upshift; each gear
+// pair has its own tooth count, so the note shifts a little between gears too.
+const WHINE_TEETH = [0, 23, 25, 27, 28, 29, 30, 31, 32, 33, 34];
+// Bite: above ~60% of the rev range under load the exhaust is driven harder into saturation and the
+// rasp rises - the tearing edge a real engine gets near the redline. Nothing changes below that.
+const BITE = { from: .6, span: .3, drive: .6, rasp: .8 };
+export const SYNTH = { air: .45, airHi: .2, airExp: 1.5, top: .4, barkQ: .72, pipeFb: .65, headFb: .15, trim: .846 };
+
+// ---------------------------------------------------------------- the burble model
+// How much unburnt fuel reaches the exhaust when the throttle shuts. Everything that matters is an
+// input: revs, how hard the engine was pulling, how fast the pedal came up, trapped boost, gear,
+// exhaust/catalyst (folded into tune.burble by tuning.js), engine temperature and drive mode.
+export function burbleIntensity(o) {
+  const rpmN = clamp01((o.rpm - o.burbleRpm) / Math.max(800, o.redline * .82 - o.burbleRpm));
+  const rel = clamp01(o.release / 5.5);                 // pedal units per second: a snap lift is ~10
+  const loadF = .28 + .72 * clamp01(o.load);
+  const boostF = .45 + .55 * clamp01(o.boost);
+  const gearF = Math.max(.55, 1 - .07 * Math.max(0, (o.gear || 1) - 1));
+  const temp = .6 + .4 * clamp01(o.warmth ?? 1);
+  // comfort keeps the fuel cut clean: nothing unburnt reaches the pipe, so no burbles at all
+  return 1.6 * rpmN * (.4 + .6 * rpmN) * (.35 + .65 * rel) * loadF * boostF * gearF * temp * o.burble * o.crackle * (o.sport ? 1 : 0);
+}
+
+class Delay {
+  constructor(n) { this.b = new Float32Array(n); this.w = 0; this.lp = 0; this.len = 16; }
+  // quarter-wave pipe: open end reflects inverted, losses via lowpass in the loop
+  pipe(x, fb, damp) {
+    const b = this.b, L = b.length;
+    const r = b[(this.w - this.len + L) % L];
+    this.lp += (r - this.lp) * damp;
+    const y = x - this.lp * fb;
+    b[this.w] = y; this.w = (this.w + 1) % L;
+    return y;
+  }
+}
+
+export class EngineDSP {
+  constructor(sr) {
+    this.sr = sr;
+    this.rpm = 900; this.tRpm = 900;
+    this.thr = 0; this.tThr = 0;
+    this.load = 0; this.tLoad = 0;
+    this.boostN = 0; this.tBoost = 0;
+    this.gain = 0; this.tGain = 0;
+    this.gear = 1; this.warmth = 1; this.overrun = false;
+    this.crank = 0;
+    this.cut = 0; this.crackle = 0; this.blip = 0;
+    // the loudest pop/bang that started sounding since the last read, and whether one was a bang:
+    // the worklet reports it to the main thread, which lights the exhaust flames off it
+    this.fireA = 0; this.fireBig = 0;
+    this.pulses = []; this.pops = []; this.chirps = []; this.thumps = [];
+    this.seed = (Math.random() * 1e9) | 0;
+    this.rumble = 0;
+    this.whistle = 0; this.bov = 0;
+    this.flutter = 0; this.flutterT = 0; this.nextChirp = 0;
+    this.blowerPh = 0; this.intakePh = 0; this.als = 0; this.alsNext = 0; this.antilagHold = 0; this.idlePh = 0;
+    this.tune = { ...DEFAULT_TUNE }; this.mode = "sport";
+    this.view = { ...VIEWS.exterior }; this.viewTarget = VIEWS.exterior; this.whinePh = 0;
+    this.lockSport = true;
+    this.setProfile("b58");
+  }
+  rand() { this.seed = (this.seed * 1664525 + 1013904223) >>> 0; return this.seed / 4294967296; }
+  setProfile(name) {
+    const p = ENGINE_PROFILES[name] || ENGINE_PROFILES.b58, sr = this.sr;
+    this.p = p; this.pname = name;
+    this.fireFrac = p.fire.map((d) => d / 720);
+    this.runner = p.fire.map((_, i) => ((i * 7919) % 13) / 13 * .0009); // 0..0.9 ms runner length spread
+    // bank of each cylinder (by firing slot); inline engines feed one collector into both pipes
+    const lay = LAYOUT[name];
+    this.bankOf = p.fire.map((_, i) => (lay ? lay[i % lay.length] : -1));
+    this.vee = !!lay;
+    this.merge = MERGE[name] ?? .78;
+    const imb = imbalance(p.cyl, name);
+    // uneven banks: the strength pattern comes from the firing order, so it replaces the profile's
+    // hand-made amplitude table (which was only ever an approximation of exactly this)
+    const gaps = bankGaps(p.fire, this.bankOf), uneven = gaps.some((g) => g !== null && Math.abs(g - gaps[0]) > 1);
+    this.ampEff = p.amps.map((a, i) => (uneven ? gapStrength(gaps[i]) : a) * (1 + imb[i] * .085));
+    // the two pipes are never quite the same length, which is what keeps the two sides from
+    // collapsing into one mono sound
+    this.banks = [makeBank(p, sr, 1), makeBank(p, sr, 1.043)];
+    this.topF = biquad("bp", p.bark[0] * 1.85, 1.6, sr);   // valvetrain rasp (mech profiles)
+    this.inductF = biquad("bp", p.bark[0] * 1.6, 1.5, sr);
+    this.intakeF = biquad("bp", (p.intake ? p.intake[0] : 240) * 2, 1.4, sr);
+    this.roarF = biquad("bp", 520, .8, sr);
+    this.crackF = biquad("bp", 1700, 1.1, sr);
+    this.whistF = biquad("bp", 5200, 2.4, sr);   // the airy band that rides with the turbo whistle
+    this.chirpF = biquad("bp", 1500, 1.8, sr);
+    this.bovF = biquad("bp", 3400, .9, sr);
+  }
+  message(m) {
+    const t = this.tune;
+    switch (m.type) {
+      case "params":
+        this.tRpm = m.rpm; this.tThr = m.throttle; this.tGain = m.gain;
+        if (m.load !== undefined) this.tLoad = m.load;
+        if (m.boostNorm !== undefined) this.tBoost = m.boostNorm;
+        if (m.gear) this.gear = m.gear;
+        if (m.warmth !== undefined) this.warmth = m.warmth;
+        if (m.overrun !== undefined) this.overrun = m.overrun;
+        break;
+      case "profile": this.setProfile(m.name); break;
+      case "tune": Object.assign(t, m.tune || {}); this.mode = m.mode === "comfort" ? "comfort" : "sport"; break;
+      case "upshift": this.onUpshift(m); break;
+      case "downshift": this.onDownshift(m); break;
+      case "limiter": this.cut = .03; break;
+      case "lift": this.onLift(m); break;
+      case "pop": if (this.mode === "sport") this.addPop(m.v ?? .8, .05); break;
+      case "antilagOn": this.antilagHold = 1; break;
+      case "antilagOff": this.antilagHold = 0; break;
+      case "view": this.viewTarget = VIEWS[m.view] || VIEWS.exterior; break;
+    }
+  }
+  // all four event handlers share one intensity model, so nothing fires "randomly"
+  intensity(m) {
+    const t = this.tune;
+    return burbleIntensity({
+      rpm: m.rpm ?? this.rpm, load: m.load ?? this.load, release: m.release ?? 6,
+      boost: m.boost ?? this.boostN, gear: m.gear ?? this.gear, warmth: this.warmth,
+      redline: t.redline || 7000, burbleRpm: t.burbleRpm || 3000,
+      burble: t.burble, crackle: this.p.crackle, sport: this.mode === "sport",
+    });
+  }
+  onUpshift(m) {
+    const t = this.tune, sport = this.mode === "sport";
+    const dsg = SHIFT_STYLE[this.pname];
+    this.cut = dsg ? .035 : sport ? .07 : .03;      // dual-clutch cars swap gears almost instantly
+    const I = this.intensity({ ...m, release: 9 });
+    if (dsg && sport && (m.load ?? this.load) > .25) this.dsgShift(dsg, clamp01(.35 + I));
+    // A V12 cracks off a bang on every single gearchange - unlike the shift fart below it is not
+    // gated on revs, load or luck, because that hard bang IS the shift on these cars.
+    if (this.p.cyl === 12 && sport) this.bang(2.4, .008);
+    // a shift fart needs revs AND load: it does not happen on every single gearchange
+    if (sport && t.brap && this.rand() < clamp01(.15 + 1.1 * I)) this.burst(Math.min(5, 2 + Math.round(I * 4)), I * 2.1, .03, .045);
+    if (this.boostN > .25) this.release(.45);
+  }
+  // dual-clutch shift signatures: BMW = deep thud, Audi = punchy "thunt" with a crack, Mercedes = a quick brap
+  dsgShift(style, k) {
+    // Violent on purpose: each box gets a hard thump under a stack of sharp cracks, and the shift
+    // fart is a real burst (several pops, rising amplitude) rather than one polite click.
+    if (style === "bmw") {
+      this.thumps.push({ t: 0, f: 62, amp: 1.6 * k, dur: .07 });
+      this.addPop(1.9 * k, .012, .008, true, 1.1); this.addPop(1.4 * k, .014, .045, true, .85); this.addPop(1.1 * k, .016, .09, true, 1.3);
+      this.bang(1.3 * k, .03);
+    } else if (style === "audi") {
+      this.thumps.push({ t: 0, f: 88, amp: 1.7 * k, dur: .055 });
+      this.addPop(2.2 * k, .01, .008, true, 1.2); this.addPop(1.6 * k, .012, .05, true, .9); this.addPop(1.4 * k, .01, .095, true, 1.4); this.addPop(1.1 * k, .012, .14, true, .8);
+      this.bang(1.1 * k, .02);
+    } else if (style === "merc") {
+      this.burst(6 + Math.round(k * 4), 2.6 * k, .014, .02, true);
+      this.thumps.push({ t: 0, f: 74, amp: 1.4 * k, dur: .06 });
+      this.bang(1.2 * k, .05);
+    }
+  }
+  onDownshift(m) {
+    const sport = this.mode === "sport";
+    this.blip = sport ? .15 : .08;                     // rev-match throttle blip
+    const I = Math.max(this.intensity({ ...m, release: 7 }), sport ? .12 : 0);
+    if (I > .04) this.burst(1 + Math.round(I * 3), I * 1.1, .07, .075);
+  }
+  onLift(m) {
+    const t = this.tune, I = this.intensity(m);
+    if (I > .04) {
+      this.crackle = Math.min(1.6, this.crackle + I * 1.4);       // trailing overrun crackle
+      this.burst(Math.min(6, 2 + Math.round(I * 4)), Math.min(1.6, I * 1.5), .07, .06);
+      if (I > .3 && this.rand() < .35 + I * .5) this.bang(Math.min(1.6, .7 + I), .05 + this.rand() * .09);
+    }
+    // anti-lag: ignition retarded into the manifold keeps the turbo lit and fires the exhaust
+    if (t.antilag && this.mode === "sport" && (m.rpm ?? this.rpm) > 3500 && this.boostN > .3) { this.als = .9 + this.rand() * .4; this.alsNext = .03; }
+    if (this.boostN > .15) this.release(1);
+  }
+  // A bang: the exhaust gas igniting in the pipe. Long, low and loud - a pressure wave with a thump
+  // underneath it and a sharp crack on top - so it reads as a bang rather than a bigger pop.
+  bang(amp, delay = 0) {
+    this.addPop(amp * 3.4, .09 + this.rand() * .05, delay, false, .5 + this.rand() * .2, true);
+    this.addPop(amp * 1.7, .012, delay, true, .8 + this.rand() * .3);
+    if (this.thumps.length < 8) this.thumps.push({ t: -delay, f: 44 + this.rand() * 22, amp: Math.min(2.6, amp * 1.2), dur: .1 });
+  }
+  // a train of pops with varied pitch, level, length and spacing - never a machine gun
+  burst(count, amp, spread, gap, allSharp = false) {
+    const t = this.tune, span = Math.max(.25, t.decay);
+    // wound right down, the exhaust does not burble at all: it fires one hard bang and is done
+    if ((t.decay ?? 1.1) <= .12) return this.bang(Math.min(3.2, amp * 2.2 + .8), .01);
+    let at = .02 + this.rand() * .03;
+    for (let i = 0; i < count; i++) {
+      const k = i / Math.max(1, count - 1);
+      const sharp = allSharp || this.rand() < t.mix;
+      this.addPop(amp * (.45 + this.rand() * .75) * (1 - k * .65), sharp ? .005 + this.rand() * .012 : .018 + this.rand() * .04, at, sharp, .75 + this.rand() * .7);
+      at += (gap + this.rand() * spread) * (1 + k * .9) * Math.min(2, span);
+      if (at > span * 1.1 + .1) break;
+    }
+  }
+  release(k) {
+    const t = this.tune;
+    if (!(this.p.turbo || t.t51r) || t.turbo <= 0 || t.release === "off") return;
+    const amt = this.boostN * (t.turbo || .5) * k;
+    if (t.release === "bov" || t.bov) this.bov = Math.max(this.bov, amt * .9);
+    if (t.release !== "bov") { this.flutter = Math.max(this.flutter, amt * (t.flutter || .7)); this.flutterT = 0; this.nextChirp = .01; }
+  }
+  addPop(amp, dur, delay = 0, sharp = false, pitch = 1, big = false) {
+    if (this.pops.length > 28 || amp < .015) return;
+    this.pops.push({ t: -delay, dur: dur * (.7 + this.rand() * .6), amp, sharp, pitch, big, f: biquad("bp", (sharp ? 2200 : 900) * pitch, sharp ? 1.4 : 1.1, this.sr) });
+  }
+  // Writes the left channel into `out` and the right into `outR`. Called with one buffer it writes
+  // the mono sum instead, so a mono caller hears everything.
+  process(out, outR) {
+    const n = out.length, sr = this.sr, p = this.p, t = this.tune, dt = 1 / sr;
+    const sport = this.mode === "sport";
+    const kR = 1 - Math.exp(-1 / (sr * .045));
+    const kT = 1 - Math.exp(-1 / (sr * .03));
+    const kG = 1 - Math.exp(-1 / (sr * .08));
+    const kL = 1 - Math.exp(-1 / (sr * .05));
+    // muffler opens with load; comfort keeps the valves shut
+    const open = (sport ? 1.5 : .75) * (.55 + .45 * this.load) * (.9 + .4 * Math.min(1, this.rpm / 7000)) * (.8 + .2 * t.exhaust);
+    // the exhaust and bark formants ride up a few percent with load and revs - hot, fast-moving gas
+    // shifts a real resonance the same way; a formant fixed to one note is what reads as synthetic
+    const fmDrift = 1 + this.load * .04 + Math.min(1, this.rpm / 7000) * .015;
+    for (let k = 0; k < 2; k++) {
+      const B = this.banks[k], d = k ? 1.043 : 1;
+      setLP(B.muff, p.muffler * open, .75, sr);
+      setLP(B.muff2, p.muffler * open * 2.6, .6, sr);
+      setBP(B.bodyF, p.body[0] * fmDrift * d, p.body[1], sr);
+      setBP(B.barkF, p.bark[0] * fmDrift * d, p.bark[1] * SYNTH.barkQ, sr);
+      setBP(B.topF, p.bark[0] * 1.85 * fmDrift * d, 1.2, sr);
+    }
+    const vw = this.view, vt = this.viewTarget, vk = 1 - Math.exp(-n / sr / .12);
+    for (const k in vt) vw[k] += (vt[k] - vw[k]) * vk;
+    for (let k = 0; k < 2; k++) setLP(this.banks[k].soft, Math.min(sport ? 11000 : 6500, vw.lp), .6, sr);
+    const outGain = p.gain * t.exhaust * (sport ? .75 : .42) * SYNTH.trim;
+    const whine = t.whine || 0;
+    const rev = t.redline || 7000;
+    const turboAmt = (p.turbo || 0) * (t.turbo ?? .8);
+    if (this.als > 0) { // anti-lag bangs and a turbo that refuses to spool down
+      const blk = n / sr;
+      this.als -= blk; this.alsNext -= blk;
+      this.tBoost = Math.max(this.tBoost, .55);
+      if (this.alsNext <= 0 && this.tThr < .2) {
+        this.addPop(.9 + this.rand() * .9, this.rand() < .5 ? .012 : .035, this.rand() * .01, this.rand() < .45, .6 + this.rand() * .6);
+        this.alsNext = .055 + this.rand() * .09;
+      }
+      if (this.tThr > .3) this.als = 0;
+    }
+    if (this.antilagHold) { this.tBoost = Math.max(this.tBoost, .5); if (this.rand() < .22) this.addPop(.55, .02, 0, false, .85); }
+    const t51 = !!t.t51r;
+    const B0 = this.banks[0], B1 = this.banks[1], vee = this.vee, xf = this.merge;
+    const aggr = t.aggr ?? 1;
+
+    for (let i = 0; i < n; i++) {
+      let target = this.tRpm;
+      if (this.blip > 0) { this.blip -= dt; target = Math.max(target, this.tRpm * 1.15); }
+      // idle hunt: a real ECU's idle control walks the revs up and down a little instead of holding
+      // one dead number. Only near idle and off the pedal - it has no business showing up mid-pull.
+      this.idlePh = (this.idlePh + dt * .85) % 1;
+      const idleEnv = clamp01(1 - this.thr * 2.2) * clamp01((1300 - this.rpm) / 500);
+      if (idleEnv > 0) target += Math.sin(this.idlePh * 6.2832) * idleEnv * 18;
+      this.rpm += (target - this.rpm) * (this.blip > 0 ? kR * 3 : kR);
+      this.thr += ((this.blip > 0 ? .85 : this.tThr) - this.thr) * kT;
+      this.load += ((this.blip > 0 ? .6 : this.tLoad) - this.load) * kL;
+      this.boostN += (this.tBoost - this.boostN) * kL;
+      this.gain += (this.tGain - this.gain) * kG;
+      if (this.cut > 0) this.cut -= dt;
+      const rpm = this.rpm, thr = this.thr, load = this.load, rn = Math.min(1.25, rpm / 7000);
+      const revN = clamp01(rpm / rev);
+
+      // ---- combustion ----
+      const prev = this.crank;
+      this.crank += rpm / 120 / sr;
+      const wrapped = this.crank >= 1;
+      if (wrapped) this.crank -= 1;
+      const fireHz = (rpm / 120) * p.cyl;
+      let fired = 0;
+      for (let c = 0; c < this.fireFrac.length; c++) {
+        const f = this.fireFrac[c];
+        if (!(wrapped ? (f >= prev || f < this.crank) : (f >= prev && f < this.crank))) continue;
+        fired++;
+        // cylinder pressure follows engine LOAD, not the pedal: same pedal at 2000 and 6000 rpm
+        // in different gears is a completely different amount of air
+        const cyl = this.cut > 0 ? .13 : .15 + .85 * Math.max(load, thr * .35);
+        const cold = 1 + (1 - this.warmth) * .35 * (this.rand() - .5) * 2;
+        const lope = p.jitter ? (this.rand() - .5) * p.jitter * .06 * Math.max(0, 1 - rpm / 3000) : 0;
+        const a = this.ampEff[c] * cyl * cold * (1 + (this.rand() - .5) * 2 * p.var) * (1 + lope * 20);
+        const tau = Math.min(.0055, Math.max(.0007, .34 / fireHz));
+        if (this.pulses.length < 16) this.pulses.push({ t: -(this.runner[c] + Math.max(0, lope)), a, tau, bank: this.bankOf[c] });
+        if (this.crackle > .02 && thr < .12 && rpm > 1800 && this.rand() < this.crackle * .085) {
+          const g = this.crackle * Math.min(1.6, t.burble + .2);
+          // ~1 in 4 overrun events is a real bang: deep, long and much louder than a pop
+          if (this.rand() < .26) this.bang(Math.min(1.8, .8 + g * .8), 0);
+          else this.addPop((.35 + this.rand() * .55) * g, .03 + this.rand() * .04, this.rand() * .004, false, .7 + this.rand() * .45);
+        }
+      }
+      // each bank hears only its own cylinders (inline: both hear all of them)
+      let e0 = 0, e1 = 0, v0 = 0, v1 = 0;
+      for (let k = this.pulses.length - 1; k >= 0; k--) {
+        const P = this.pulses[k];
+        P.t += dt;
+        if (P.t < 0) continue;
+        const e = (Math.exp(-P.t / P.tau) - Math.exp(-P.t / (P.tau * .06))) * P.a, env = P.a * Math.exp(-P.t / P.tau);
+        if (P.bank !== 1) { e0 += e; v0 += env; }
+        if (P.bank !== 0) { e1 += e; v1 += env; }
+        if (P.t > P.tau * 7) this.pulses.splice(k, 1);
+      }
+      const nz = this.rand() * 2 - 1, nz1 = this.rand() * 2 - 1;
+      const grit = p.rough * (sport ? 1 : .6) * (this.overrun ? 1.35 : 1) * (.55 + .45 * aggr);
+      e0 += nz * v0 * grit; e1 += nz1 * v1 * grit;
+
+      // afterfire: pressure pops go through the exhaust, sharp cracks bypass the muffler
+      let crack = 0, pk = 0, popEx = 0;
+      for (let k = this.pops.length - 1; k >= 0; k--) {
+        const P = this.pops[k];
+        P.t += dt;
+        if (P.t < 0) continue;
+        if (!P.lit) { P.lit = 1; if (P.amp > this.fireA) this.fireA = P.amp; if (P.big) this.fireBig = 1; }
+        if (P.t > P.dur * 4) { this.pops.splice(k, 1); continue; }
+        const e = Math.exp(-P.t / (P.dur * .25));
+        const body = P.amp * 1.3 * (e - Math.exp(-P.t / .0008)) + nz * e * P.amp * .3;
+        if (P.sharp) crack += run(P.f, nz * e * P.amp * 1.6);
+        else { const v = run(P.f, body); popEx += v * .55 + body * .5; pk += v * (P.big ? 4.2 : 2.4); }
+      }
+      e0 += popEx; e1 += popEx;
+
+      // ---- exhaust system, one per bank ----
+      const bite = clamp01((revN - BITE.from) / BITE.span) * load;
+      const drive = p.drive * .72 * (.7 + .5 * load) * (sport ? 1 : .8) * (t.drive ?? 1) * (1 + BITE.drive * bite), tdn = Math.tanh(drive);
+      const wLow = 1 - .55 * clamp01((revN - .25) / .5);
+      const wMid = .35 + .65 * clamp01((revN - .2) / .45);
+      const wTop = clamp01((revN - .55) / .35);
+      const gBody = p.body[2] * (.9 - .2 * load) * wLow;
+      const gBark = p.bark[2] * .82 * (.25 + .75 * load) * (sport ? 1.15 : .45) * wMid;
+      const gTop = p.bark[2] * (p.top || 1.3) * SYNTH.top * wTop * (.3 + .7 * load) * aggr;
+      const gRasp = (.2 + .6 * load) * (sport ? .35 : .12) * (.3 + p.rough * 4) * (t.rasp ?? .7) * (this.overrun ? 1.3 : 1) * (1 + BITE.rasp * bite);
+      // tailpipe air: turbulence at the pipe exit, riding the pulses. It skips the muffler, which is
+      // why a real exhaust keeps its hiss and rasp up top even when the tone is deep.
+      const gAir = (.08 + .92 * load * load) * Math.pow(revN, SYNTH.airExp) * (sport ? 1 : .35) * (.6 + .4 * aggr) * SYNTH.air * (.5 + p.rough * 3);
+      let y0 = B0.main.pipe(B0.header.pipe(e0, SYNTH.headFb, .5), p.fb * SYNTH.pipeFb, .32);
+      let y1 = B1.main.pipe(B1.header.pipe(e1, SYNTH.headFb, .5), p.fb * SYNTH.pipeFb, .32);
+      y0 = Math.tanh(y0 * drive) / tdn; y1 = Math.tanh(y1 * drive) / tdn;
+      let o0 = vw.ex * (run(B0.muff2, run(B0.muff, y0)) * .9 + run(B0.bodyF, y0) * gBody + run(B0.barkF, y0) * gBark + run(B0.topF, y0) * gTop
+        + (y0 - run(B0.raspLP, y0)) * gRasp + (run(B0.airLo, nz * v0) + run(B0.airHi, nz * v0) * SYNTH.airHi) * gAir);
+      let o1 = vw.ex * (run(B1.muff2, run(B1.muff, y1)) * .9 + run(B1.bodyF, y1) * gBody + run(B1.barkF, y1) * gBark + run(B1.topF, y1) * gTop
+        + (y1 - run(B1.raspLP, y1)) * gRasp + (run(B1.airLo, nz1 * v1) + run(B1.airHi, nz1 * v1) * SYNTH.airHi) * gAir);
+      // each ear hears mostly its own tailpipe and some of the other one (nobody hears a car hard-panned)
+      if (vee) { const a0 = o0, a1 = o1; o0 = (a0 + a1 * xf) * VEE_GAIN; o1 = (a1 + a0 * xf) * VEE_GAIN; }
+
+      // ---- everything below comes from the engine bay or the whole car, so it sits in the middle ----
+      const ym = (y0 + y1) * .5;
+      this.rumble += (ym - this.rumble) * .004;
+      let o = this.rumble * p.sub * 2.2 * vw.boom;
+      o += run(this.inductF, (e0 + e1) * .5) * load * rn * .35; // tonal induction growl
+      const popVol = POP_GAIN * (t.burbleVol ?? 1) * (.85 + .15 * aggr) * (1 + (t.eth || 0) * .35); // Burble loudness x aggressiveness x fuel
+      o += (run(this.crackF, crack) * 3.2 + pk) * popVol * vw.pop;   // pops and cracks sit above the exhaust note
+      for (let k = this.thumps.length - 1; k >= 0; k--) {
+        const Th = this.thumps[k]; Th.t += dt;
+        if (Th.t < 0) continue;
+        if (Th.t > Th.dur * 5) { this.thumps.splice(k, 1); continue; }
+        o += Math.sin(Th.t * Th.f * 6.2832) * Math.exp(-Th.t / Th.dur) * Th.amp * .9 * popVol * vw.pop;
+      }
+      // engine-specific harmonic scream that builds with revs (SVJ V12, GT3 flat-six)
+      if (p.scream) {
+        this.scrPh = (this.scrPh || 0) + fireHz * p.scream[0] * dt;
+        const ph = this.scrPh * 6.2832;
+        // odd harmonics dominate a high-revving V12's wail; the even ones just thicken it
+        const wail = Math.sin(ph) * .6 + Math.sin(ph * 3) * .26 * p.scream[1] + Math.sin(ph * 5) * .13
+                   + Math.sin(ph * 7) * .07 + Math.sin(ph * 2) * .1;
+        // from about 45% of the rev range, not only at the very top
+        const build = clamp01((revN - .45) / .4);
+        const sw = (wTop * wTop * .65 + build * build * .5) * (.25 + .75 * load) * p.scream[2];
+        o += wail * sw * .085 * vw.ex;
+      }
+      if (p.mech) o += run(this.topF, nz * (v0 + v1) * .5) * .06 * revN * p.mech * vw.mech; // valvetrain / gear-driven mechanical rasp
+      // straight-cut gearbox whine (race gearboxes only): loudest on drive and on the overrun
+      if (whine > 0 && this.gear > 0) {
+        this.whinePh = (this.whinePh + rpm / 60 * WHINE_TEETH[Math.min(10, this.gear)] * dt) % 1;
+        const wp = this.whinePh * 6.2832;
+        const lv = whine * .011 * (.35 + .65 * Math.max(load, this.overrun ? .55 : 0)) * clamp01((rpm - 1200) / 1800) * vw.mech;
+        o += (Math.sin(wp) + .3 * Math.sin(2 * wp + .7) + .12 * Math.sin(3 * wp + 1.9)) * lv;
+      }
+
+      // ---- intake: runner resonance gated by the firing events + induction roar with boost ----
+      const intakeLvl = (p.intake ? p.intake[1] : .6) * (t.intake ?? .35);
+      if (intakeLvl > .01) {
+        if (fired) this.intakePh = 1;
+        this.intakePh *= 1 - dt * 90;
+        const gatedNz = nz * this.intakePh * (.2 + .8 * thr);
+        o += run(this.intakeF, gatedNz) * intakeLvl * (.25 + .75 * revN) * .5 * vw.in;
+        if (this.boostN > .02) o += run(this.roarF, nz) * this.boostN * this.boostN * intakeLvl * .16 * (.3 + .7 * thr) * vw.in;
+      }
+
+      // ---- forced induction ----
+      const oPre = o;
+      if (turboAmt > 0 || t51) {
+        const b = this.boostN, b2 = b * b;
+        // a big single spools slower and whistles lower; the stock twins are higher and thinner
+        const pitchMul = t51 ? .62 : 1;
+        this.whistle += ((p.turboPitch || 2600) * pitchMul + b * 3800 * pitchMul + rpm * .12) * dt;
+        // A T51R is famous for the whistle, so it gets its own level, a fifth on top and a
+        // breathy edge - and it starts singing off boost, the way a big single actually does.
+        const wl = t51 ? .052 : .0075;
+        const wAmt = Math.max(turboAmt, t51 ? 1.6 : 0);
+        const spool = t51 ? Math.max(b2, b * .55) : b2;
+        o += Math.sin(this.whistle * 6.2832) * spool * wl * wAmt;
+        o += Math.sin(this.whistle * 12.566 + 1) * spool * wl * .32 * wAmt;
+        if (t51) {
+          o += Math.sin(this.whistle * 9.4248 + 2.1) * spool * wl * .2 * wAmt;   // the fifth that makes it a scream
+          o += run(this.whistF, nz) * spool * wl * 2.6 * wAmt;                    // air rush around the tone
+        }
+        if (this.flutter > .004) { // compressor surge: T51R is the deep, slow, loud one
+          this.flutterT += dt; this.nextChirp -= dt;
+          if (this.nextChirp <= 0) {
+            this.chirps.push({ t: 0, dur: (t51 ? .028 : .011) + this.rand() * (t51 ? .016 : .007), amp: this.flutter * (.7 + this.rand() * .3), f: t51 ? 95 + this.rand() * 40 : 190 });
+            this.nextChirp = (t51 ? .055 : .03) + this.flutterT * (t51 ? .05 : .07) + this.rand() * .008;
+            this.flutter *= t51 ? .9 : .83;
+            if (this.flutterT > (t51 ? 1.4 : .9)) this.flutter = 0;
+          }
+        }
+        if (this.bov > .003) { o += run(this.bovF, nz) * this.bov * .6; this.bov *= 1 - dt / .2; }
+      }
+      if (this.chirps.length) {
+        let ch = 0;
+        for (let k = this.chirps.length - 1; k >= 0; k--) {
+          const C = this.chirps[k];
+          C.t += dt;
+          if (C.t > C.dur) { this.chirps.splice(k, 1); continue; }
+          const e = Math.sin(Math.PI * C.t / C.dur);
+          ch += (nz * .8 + Math.sin(C.t * 6.2832 * C.f) * .6) * e * C.amp;
+        }
+        o += run(this.chirpF, ch) * (t51 ? .85 : .55) + ch * (t51 ? .06 : .02);
+      }
+      if (p.blower || t.blower) {
+        this.blowerPh += (rpm / 60) * 38 * dt;
+        o += (Math.sin(this.blowerPh * 6.2832) * .6 + Math.sin(this.blowerPh * 12.566) * .25) * (p.blower || 1) * (.15 + .85 * load) * rn * .005 * (t.turbo ?? .8);
+      }
+
+      o = oPre + (o - oPre) * vw.turbo;   // turbo, blow-off and blower, scaled for the listening position
+
+      // ---- per side: DC block, gentle top, soft clip ----
+      { const mid = (o0 + o1) * .5, side = (o0 - o1) * .5 * vw.width; o0 = mid + side; o1 = mid - side; }
+      const g = this.gain * outGain;
+      let L = o0 + o, R = o1 + o;
+      const dL = L - B0.dcIn + .996 * B0.dc; B0.dcIn = L; B0.dc = dL;
+      const dR = R - B1.dcIn + .996 * B1.dc; B1.dcIn = R; B1.dc = dR;
+      L = Math.tanh(run(B0.soft, dL) * .9) * g;
+      R = Math.tanh(run(B1.soft, dR) * .9) * g;
+      if (outR) { out[i] = L; outR[i] = R; } else out[i] = (L + R) * .5;
+    }
+    const decay = Math.max(.15, t.decay) * (sport ? 1 : .4);
+    this.crackle *= Math.exp(-n / sr / decay);
+  }
+
+}
